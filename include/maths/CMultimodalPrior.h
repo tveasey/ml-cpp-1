@@ -337,6 +337,13 @@ private:
     //! This is just number modes - 1 due to the normalization constraint.
     virtual double unmarginalizedParameters() const;
 
+    //! Implementation of log of the joint c.d.f. of the marginal likelihood.
+    template<typename CDF>
+    bool minusLogJointCdfImpl(CDF minusLogCdf,
+                              const TDouble1Vec &samples,
+                              const TDoubleWeightsAry1Vec &weights,
+                              double &lowerBound, double &upperBound) const;
+
     //! Full debug dump of the mode weights.
     std::string debugWeights() const;
 
