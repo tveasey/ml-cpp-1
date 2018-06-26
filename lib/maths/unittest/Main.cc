@@ -21,6 +21,7 @@
 #include "CDecayRateControllerTest.h"
 #include "CEntropySketchTest.h"
 #include "CEqualWithToleranceTest.h"
+#include "CExpandingWindowTest.h"
 #include "CForecastTest.h"
 #include "CGammaRateConjugateTest.h"
 #include "CGramSchmidtTest.h"
@@ -45,6 +46,7 @@
 #include "CMultivariateMultimodalPriorTest.h"
 #include "CMultivariateNormalConjugateTest.h"
 #include "CMultivariateOneOfNPriorTest.h"
+#include "CNaiveBayesTest.h"
 #include "CNaturalBreaksClassifierTest.h"
 #include "CNormalMeanPrecConjugateTest.h"
 #include "COneOfNPriorTest.h"
@@ -70,6 +72,7 @@
 #include "CSolversTest.h"
 #include "CSplineTest.h"
 #include "CStatisticalTestsTest.h"
+#include "CTimeSeriesChangeDetectorTest.h"
 #include "CTimeSeriesDecompositionTest.h"
 #include "CTimeSeriesModelTest.h"
 #include "CToolsTest.h"
@@ -97,6 +100,7 @@ int main(int argc, const char** argv) {
     runner.addTest(CDecayRateControllerTest::suite());
     runner.addTest(CEqualWithToleranceTest::suite());
     runner.addTest(CEntropySketchTest::suite());
+    runner.addTest(CExpandingWindowTest::suite());
     runner.addTest(CForecastTest::suite());
     runner.addTest(CGammaRateConjugateTest::suite());
     runner.addTest(CGramSchmidtTest::suite());
@@ -121,6 +125,7 @@ int main(int argc, const char** argv) {
     runner.addTest(CMultivariateMultimodalPriorTest::suite());
     runner.addTest(CMultivariateNormalConjugateTest::suite());
     runner.addTest(CMultivariateOneOfNPriorTest::suite());
+    runner.addTest(CNaiveBayesTest::suite());
     runner.addTest(CNaturalBreaksClassifierTest::suite());
     runner.addTest(CNormalMeanPrecConjugateTest::suite());
     runner.addTest(COneOfNPriorTest::suite());
@@ -146,6 +151,7 @@ int main(int argc, const char** argv) {
     runner.addTest(CSolversTest::suite());
     runner.addTest(CSplineTest::suite());
     runner.addTest(CStatisticalTestsTest::suite());
+    runner.addTest(CTimeSeriesChangeDetectorTest::suite());
     runner.addTest(CTimeSeriesDecompositionTest::suite());
     runner.addTest(CTimeSeriesModelTest::suite());
     runner.addTest(CToolsTest::suite());

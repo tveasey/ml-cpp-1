@@ -136,7 +136,7 @@ bool CSeasonalComponentAdaptiveBucketing::initialize(std::size_t n) {
 
     if (this->CAdaptiveBucketing::initialize(a, b, n)) {
         n = this->size();
-        m_Buckets.assign(n, SBucket());
+        m_Buckets.assign(n, {});
         return true;
     }
     return false;
@@ -183,6 +183,12 @@ void CSeasonalComponentAdaptiveBucketing::shiftLevel(double shift) {
 void CSeasonalComponentAdaptiveBucketing::shiftSlope(double shift) {
     for (auto& bucket : m_Buckets) {
         bucket.s_Regression.shiftGradient(shift);
+    }
+}
+
+void CSeasonalComponentAdaptiveBucketing::linearScale(double scale) {
+    for (auto& bucket : m_Buckets) {
+        bucket.s_Regression.linearScale(scale);
     }
 }
 
@@ -240,7 +246,8 @@ void CSeasonalComponentAdaptiveBucketing::propagateForwardsByTime(double time, b
     if (time < 0.0) {
         LOG_ERROR(<< "Can't propagate bucketing backwards in time");
     } else if (this->initialized()) {
-        double factor{std::exp(-this->CAdaptiveBucketing::decayRate() * time)};
+        double factor{std::exp(-this->CAdaptiveBucketing::decayRate() *
+                               m_Time->fractionInWindow() * time)};
         this->CAdaptiveBucketing::age(factor);
         for (auto& bucket : m_Buckets) {
             bucket.s_Regression.age(factor, meanRevert);
@@ -580,7 +587,7 @@ double CSeasonalComponentAdaptiveBucketing::predict(std::size_t bucket,
 
     // We mean revert our predictions if trying to predict much further
     // ahead than the observed interval for the data.
-    double alpha{CTools::smoothHeaviside(extrapolateInterval / interval, 1.0 / 12.0, -1.0)};
+    double alpha{CTools::logisticFunction(extrapolateInterval / interval, 0.1, 1.0, -1.0)};
     double beta{1.0 - alpha};
     return alpha * regression.predict(t) + beta * regression.mean();
 }

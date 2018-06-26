@@ -30,14 +30,16 @@
 #include <model/CProbabilityAndInfluenceCalculator.h>
 
 #include <boost/bind.hpp>
+#include <boost/make_unique.hpp>
 
 namespace ml {
 namespace model {
 
 const std::string CModelFactory::EMPTY_STRING("");
 
-CModelFactory::CModelFactory(const SModelParams& params)
-    : m_ModelParams(params) {
+CModelFactory::CModelFactory(const SModelParams& params,
+                             const TInterimBucketCorrectorWPtr& interimBucketCorrector)
+    : m_ModelParams(params), m_InterimBucketCorrector(interimBucketCorrector) {
 }
 
 const CModelFactory::TFeatureMathsModelPtrPrVec&
@@ -71,8 +73,12 @@ CModelFactory::defaultFeatureModel(model_t::EFeature feature,
 
     using TDecayRateController2Ary = boost::array<maths::CDecayRateController, 2>;
 
-    maths::CModelParams params{bucketLength, m_ModelParams.s_LearnRate,
-                               m_ModelParams.s_DecayRate, minimumSeasonalVarianceScale};
+    maths::CModelParams params{bucketLength,
+                               m_ModelParams.s_LearnRate,
+                               m_ModelParams.s_DecayRate,
+                               minimumSeasonalVarianceScale,
+                               m_ModelParams.s_MinimumTimeToDetectChange,
+                               m_ModelParams.s_MaximumTimeToTestForChange};
 
     std::size_t dimension{model_t::dimension(feature)};
 
@@ -96,16 +102,15 @@ CModelFactory::defaultFeatureModel(model_t::EFeature feature,
             modelAnomalies && !model_t::isConstant(feature));
     }
 
-    TMultivariatePriorPtr prior{this->defaultMultivariatePrior(feature)};
+    TMultivariatePriorUPtr prior{this->defaultMultivariatePrior(feature)};
     return std::make_shared<maths::CMultivariateTimeSeriesModel>(
         params, *trend, *prior, controlDecayRate ? &controllers : nullptr,
         modelAnomalies && !model_t::isConstant(feature));
 }
 
-const CModelFactory::TFeatureMultivariatePriorPtrPrVec&
+const CModelFactory::TFeatureMultivariatePriorSPtrPrVec&
 CModelFactory::defaultCorrelatePriors(const TFeatureVec& features) const {
-    auto result = m_CorrelatePriorCache.insert(
-        {features, TFeatureMultivariatePriorPtrPrVec()});
+    auto result = m_CorrelatePriorCache.emplace(features, TFeatureMultivariatePriorSPtrPrVec{});
     if (result.second) {
         result.first->second.reserve(features.size());
         for (auto feature : features) {
@@ -118,33 +123,30 @@ CModelFactory::defaultCorrelatePriors(const TFeatureVec& features) const {
     return result.first->second;
 }
 
-const CModelFactory::TFeatureCorrelationsPtrPrVec&
+CModelFactory::TFeatureCorrelationsPtrPrVec
 CModelFactory::defaultCorrelates(const TFeatureVec& features) const {
-    auto result = m_CorrelationsCache.insert({features, TFeatureCorrelationsPtrPrVec()});
-    if (result.second) {
-        result.first->second.reserve(features.size());
-        for (auto feature : features) {
-            if (!model_t::isCategorical(feature) && model_t::dimension(feature) == 1) {
-                result.first->second.emplace_back(
-                    feature, TCorrelationsPtr(new maths::CTimeSeriesCorrelations(
-                                 m_ModelParams.s_MinimumSignificantCorrelation,
-                                 m_ModelParams.s_DecayRate)));
-            }
+    TFeatureCorrelationsPtrPrVec result;
+    result.reserve(features.size());
+    for (auto feature : features) {
+        if (!model_t::isCategorical(feature) && model_t::dimension(feature) == 1) {
+            result.emplace_back(feature, boost::make_unique<maths::CTimeSeriesCorrelations>(
+                                             m_ModelParams.s_MinimumSignificantCorrelation,
+                                             m_ModelParams.s_DecayRate));
         }
     }
-    return result.first->second;
+    return result;
 }
 
 CModelFactory::TPriorPtr CModelFactory::defaultPrior(model_t::EFeature feature) const {
     return this->defaultPrior(feature, m_ModelParams);
 }
 
-CModelFactory::TMultivariatePriorPtr
+CModelFactory::TMultivariatePriorUPtr
 CModelFactory::defaultMultivariatePrior(model_t::EFeature feature) const {
     return this->defaultMultivariatePrior(feature, m_ModelParams);
 }
 
-CModelFactory::TMultivariatePriorPtr
+CModelFactory::TMultivariatePriorUPtr
 CModelFactory::defaultCorrelatePrior(model_t::EFeature feature) const {
     return this->defaultCorrelatePrior(feature, m_ModelParams);
 }
@@ -214,6 +216,10 @@ void CModelFactory::scheduledEvents(TStrDetectionRulePrVecCRef scheduledEvents) 
     m_ModelParams.s_ScheduledEvents = scheduledEvents;
 }
 
+void CModelFactory::interimBucketCorrector(const TInterimBucketCorrectorWPtr& interimBucketCorrector) {
+    m_InterimBucketCorrector = interimBucketCorrector;
+}
+
 void CModelFactory::learnRate(double learnRate) {
     m_ModelParams.s_LearnRate = learnRate;
 }
@@ -236,10 +242,6 @@ void CModelFactory::pruneWindowScaleMinimum(double factor) {
 
 void CModelFactory::pruneWindowScaleMaximum(double factor) {
     m_ModelParams.s_PruneWindowScaleMaximum = factor;
-}
-
-void CModelFactory::totalProbabilityCalcSamplingSize(std::size_t samplingSize) {
-    m_ModelParams.s_TotalProbabilityCalcSamplingSize = samplingSize;
 }
 
 void CModelFactory::multivariateByFields(bool enabled) {
@@ -280,13 +282,25 @@ void CModelFactory::swap(CModelFactory& other) {
     m_InfluenceCalculatorCache.swap(other.m_InfluenceCalculatorCache);
 }
 
-CModelFactory::TMultivariatePriorPtr
+CModelFactory::TInterimBucketCorrectorPtr CModelFactory::interimBucketCorrector() const {
+    TInterimBucketCorrectorPtr result{m_InterimBucketCorrector.lock()};
+    if (result == nullptr) {
+        // This can never happen if the factory is obtained from the model
+        // config object, which ensures the interim bucket corrector is
+        // always available. The model objects expect this to be available
+        // so failing gracefully here is the best we can do.
+        LOG_ABORT(<< "Unable to get interim bucket corrector");
+    }
+    return result;
+}
+
+CModelFactory::TMultivariatePriorUPtr
 CModelFactory::multivariateNormalPrior(std::size_t dimension, const SModelParams& params) const {
     return maths::CMultivariateNormalConjugateFactory::nonInformative(
         dimension, this->dataType(), params.s_DecayRate);
 }
 
-CModelFactory::TMultivariatePriorPtr
+CModelFactory::TMultivariatePriorUPtr
 CModelFactory::multivariateMultimodalPrior(std::size_t dimension,
                                            const SModelParams& params,
                                            const maths::CMultivariatePrior& modePrior) const {
@@ -296,17 +310,15 @@ CModelFactory::multivariateMultimodalPrior(std::size_t dimension,
         params.s_MinimumModeCount, params.minimumCategoryCount(), modePrior);
 }
 
-CModelFactory::TMultivariatePriorPtr
+CModelFactory::TMultivariatePriorUPtr
 CModelFactory::multivariateOneOfNPrior(std::size_t dimension,
                                        const SModelParams& params,
-                                       const TMultivariatePriorPtrVec& models) const {
+                                       const TMultivariatePriorUPtrVec& models) const {
     return maths::CMultivariateOneOfNPriorFactory::nonInformative(
         dimension, this->dataType(), params.s_DecayRate, models);
 }
 
 CModelFactory::TPriorPtr CModelFactory::timeOfDayPrior(const SModelParams& params) const {
-    using TPriorPtrVec = std::vector<TPriorPtr>;
-
     maths_t::EDataType dataType = this->dataType();
     maths::CNormalMeanPrecConjugate normalPrior =
         maths::CNormalMeanPrecConjugate::nonInformativePrior(dataType, params.s_DecayRate);
@@ -314,7 +326,7 @@ CModelFactory::TPriorPtr CModelFactory::timeOfDayPrior(const SModelParams& param
     // Create a multimodal prior with purely normal distributions
     // - don't bother with long-tail distributions
 
-    TPriorPtrVec modePriors;
+    maths::COneOfNPrior::TPriorPtrVec modePriors;
     modePriors.reserve(1u);
     modePriors.emplace_back(normalPrior.clone());
     maths::COneOfNPrior modePrior(modePriors, dataType, params.s_DecayRate);
@@ -325,14 +337,14 @@ CModelFactory::TPriorPtr CModelFactory::timeOfDayPrior(const SModelParams& param
         4,    // minimumClusterCount
         CAnomalyDetectorModelConfig::DEFAULT_CATEGORY_DELETE_FRACTION);
 
-    return std::make_shared<maths::CMultimodalPrior>(dataType, clusterer, modePrior,
-                                                     params.s_DecayRate);
+    return boost::make_unique<maths::CMultimodalPrior>(dataType, clusterer, modePrior,
+                                                       params.s_DecayRate);
 }
 
-CModelFactory::TMultivariatePriorPtr
+CModelFactory::TMultivariatePriorUPtr
 CModelFactory::latLongPrior(const SModelParams& params) const {
     maths_t::EDataType dataType = this->dataType();
-    TMultivariatePriorPtr modePrior = maths::CMultivariateNormalConjugateFactory::nonInformative(
+    TMultivariatePriorUPtr modePrior = maths::CMultivariateNormalConjugateFactory::nonInformative(
         2, dataType, params.s_DecayRate);
     return maths::CMultivariateMultimodalPriorFactory::nonInformative(
         2, // dimension

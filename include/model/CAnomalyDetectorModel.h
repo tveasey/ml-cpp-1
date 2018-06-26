@@ -8,7 +8,6 @@
 #define INCLUDED_ml_model_CAnomalyDetectorModel_h
 
 #include <core/CMemory.h>
-#include <core/CNonCopyable.h>
 #include <core/CSmallVector.h>
 #include <core/CStatistics.h>
 #include <core/CoreTypes.h>
@@ -121,7 +120,7 @@ struct SAttributeProbability;
 //!
 //! The hierarchy is non-copyable because we don't currently need to be
 //! able to copy models and the "correct" copy semantics are not obvious.
-class MODEL_EXPORT CAnomalyDetectorModel : private core::CNonCopyable {
+class MODEL_EXPORT CAnomalyDetectorModel {
     friend class CModelDetailsView;
 
 public:
@@ -152,16 +151,20 @@ public:
     using TFeatureInfluenceCalculatorCPtrPrVec = std::vector<TFeatureInfluenceCalculatorCPtrPr>;
     using TFeatureInfluenceCalculatorCPtrPrVecVec =
         std::vector<TFeatureInfluenceCalculatorCPtrPrVec>;
-    using TMultivariatePriorPtr = std::shared_ptr<maths::CMultivariatePrior>;
-    using TFeatureMultivariatePriorPtrPr = std::pair<model_t::EFeature, TMultivariatePriorPtr>;
-    using TFeatureMultivariatePriorPtrPrVec = std::vector<TFeatureMultivariatePriorPtrPr>;
-    using TMathsModelPtr = std::shared_ptr<maths::CModel>;
-    using TMathsModelPtrVec = std::vector<TMathsModelPtr>;
+    using TMathsModelSPtr = std::shared_ptr<maths::CModel>;
+    using TFeatureMathsModelSPtrPr = std::pair<model_t::EFeature, TMathsModelSPtr>;
+    using TFeatureMathsModelSPtrPrVec = std::vector<TFeatureMathsModelSPtrPr>;
+    using TMathsModelUPtr = std::unique_ptr<maths::CModel>;
+    using TMathsModelUPtrVec = std::vector<TMathsModelUPtr>;
+    using TMultivariatePriorSPtr = std::shared_ptr<maths::CMultivariatePrior>;
+    using TFeatureMultivariatePriorSPtrPr = std::pair<model_t::EFeature, TMultivariatePriorSPtr>;
+    using TFeatureMultivariatePriorSPtrPrVec = std::vector<TFeatureMultivariatePriorSPtrPr>;
+    using TCorrelationsPtr = std::unique_ptr<maths::CTimeSeriesCorrelations>;
+    using TFeatureCorrelationsPtrPr = std::pair<model_t::EFeature, TCorrelationsPtr>;
+    using TFeatureCorrelationsPtrPrVec = std::vector<TFeatureCorrelationsPtrPr>;
     using TDataGathererPtr = std::shared_ptr<CDataGatherer>;
-    using TModelPtr = std::shared_ptr<CAnomalyDetectorModel>;
-    using TModelCPtr = std::shared_ptr<const CAnomalyDetectorModel>;
-    using TCorrelationsPtr = std::shared_ptr<maths::CTimeSeriesCorrelations>;
     using CModelDetailsViewPtr = std::auto_ptr<CModelDetailsView>;
+    using TModelPtr = std::unique_ptr<CAnomalyDetectorModel>;
 
 public:
     //! A value used to indicate a time variable is unset
@@ -186,6 +189,7 @@ public:
     CAnomalyDetectorModel(bool isForPersistence, const CAnomalyDetectorModel& other);
 
     virtual ~CAnomalyDetectorModel() = default;
+    CAnomalyDetectorModel& operator=(const CAnomalyDetectorModel&) = delete;
     //@}
 
     //! Get a human understandable description of the model for debugging.
@@ -497,7 +501,11 @@ protected:
 
     //! \brief The feature models.
     struct MODEL_EXPORT SFeatureModels {
-        SFeatureModels(model_t::EFeature feature, TMathsModelPtr newModel);
+        SFeatureModels(model_t::EFeature feature, TMathsModelSPtr newModel);
+        SFeatureModels(const SFeatureModels&) = delete;
+        SFeatureModels& operator=(const SFeatureModels&) = delete;
+        SFeatureModels(SFeatureModels&&) = default;
+        SFeatureModels& operator=(SFeatureModels&&) = default;
 
         //! Restore the models reading state from \p traverser.
         bool acceptRestoreTraverser(const SModelParams& params,
@@ -513,17 +521,21 @@ protected:
         //! The feature.
         model_t::EFeature s_Feature;
         //! A prototype model.
-        TMathsModelPtr s_NewModel;
+        TMathsModelSPtr s_NewModel;
         //! The person models.
-        TMathsModelPtrVec s_Models;
+        TMathsModelUPtrVec s_Models;
     };
     using TFeatureModelsVec = std::vector<SFeatureModels>;
 
     //! \brief The feature correlate models.
     struct MODEL_EXPORT SFeatureCorrelateModels {
         SFeatureCorrelateModels(model_t::EFeature feature,
-                                TMultivariatePriorPtr modelPrior,
-                                TCorrelationsPtr model);
+                                const TMultivariatePriorSPtr& modelPrior,
+                                TCorrelationsPtr&& model);
+        SFeatureCorrelateModels(const SFeatureCorrelateModels&) = delete;
+        SFeatureCorrelateModels& operator=(const SFeatureCorrelateModels&) = delete;
+        SFeatureCorrelateModels(SFeatureCorrelateModels&&) = default;
+        SFeatureCorrelateModels& operator=(SFeatureCorrelateModels&&) = default;
 
         //! Restore the models reading state from \p traverser.
         bool acceptRestoreTraverser(const SModelParams& params,
@@ -539,7 +551,7 @@ protected:
         //! The feature.
         model_t::EFeature s_Feature;
         //! The prototype prior for a correlate model.
-        TMultivariatePriorPtr s_ModelPrior;
+        TMultivariatePriorSPtr s_ModelPrior;
         //! The correlate models.
         TCorrelationsPtr s_Models;
     };
@@ -549,6 +561,7 @@ protected:
     class CTimeSeriesCorrelateModelAllocator : public maths::CTimeSeriesCorrelateModelAllocator {
     public:
         using TMemoryUsage = std::function<std::size_t(std::size_t)>;
+        using TMultivariatePriorUPtr = TMultivariatePriorPtr;
 
     public:
         CTimeSeriesCorrelateModelAllocator(CResourceMonitor& resourceMonitor,
@@ -569,10 +582,10 @@ protected:
         virtual std::size_t chunkSize() const;
 
         //! Create a new prior for a correlation model.
-        virtual TMultivariatePriorPtr newPrior() const;
+        virtual TMultivariatePriorUPtr newPrior() const;
 
         //! Set the prototype prior.
-        void prototypePrior(const TMultivariatePriorPtr& prior);
+        void prototypePrior(const TMultivariatePriorSPtr& prior);
 
     private:
         //! The global resource monitor.
@@ -584,7 +597,7 @@ protected:
         //! The maximum permitted number of correlations which can be modeled.
         std::size_t m_MaxNumberCorrelations;
         //! The prototype correlate prior.
-        TMultivariatePriorPtr m_PrototypePrior;
+        TMultivariatePriorSPtr m_PrototypePrior;
     };
 
 protected:
@@ -656,8 +669,8 @@ protected:
     //! Clear out large state objects for people/attributes that are pruned
     virtual void clearPrunedResources(const TSizeVec& people, const TSizeVec& attributes) = 0;
 
-    //! Get the objects which calculates corrections for interim buckets.
-    const CInterimBucketCorrector& interimValueCorrector() const;
+    //! Get the object which calculates corrections for interim buckets.
+    virtual const CInterimBucketCorrector& interimValueCorrector() const = 0;
 
     //! Check if any of the sample-filtering detection rules apply to this series.
     bool shouldIgnoreSample(model_t::EFeature feature,
@@ -675,25 +688,14 @@ protected:
     //! Get the non-estimated value of the the memory used by this model.
     virtual std::size_t computeMemoryUsage() const = 0;
 
-    //! Restore interim bucket corrector.
-    bool interimBucketCorrectorAcceptRestoreTraverser(core::CStateRestoreTraverser& traverser);
-
-    //! Persist the interim bucket corrector.
-    void interimBucketCorrectorAcceptPersistInserter(const std::string& tag,
-                                                     core::CStatePersistInserter& inserter) const;
-
     //! Create a stub version of maths::CModel for use when pruning people
     //! or attributes to free memory resource.
     static maths::CModel* tinyModel();
 
 private:
     using TModelParamsCRef = boost::reference_wrapper<const SModelParams>;
-    using TInterimBucketCorrectorPtr = std::shared_ptr<CInterimBucketCorrector>;
 
 private:
-    //! Set the current bucket total count.
-    virtual void currentBucketTotalCount(uint64_t totalCount) = 0;
-
     //! Skip sampling the interval \p endTime - \p startTime.
     virtual void doSkipSampling(core_t::TTime startTime, core_t::TTime endTime) = 0;
 
@@ -718,9 +720,6 @@ private:
     //! The influence calculators to use for each feature which is being
     //! modeled.
     TFeatureInfluenceCalculatorCPtrPrVecVec m_InfluenceCalculators;
-
-    //! A corrector that calculates adjustments for values of interim buckets.
-    TInterimBucketCorrectorPtr m_InterimBucketCorrector;
 };
 }
 }

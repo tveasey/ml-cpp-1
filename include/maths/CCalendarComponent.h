@@ -82,6 +82,9 @@ public:
     //! Clear all data.
     void clear();
 
+    //! Linearly scale the component's by \p scale.
+    void linearScale(core_t::TTime time, double scale);
+
     //! Adds a value \f$(t, f(t))\f$ to this component.
     //!
     //! \param[in] time The time of the point.
@@ -127,10 +130,6 @@ public:
 
     //! Get the mean variance of the component residuals.
     double meanVariance() const;
-
-    //! Get the maximum ratio between a residual variance and the mean
-    //! residual variance.
-    double heteroscedasticity() const;
 
     //! Get a checksum for this object.
     uint64_t checksum(uint64_t seed = 0) const;

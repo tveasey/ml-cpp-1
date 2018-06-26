@@ -6,12 +6,12 @@
 
 #include "CEventRatePopulationDataGathererTest.h"
 
-#include <core/CCompressUtils.h>
 #include <core/CContainerPrinter.h>
 #include <core/CLogger.h>
 #include <core/CRapidXmlParser.h>
 #include <core/CRapidXmlStatePersistInserter.h>
 #include <core/CRapidXmlStateRestoreTraverser.h>
+#include <core/CompressUtils.h>
 
 #include <model/CDataGatherer.h>
 #include <model/CEventData.h>
@@ -227,10 +227,9 @@ void CEventRatePopulationDataGathererTest::testAttributeCounts() {
     features.push_back(model_t::E_PopulationCountByBucketPersonAndAttribute);
     features.push_back(model_t::E_PopulationUniquePersonCountByAttribute);
     SModelParams params(bucketLength);
-    CDataGatherer dataGatherer(model_t::E_PopulationEventRate, model_t::E_None,
-                               params, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
-                               EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, TStrVec(),
-                               false, searchKey, features, startTime, 0);
+    CDataGatherer dataGatherer(model_t::E_PopulationEventRate, model_t::E_None, params,
+                               EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
+                               EMPTY_STRING, {}, searchKey, features, startTime, 0);
     CPPUNIT_ASSERT(dataGatherer.isPopulation());
 
     CPPUNIT_ASSERT_EQUAL(startTime, dataGatherer.currentBucketStartTime());
@@ -342,10 +341,9 @@ void CEventRatePopulationDataGathererTest::testAttributeIndicator() {
     CDataGatherer::TFeatureVec features;
     features.push_back(model_t::E_PopulationIndicatorOfBucketPersonAndAttribute);
     SModelParams params(bucketLength);
-    CDataGatherer dataGatherer(model_t::E_PopulationEventRate, model_t::E_None,
-                               params, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
-                               EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, TStrVec(),
-                               false, searchKey, features, startTime, 0);
+    CDataGatherer dataGatherer(model_t::E_PopulationEventRate, model_t::E_None, params,
+                               EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
+                               EMPTY_STRING, {}, searchKey, features, startTime, 0);
 
     core_t::TTime time = startTime;
     for (std::size_t i = 0u; i < numberBuckets; ++i, time += bucketLength) {
@@ -402,10 +400,9 @@ void CEventRatePopulationDataGathererTest::testUniqueValueCounts() {
     CDataGatherer::TFeatureVec features;
     features.push_back(model_t::E_PopulationUniqueCountByBucketPersonAndAttribute);
     SModelParams params(bucketLength);
-    CDataGatherer dataGatherer(model_t::E_PopulationEventRate, model_t::E_None,
-                               params, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
-                               EMPTY_STRING, EMPTY_STRING, "value", TStrVec(),
-                               false, searchKey, features, startTime, 0);
+    CDataGatherer dataGatherer(model_t::E_PopulationEventRate, model_t::E_None, params,
+                               EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
+                               "value", {}, searchKey, features, startTime, 0);
 
     core_t::TTime time = startTime;
     for (std::size_t i = 0u; i < numberBuckets; ++i, time += bucketLength) {
@@ -471,10 +468,9 @@ void CEventRatePopulationDataGathererTest::testCompressedLength() {
     CDataGatherer::TFeatureVec features;
     features.push_back(model_t::E_PopulationInfoContentByBucketPersonAndAttribute);
     SModelParams params(bucketLength);
-    CDataGatherer dataGatherer(model_t::E_PopulationEventRate, model_t::E_None,
-                               params, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
-                               EMPTY_STRING, EMPTY_STRING, "value", TStrVec(),
-                               false, searchKey, features, startTime, 0);
+    CDataGatherer dataGatherer(model_t::E_PopulationEventRate, model_t::E_None, params,
+                               EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
+                               "value", {}, searchKey, features, startTime, 0);
 
     core_t::TTime time = startTime;
     for (std::size_t i = 0u; i < numberBuckets; ++i, time += bucketLength) {
@@ -520,14 +516,14 @@ void CEventRatePopulationDataGathererTest::testCompressedLength() {
             TSizeSizePr key(iter->first, 0);
             const TStrSet& uniqueValues = iter->second;
 
-            core::CCompressUtils compressor(false);
+            core::CDeflator compressor(false);
             CPPUNIT_ASSERT_EQUAL(
                 uniqueValues.size(),
                 static_cast<size_t>(std::count_if(
                     uniqueValues.begin(), uniqueValues.end(),
-                    boost::bind(&core::CCompressUtils::addString, &compressor, _1))));
+                    boost::bind(&core::CCompressUtil::addString, &compressor, _1))));
             size_t length(0);
-            CPPUNIT_ASSERT(compressor.compressedLength(true, length));
+            CPPUNIT_ASSERT(compressor.length(true, length));
             expectedBucketCompressedLengthPerPerson[key] = length;
         }
         LOG_DEBUG(<< "Time " << time << " bucketCompressedLengthPerPerson "
@@ -560,10 +556,9 @@ void CEventRatePopulationDataGathererTest::testRemovePeople() {
     CDataGatherer::TFeatureVec features;
     features.push_back(model_t::E_PopulationCountByBucketPersonAndAttribute);
     SModelParams params(bucketLength);
-    CDataGatherer gatherer(model_t::E_PopulationEventRate, model_t::E_None,
-                           params, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
-                           EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, TStrVec(),
-                           false, searchKey, features, startTime, 0);
+    CDataGatherer gatherer(model_t::E_PopulationEventRate, model_t::E_None, params,
+                           EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
+                           EMPTY_STRING, {}, searchKey, features, startTime, 0);
     core_t::TTime bucketStart = startTime;
     for (std::size_t i = 0u; i < numberBuckets; ++i, bucketStart += bucketLength) {
         TMessageVec messages;
@@ -686,10 +681,9 @@ void CEventRatePopulationDataGathererTest::testRemoveAttributes() {
     features.push_back(model_t::E_PopulationCountByBucketPersonAndAttribute);
     features.push_back(model_t::E_PopulationUniquePersonCountByAttribute);
     SModelParams params(bucketLength);
-    CDataGatherer gatherer(model_t::E_PopulationEventRate, model_t::E_None,
-                           params, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
-                           EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, TStrVec(),
-                           false, searchKey, features, startTime, 0);
+    CDataGatherer gatherer(model_t::E_PopulationEventRate, model_t::E_None, params,
+                           EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
+                           EMPTY_STRING, {}, searchKey, features, startTime, 0);
 
     TMessageVec messages;
     generateTestMessages(rng, startTime, bucketLength, messages);
@@ -792,10 +786,10 @@ void CEventRatePopulationDataGathererTest::testPersistence() {
         features.push_back(model_t::E_PopulationCountByBucketPersonAndAttribute);
         features.push_back(model_t::E_PopulationUniquePersonCountByAttribute);
         SModelParams params(bucketLength);
-        CDataGatherer origDataGatherer(
-            model_t::E_PopulationEventRate, model_t::E_None, params,
-            EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
-            EMPTY_STRING, TStrVec(), false, searchKey, features, startTime, 0);
+        CDataGatherer origDataGatherer(model_t::E_PopulationEventRate, model_t::E_None,
+                                       params, EMPTY_STRING, EMPTY_STRING,
+                                       EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
+                                       {}, searchKey, features, startTime, 0);
 
         TMessageVec messages;
         generateTestMessages(rng, startTime, bucketLength, messages);
@@ -821,10 +815,10 @@ void CEventRatePopulationDataGathererTest::testPersistence() {
         CPPUNIT_ASSERT(parser.parseStringIgnoreCdata(origXml));
         core::CRapidXmlStateRestoreTraverser traverser(parser);
 
-        CDataGatherer restoredDataGatherer(
-            model_t::E_PopulationEventRate, model_t::E_None, params,
-            EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
-            EMPTY_STRING, EMPTY_STRING, TStrVec(), false, searchKey, traverser);
+        CDataGatherer restoredDataGatherer(model_t::E_PopulationEventRate,
+                                           model_t::E_None, params, EMPTY_STRING,
+                                           EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
+                                           EMPTY_STRING, {}, searchKey, traverser);
 
         // The XML representation of the new data gatherer should be the same as the
         // original
@@ -845,9 +839,9 @@ void CEventRatePopulationDataGathererTest::testPersistence() {
         features.push_back(model_t::E_PopulationInfoContentByBucketPersonAndAttribute);
         SModelParams params(bucketLength);
         CDataGatherer dataGatherer(model_t::E_PopulationEventRate, model_t::E_None,
-                                   params, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
-                                   EMPTY_STRING, EMPTY_STRING, "value", TStrVec(),
-                                   false, searchKey, features, startTime, 0);
+                                   params, EMPTY_STRING, EMPTY_STRING,
+                                   EMPTY_STRING, EMPTY_STRING, "value", {},
+                                   searchKey, features, startTime, 0);
 
         core_t::TTime time = startTime;
         for (std::size_t i = 0u; i < numberBuckets; ++i, time += bucketLength) {
@@ -887,10 +881,10 @@ void CEventRatePopulationDataGathererTest::testPersistence() {
         CPPUNIT_ASSERT(parser.parseStringIgnoreCdata(origXml));
         core::CRapidXmlStateRestoreTraverser traverser(parser);
 
-        CDataGatherer restoredDataGatherer(
-            model_t::E_PopulationEventRate, model_t::E_None, params,
-            EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
-            EMPTY_STRING, EMPTY_STRING, TStrVec(), false, searchKey, traverser);
+        CDataGatherer restoredDataGatherer(model_t::E_PopulationEventRate,
+                                           model_t::E_None, params, EMPTY_STRING,
+                                           EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
+                                           EMPTY_STRING, {}, searchKey, traverser);
 
         // The XML representation of the new data gatherer should be the same as the
         // original

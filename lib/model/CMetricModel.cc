@@ -58,33 +58,37 @@ const std::string INDIVIDUAL_STATE_TAG("a");
 
 CMetricModel::CMetricModel(const SModelParams& params,
                            const TDataGathererPtr& dataGatherer,
-                           const TFeatureMathsModelPtrPrVec& newFeatureModels,
-                           const TFeatureMultivariatePriorPtrPrVec& newFeatureCorrelateModelPriors,
-                           const TFeatureCorrelationsPtrPrVec& featureCorrelatesModels,
-                           const TFeatureInfluenceCalculatorCPtrPrVecVec& influenceCalculators)
+                           const TFeatureMathsModelSPtrPrVec& newFeatureModels,
+                           const TFeatureMultivariatePriorSPtrPrVec& newFeatureCorrelateModelPriors,
+                           TFeatureCorrelationsPtrPrVec&& featureCorrelatesModels,
+                           const TFeatureInfluenceCalculatorCPtrPrVecVec& influenceCalculators,
+                           const TInterimBucketCorrectorCPtr& interimBucketCorrector)
     : CIndividualModel(params,
                        dataGatherer,
                        newFeatureModels,
                        newFeatureCorrelateModelPriors,
-                       featureCorrelatesModels,
+                       std::move(featureCorrelatesModels),
                        influenceCalculators),
-      m_CurrentBucketStats(CAnomalyDetectorModel::TIME_UNSET) {
+      m_CurrentBucketStats(CAnomalyDetectorModel::TIME_UNSET),
+      m_InterimBucketCorrector(interimBucketCorrector) {
 }
 
 CMetricModel::CMetricModel(const SModelParams& params,
                            const TDataGathererPtr& dataGatherer,
-                           const TFeatureMathsModelPtrPrVec& newFeatureModels,
-                           const TFeatureMultivariatePriorPtrPrVec& newFeatureCorrelateModelPriors,
-                           const TFeatureCorrelationsPtrPrVec& featureCorrelatesModels,
+                           const TFeatureMathsModelSPtrPrVec& newFeatureModels,
+                           const TFeatureMultivariatePriorSPtrPrVec& newFeatureCorrelateModelPriors,
+                           TFeatureCorrelationsPtrPrVec&& featureCorrelatesModels,
                            const TFeatureInfluenceCalculatorCPtrPrVecVec& influenceCalculators,
+                           const TInterimBucketCorrectorCPtr& interimBucketCorrector,
                            core::CStateRestoreTraverser& traverser)
     : CIndividualModel(params,
                        dataGatherer,
                        newFeatureModels,
                        newFeatureCorrelateModelPriors,
-                       featureCorrelatesModels,
+                       std::move(featureCorrelatesModels),
                        influenceCalculators),
-      m_CurrentBucketStats(CAnomalyDetectorModel::TIME_UNSET) {
+      m_CurrentBucketStats(CAnomalyDetectorModel::TIME_UNSET),
+      m_InterimBucketCorrector(interimBucketCorrector) {
     traverser.traverseSubLevel(boost::bind(&CMetricModel::acceptRestoreTraverser, this, _1));
 }
 
@@ -433,6 +437,8 @@ void CMetricModel::debugMemoryUsage(core::CMemoryUsage::TMemoryUsagePtr mem) con
                                     m_CurrentBucketStats.s_FeatureData, mem);
     core::CMemoryDebug::dynamicSize("m_CurrentBucketStats.s_InterimCorrections",
                                     m_CurrentBucketStats.s_InterimCorrections, mem);
+    core::CMemoryDebug::dynamicSize("m_InterimBucketCorrector",
+                                    m_InterimBucketCorrector, mem);
 }
 
 std::size_t CMetricModel::memoryUsage() const {
@@ -444,6 +450,7 @@ std::size_t CMetricModel::computeMemoryUsage() const {
     mem += core::CMemory::dynamicSize(m_CurrentBucketStats.s_PersonCounts);
     mem += core::CMemory::dynamicSize(m_CurrentBucketStats.s_FeatureData);
     mem += core::CMemory::dynamicSize(m_CurrentBucketStats.s_InterimCorrections);
+    mem += core::CMemory::dynamicSize(m_InterimBucketCorrector);
     return mem;
 }
 
@@ -461,37 +468,12 @@ CMetricModel::featureData(model_t::EFeature feature, std::size_t pid, core_t::TT
                                                m_CurrentBucketStats.s_FeatureData);
 }
 
-void CMetricModel::createNewModels(std::size_t n, std::size_t m) {
-    this->CIndividualModel::createNewModels(n, m);
-}
-
-void CMetricModel::updateRecycledModels() {
-    this->CIndividualModel::updateRecycledModels();
-}
-
-void CMetricModel::clearPrunedResources(const TSizeVec& people, const TSizeVec& attributes) {
-    CDataGatherer& gatherer = this->dataGatherer();
-
-    // Stop collecting for these people and add them to the free list.
-    gatherer.recyclePeople(people);
-    if (gatherer.dataAvailable(m_CurrentBucketStats.s_StartTime)) {
-        gatherer.featureData(m_CurrentBucketStats.s_StartTime, gatherer.bucketLength(),
-                             m_CurrentBucketStats.s_FeatureData);
-    }
-
-    this->CIndividualModel::clearPrunedResources(people, attributes);
-}
-
 core_t::TTime CMetricModel::currentBucketStartTime() const {
     return m_CurrentBucketStats.s_StartTime;
 }
 
 void CMetricModel::currentBucketStartTime(core_t::TTime time) {
     m_CurrentBucketStats.s_StartTime = time;
-}
-
-uint64_t CMetricModel::currentBucketTotalCount() const {
-    return m_CurrentBucketStats.s_TotalCount;
 }
 
 CIndividualModel::TFeatureSizeSizeTripleDouble1VecUMap&
@@ -507,8 +489,21 @@ CMetricModel::TSizeUInt64PrVec& CMetricModel::currentBucketPersonCounts() {
     return m_CurrentBucketStats.s_PersonCounts;
 }
 
-void CMetricModel::currentBucketTotalCount(uint64_t totalCount) {
-    m_CurrentBucketStats.s_TotalCount = totalCount;
+void CMetricModel::clearPrunedResources(const TSizeVec& people, const TSizeVec& attributes) {
+    CDataGatherer& gatherer = this->dataGatherer();
+
+    // Stop collecting for these people and add them to the free list.
+    gatherer.recyclePeople(people);
+    if (gatherer.dataAvailable(m_CurrentBucketStats.s_StartTime)) {
+        gatherer.featureData(m_CurrentBucketStats.s_StartTime, gatherer.bucketLength(),
+                             m_CurrentBucketStats.s_FeatureData);
+    }
+
+    this->CIndividualModel::clearPrunedResources(people, attributes);
+}
+
+const CInterimBucketCorrector& CMetricModel::interimValueCorrector() const {
+    return *m_InterimBucketCorrector;
 }
 
 bool CMetricModel::correlates(model_t::EFeature feature, std::size_t pid, core_t::TTime time) const {
@@ -552,7 +547,7 @@ void CMetricModel::fill(model_t::EFeature feature,
     if (interim && model_t::requiresInterimResultAdjustment(feature)) {
         TDouble2Vec mode(params.s_Model->mode(time, weights));
         TDouble2Vec correction(this->interimValueCorrector().corrections(
-            time, this->currentBucketTotalCount(), mode, bucket->value(dimension)));
+            mode, bucket->value(dimension)));
         params.s_Value[0] += correction;
         this->currentBucketInterimCorrections().emplace(
             core::make_triple(feature, pid, pid), correction);
@@ -678,8 +673,8 @@ void CMetricModel::fill(model_t::EFeature feature,
         for (std::size_t i = 0u; i < modes.size(); ++i) {
             if (!params.s_Values.empty()) {
                 TDouble2Vec value_{params.s_Values[i][0], params.s_Values[i][1]};
-                TDouble2Vec correction(this->interimValueCorrector().corrections(
-                    time, this->currentBucketTotalCount(), modes[i], value_));
+                TDouble2Vec correction(
+                    this->interimValueCorrector().corrections(modes[i], value_));
                 for (std::size_t j = 0u; j < 2; ++j) {
                     params.s_Values[i][j] += correction[j];
                 }
@@ -694,8 +689,7 @@ void CMetricModel::fill(model_t::EFeature feature,
 ////////// CMetricModel::SBucketStats Implementation //////////
 
 CMetricModel::SBucketStats::SBucketStats(core_t::TTime startTime)
-    : s_StartTime(startTime), s_PersonCounts(), s_TotalCount(0),
-      s_FeatureData(), s_InterimCorrections(1) {
+    : s_StartTime(startTime), s_InterimCorrections(1) {
 }
 }
 }

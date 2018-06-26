@@ -27,6 +27,7 @@
 #include <model/CHierarchicalResultsAggregator.h>
 #include <model/CHierarchicalResultsNormalizer.h>
 #include <model/CHierarchicalResultsProbabilityFinalizer.h>
+#include <model/CInterimBucketCorrector.h>
 #include <model/CLimits.h>
 #include <model/CModelDetailsView.h>
 #include <model/CResourceMonitor.h>
@@ -235,8 +236,8 @@ public:
                        const TNode& node,
                        bool /*pivot*/) {
         LOG_DEBUG(<< node.s_Spec.print() << " score = " << node.s_RawAnomalyScore << ", expected score = "
-                  << maths::CTools::deviation(node.probability()));
-        CPPUNIT_ASSERT_DOUBLES_EQUAL(maths::CTools::deviation(node.probability()),
+                  << maths::CTools::anomalyScore(node.probability()));
+        CPPUNIT_ASSERT_DOUBLES_EQUAL(maths::CTools::anomalyScore(node.probability()),
                                      node.s_RawAnomalyScore, 1e-10);
     }
 };
@@ -1016,10 +1017,10 @@ void CHierarchicalResultsTest::testAggregator() {
 
     // Test by.
     {
-        double p_[] = {0.22, 0.03, 0.02};
+        TDoubleVec probabilities{0.22, 0.03, 0.02};
         TAnnotatedProbabilityVec annotatedProbabilities;
-        for (std::size_t i = 0; i < boost::size(p_); ++i) {
-            annotatedProbabilities.push_back(model::SAnnotatedProbability(p_[i]));
+        for (auto p : probabilities) {
+            annotatedProbabilities.push_back(model::SAnnotatedProbability(p));
         }
 
         model::CHierarchicalResults results;
@@ -1034,7 +1035,6 @@ void CHierarchicalResultsTest::testAggregator() {
         CPrinter printer;
         results.postorderDepthFirst(printer);
         LOG_DEBUG(<< "\nby:\n" << printer.result());
-        TDoubleVec probabilities(boost::begin(p_), boost::end(p_));
         attributeComputer(probabilities, score, probability);
         CPPUNIT_ASSERT(results.root());
         CPPUNIT_ASSERT_DOUBLES_EQUAL(score, results.root()->s_RawAnomalyScore, 1e-12);
@@ -1043,10 +1043,10 @@ void CHierarchicalResultsTest::testAggregator() {
 
     // Test over.
     {
-        double p_[] = {0.25, 0.3, 0.001};
+        TDoubleVec probabilities{0.25, 0.3, 0.001};
         TAnnotatedProbabilityVec annotatedProbabilities;
-        for (std::size_t i = 0; i < boost::size(p_); ++i) {
-            annotatedProbabilities.push_back(model::SAnnotatedProbability(p_[i]));
+        for (auto p : probabilities) {
+            annotatedProbabilities.push_back(model::SAnnotatedProbability(p));
         }
 
         model::CHierarchicalResults results;
@@ -1061,7 +1061,6 @@ void CHierarchicalResultsTest::testAggregator() {
         CPrinter printer;
         results.postorderDepthFirst(printer);
         LOG_DEBUG(<< "\nover:\n" << printer.result());
-        TDoubleVec probabilities(boost::begin(p_), boost::end(p_));
         personComputer(probabilities, score, probability);
         CPPUNIT_ASSERT(results.root());
         CPPUNIT_ASSERT_DOUBLES_EQUAL(score, results.root()->s_RawAnomalyScore, 1e-12);
@@ -1144,10 +1143,10 @@ void CHierarchicalResultsTest::testAggregator() {
 
     // Test partition
     {
-        double p_[] = {0.01, 0.03, 0.001};
+        TDoubleVec probabilities{0.01, 0.03, 0.001};
         TAnnotatedProbabilityVec annotatedProbabilities;
-        for (std::size_t i = 0; i < boost::size(p_); ++i) {
-            annotatedProbabilities.push_back(model::SAnnotatedProbability(p_[i]));
+        for (auto p : probabilities) {
+            annotatedProbabilities.push_back(model::SAnnotatedProbability(p));
         }
         model::CHierarchicalResults results;
         results.addModelResult(1, false, FUNC, function, PNF1, pn11, EMPTY_STRING,
@@ -1161,7 +1160,6 @@ void CHierarchicalResultsTest::testAggregator() {
         CPrinter printer;
         results.postorderDepthFirst(printer);
         LOG_DEBUG(<< "\npartition:\n" << printer.result());
-        TDoubleVec probabilities(boost::begin(p_), boost::end(p_));
         partitionComputer(probabilities, score, probability);
         CPPUNIT_ASSERT(results.root());
         CPPUNIT_ASSERT_DOUBLES_EQUAL(score, results.root()->s_RawAnomalyScore, 1e-12);
@@ -1474,12 +1472,15 @@ void CHierarchicalResultsTest::testWriter() {
     {
         using TStrCPtrVec = model::CDataGatherer::TStrCPtrVec;
         model::SModelParams params(modelConfig.bucketLength());
+        auto interimBucketCorrector =
+            std::make_shared<model::CInterimBucketCorrector>(modelConfig.bucketLength());
         model::CSearchKey key;
-        model::CAnomalyDetectorModel::TDataGathererPtr dataGatherer(new model::CDataGatherer(
-            model_t::E_EventRate, model_t::E_None, params, EMPTY_STRING, EMPTY_STRING,
-            EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, TStrVec(), false,
-            key, model_t::TFeatureVec(1, model_t::E_IndividualCountByBucketAndPerson),
-            modelConfig.bucketLength(), 0));
+        model::CAnomalyDetectorModel::TDataGathererPtr dataGatherer(
+            std::make_shared<model::CDataGatherer>(
+                model_t::E_EventRate, model_t::E_None, params, EMPTY_STRING,
+                EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, TStrVec{}, key,
+                model_t::TFeatureVec{model_t::E_IndividualCountByBucketAndPerson},
+                modelConfig.bucketLength(), 0));
         model::CEventData dummy;
         dataGatherer->addArrival(TStrCPtrVec(1, &EMPTY_STRING), dummy, resourceMonitor);
         dummy.clear();
@@ -1492,7 +1493,7 @@ void CHierarchicalResultsTest::testWriter() {
         dataGatherer->addArrival(TStrCPtrVec(1, &p21), dummy, resourceMonitor);
         dummy.clear();
         dataGatherer->addArrival(TStrCPtrVec(1, &p23), dummy, resourceMonitor);
-        model::CCountingModel model(params, dataGatherer);
+        model::CCountingModel model(params, dataGatherer, interimBucketCorrector);
         model::CHierarchicalResults results;
         addResult(1, false, FUNC, function, EMPTY_STRING, EMPTY_STRING,
                   EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, 0.001, &model, results);
@@ -1536,7 +1537,6 @@ void CHierarchicalResultsTest::testWriter() {
 void CHierarchicalResultsTest::testNormalizer() {
     using TNormalizerPtr = std::shared_ptr<model::CAnomalyScore::CNormalizer>;
     using TStrNormalizerPtrMap = std::map<std::string, TNormalizerPtr>;
-    using TStrNormalizerPtrMapItr = TStrNormalizerPtrMap::iterator;
     using TNodeCPtrSet = std::set<const model::CHierarchicalResultsVisitor::TNode*>;
 
     model::CAnomalyDetectorModelConfig modelConfig =
@@ -1563,8 +1563,8 @@ void CHierarchicalResultsTest::testNormalizer() {
         {"4", FALSE_STR, PNF2, pn22, PF1, p12, EMPTY_STRING},
         {"4", FALSE_STR, PNF2, pn23, PF1, p13, EMPTY_STRING}};
     TStrNormalizerPtrMap expectedNormalizers;
-    expectedNormalizers.insert(TStrNormalizerPtrMap::value_type(
-        std::string("r"), TNormalizerPtr(new model::CAnomalyScore::CNormalizer(modelConfig))));
+    expectedNormalizers.emplace(
+        "r", std::make_shared<model::CAnomalyScore::CNormalizer>(modelConfig));
     test::CRandomNumbers rng;
 
     for (std::size_t i = 0u; i < 300; ++i) {
@@ -1597,30 +1597,31 @@ void CHierarchicalResultsTest::testNormalizer() {
         for (std::size_t j = 0u; j < extract.leafNodes().size(); ++j) {
             std::string key = 'l' + *extract.leafNodes()[j]->s_Spec.s_PartitionFieldName +
                               ' ' + *extract.leafNodes()[j]->s_Spec.s_PersonFieldName;
-            TStrNormalizerPtrMapItr itr = expectedNormalizers.find(key);
+            auto itr = expectedNormalizers.find(key);
             if (itr == expectedNormalizers.end()) {
                 itr = expectedNormalizers
-                          .insert(TStrNormalizerPtrMap::value_type(
-                              key, TNormalizerPtr(new model::CAnomalyScore::CNormalizer(modelConfig))))
+                          .emplace(key, std::make_shared<model::CAnomalyScore::CNormalizer>(modelConfig))
                           .first;
             }
             double probability = extract.leafNodes()[j]->probability();
-            // This truncation condition needs to be kept the same as the one in CHierarchicalResultsNormalizer::visit()
+            // This truncation condition needs to be kept the same as the one in
+            // CHierarchicalResultsNormalizer::visit()
             double score = probability > modelConfig.maximumAnomalousProbability()
                                ? 0.0
-                               : maths::CTools::deviation(probability);
+                               : maths::CTools::anomalyScore(probability);
             itr->second->updateQuantiles(score);
         }
         for (std::size_t j = 0u; j < extract.leafNodes().size(); ++j) {
             std::string key = 'l' + *extract.leafNodes()[j]->s_Spec.s_PartitionFieldName +
                               ' ' + *extract.leafNodes()[j]->s_Spec.s_PersonFieldName;
-            TStrNormalizerPtrMapItr itr = expectedNormalizers.find(key);
+            auto itr = expectedNormalizers.find(key);
             if (nodes.insert(extract.leafNodes()[j]).second) {
                 double probability = extract.leafNodes()[j]->probability();
-                // This truncation condition needs to be kept the same as the one in CHierarchicalResultsNormalizer::visit()
+                // This truncation condition needs to be kept the same as the one in
+                // CHierarchicalResultsNormalizer::visit()
                 double score = probability > modelConfig.maximumAnomalousProbability()
                                    ? 0.0
-                                   : maths::CTools::deviation(probability);
+                                   : maths::CTools::anomalyScore(probability);
                 normalized.push_back(extract.leafNodes()[j]->s_NormalizedAnomalyScore);
                 CPPUNIT_ASSERT(itr->second->normalize(score));
                 expectedNormalized.push_back(score);
@@ -1638,30 +1639,31 @@ void CHierarchicalResultsTest::testNormalizer() {
         for (std::size_t j = 0u; j < extract.personNodes().size(); ++j) {
             std::string key = 'p' + *extract.personNodes()[j]->s_Spec.s_PartitionFieldName +
                               ' ' + *extract.personNodes()[j]->s_Spec.s_PersonFieldName;
-            TStrNormalizerPtrMapItr itr = expectedNormalizers.find(key);
+            auto itr = expectedNormalizers.find(key);
             if (itr == expectedNormalizers.end()) {
                 itr = expectedNormalizers
-                          .insert(TStrNormalizerPtrMap::value_type(
-                              key, TNormalizerPtr(new model::CAnomalyScore::CNormalizer(modelConfig))))
+                          .emplace(key, std::make_shared<model::CAnomalyScore::CNormalizer>(modelConfig))
                           .first;
             }
             double probability = extract.personNodes()[j]->probability();
-            // This truncation condition needs to be kept the same as the one in CHierarchicalResultsNormalizer::visit()
+            // This truncation condition needs to be kept the same as the one in
+            // CHierarchicalResultsNormalizer::visit()
             double score = probability > modelConfig.maximumAnomalousProbability()
                                ? 0.0
-                               : maths::CTools::deviation(probability);
+                               : maths::CTools::anomalyScore(probability);
             itr->second->updateQuantiles(score);
         }
         for (std::size_t j = 0u; j < extract.personNodes().size(); ++j) {
             std::string key = 'p' + *extract.personNodes()[j]->s_Spec.s_PartitionFieldName +
                               ' ' + *extract.personNodes()[j]->s_Spec.s_PersonFieldName;
-            TStrNormalizerPtrMapItr itr = expectedNormalizers.find(key);
+            auto itr = expectedNormalizers.find(key);
             if (nodes.insert(extract.personNodes()[j]).second) {
                 double probability = extract.personNodes()[j]->probability();
-                // This truncation condition needs to be kept the same as the one in CHierarchicalResultsNormalizer::visit()
+                // This truncation condition needs to be kept the same as the one in
+                // CHierarchicalResultsNormalizer::visit()
                 double score = probability > modelConfig.maximumAnomalousProbability()
                                    ? 0.0
-                                   : maths::CTools::deviation(probability);
+                                   : maths::CTools::anomalyScore(probability);
                 normalized.push_back(extract.personNodes()[j]->s_NormalizedAnomalyScore);
                 CPPUNIT_ASSERT(itr->second->normalize(score));
                 expectedNormalized.push_back(score);
@@ -1678,29 +1680,30 @@ void CHierarchicalResultsTest::testNormalizer() {
         expectedNormalized.clear();
         for (std::size_t j = 0u; j < extract.partitionNodes().size(); ++j) {
             std::string key = 'n' + *extract.partitionNodes()[j]->s_Spec.s_PartitionFieldName;
-            TStrNormalizerPtrMapItr itr = expectedNormalizers.find(key);
+            auto itr = expectedNormalizers.find(key);
             if (itr == expectedNormalizers.end()) {
                 itr = expectedNormalizers
-                          .insert(TStrNormalizerPtrMap::value_type(
-                              key, TNormalizerPtr(new model::CAnomalyScore::CNormalizer(modelConfig))))
+                          .emplace(key, std::make_shared<model::CAnomalyScore::CNormalizer>(modelConfig))
                           .first;
             }
             double probability = extract.partitionNodes()[j]->probability();
-            // This truncation condition needs to be kept the same as the one in CHierarchicalResultsNormalizer::visit()
+            // This truncation condition needs to be kept the same as the one in
+            // CHierarchicalResultsNormalizer::visit()
             double score = probability > modelConfig.maximumAnomalousProbability()
                                ? 0.0
-                               : maths::CTools::deviation(probability);
+                               : maths::CTools::anomalyScore(probability);
             itr->second->updateQuantiles(score);
         }
         for (std::size_t j = 0u; j < extract.partitionNodes().size(); ++j) {
             std::string key = 'n' + *extract.partitionNodes()[j]->s_Spec.s_PartitionFieldName;
-            TStrNormalizerPtrMapItr itr = expectedNormalizers.find(key);
+            auto itr = expectedNormalizers.find(key);
             if (nodes.insert(extract.partitionNodes()[j]).second) {
                 double probability = extract.partitionNodes()[j]->probability();
-                // This truncation condition needs to be kept the same as the one in CHierarchicalResultsNormalizer::visit()
+                // This truncation condition needs to be kept the same as the one in
+                // CHierarchicalResultsNormalizer::visit()
                 double score = probability > modelConfig.maximumAnomalousProbability()
                                    ? 0.0
-                                   : maths::CTools::deviation(probability);
+                                   : maths::CTools::anomalyScore(probability);
                 normalized.push_back(extract.partitionNodes()[j]->s_NormalizedAnomalyScore);
                 CPPUNIT_ASSERT(itr->second->normalize(score));
                 expectedNormalized.push_back(score);
@@ -1714,10 +1717,11 @@ void CHierarchicalResultsTest::testNormalizer() {
                              core::CContainerPrinter::print(normalized));
 
         double probability = results.root()->probability();
-        // This truncation condition needs to be kept the same as the one in CHierarchicalResultsNormalizer::visit()
+        // This truncation condition needs to be kept the same as the one in
+        // CHierarchicalResultsNormalizer::visit()
         double score = probability > modelConfig.maximumAnomalousProbability()
                            ? 0.0
-                           : maths::CTools::deviation(probability);
+                           : maths::CTools::anomalyScore(probability);
 
         expectedNormalizers.find(std::string("r"))->second->updateQuantiles(score);
         expectedNormalizers.find(std::string("r"))->second->normalize(score);

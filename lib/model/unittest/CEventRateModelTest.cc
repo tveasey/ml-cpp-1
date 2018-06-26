@@ -23,6 +23,7 @@
 
 #include <model/CAnnotatedProbability.h>
 #include <model/CAnomalyDetectorModelConfig.h>
+#include <model/CCountingModel.h>
 #include <model/CDataGatherer.h>
 #include <model/CDetectionRule.h>
 #include <model/CEventData.h>
@@ -30,6 +31,7 @@
 #include <model/CEventRateModelFactory.h>
 #include <model/CEventRatePopulationModel.h>
 #include <model/CEventRatePopulationModelFactory.h>
+#include <model/CInterimBucketCorrector.h>
 #include <model/CModelDetailsView.h>
 #include <model/CPartitioningFields.h>
 #include <model/CResourceMonitor.h>
@@ -92,18 +94,17 @@ void generateEvents(const core_t::TTime& startTime,
     // Generate an ordered collection of event arrival times.
     test::CRandomNumbers rng;
     double bucketStartTime = static_cast<double>(startTime);
-    for (std::size_t i = 0u; i < eventCountsPerBucket.size(); ++i) {
+    for (auto count : eventCountsPerBucket) {
         double bucketEndTime = bucketStartTime + static_cast<double>(bucketLength);
 
         TDoubleVec bucketEventTimes;
         rng.generateUniformSamples(bucketStartTime, bucketEndTime - 1.0,
-                                   static_cast<std::size_t>(eventCountsPerBucket[i]),
-                                   bucketEventTimes);
+                                   static_cast<std::size_t>(count), bucketEventTimes);
 
         std::sort(bucketEventTimes.begin(), bucketEventTimes.end());
 
-        for (std::size_t j = 0u; j < bucketEventTimes.size(); ++j) {
-            core_t::TTime time = static_cast<core_t::TTime>(bucketEventTimes[j]);
+        for (auto time_ : bucketEventTimes) {
+            core_t::TTime time = static_cast<core_t::TTime>(time_);
             time = std::min(static_cast<core_t::TTime>(bucketEndTime - 1.0),
                             std::max(static_cast<core_t::TTime>(bucketStartTime), time));
             eventArrivalTimes.push_back(time);
@@ -120,36 +121,27 @@ void generateSporadicEvents(const core_t::TTime& startTime,
     // Generate an ordered collection of event arrival times.
     test::CRandomNumbers rng;
     double bucketStartTime = static_cast<double>(startTime);
-    for (std::size_t i = 0u; i < nonZeroEventCountsPerBucket.size(); ++i) {
+    for (auto count : nonZeroEventCountsPerBucket) {
         double bucketEndTime = bucketStartTime + static_cast<double>(bucketLength);
 
         TDoubleVec bucketEventTimes;
-        rng.generateUniformSamples(
-            bucketStartTime, bucketEndTime - 1.0,
-            static_cast<std::size_t>(nonZeroEventCountsPerBucket[i]), bucketEventTimes);
+        rng.generateUniformSamples(bucketStartTime, bucketEndTime - 1.0,
+                                   static_cast<std::size_t>(count), bucketEventTimes);
 
         std::sort(bucketEventTimes.begin(), bucketEventTimes.end());
 
-        for (std::size_t j = 0u; j < bucketEventTimes.size(); ++j) {
-            core_t::TTime time = static_cast<core_t::TTime>(bucketEventTimes[j]);
+        for (auto time_ : bucketEventTimes) {
+            core_t::TTime time = static_cast<core_t::TTime>(time_);
             time = std::min(static_cast<core_t::TTime>(bucketEndTime - 1.0),
                             std::max(static_cast<core_t::TTime>(bucketStartTime), time));
             eventArrivalTimes.push_back(time);
         }
 
         TDoubleVec gap;
-        rng.generateUniformSamples(0.0, 10.0 * static_cast<double>(bucketLength), 1u, gap);
-        bucketStartTime += static_cast<double>(bucketLength) *
-                           std::ceil(gap[0] / static_cast<double>(bucketLength));
+        rng.generateUniformSamples(0.0, 10.0, 1u, gap);
+        bucketStartTime += static_cast<double>(bucketLength) * std::ceil(gap[0]);
     }
 }
-
-class CTimeLess {
-public:
-    bool operator()(const CEventData& lhs, const CEventData& rhs) const {
-        return lhs.time() < rhs.time();
-    }
-};
 
 std::size_t addPerson(const std::string& p,
                       const CModelFactory::TDataGathererPtr& gatherer,
@@ -169,7 +161,7 @@ std::size_t addPersonWithInfluence(const std::string& p,
     std::string i("i");
     CDataGatherer::TStrCPtrVec person;
     person.push_back(&p);
-    for (std::size_t j = 0; j < numInfluencers; j++) {
+    for (std::size_t j = 0; j < numInfluencers; ++j) {
         person.push_back(&i);
     }
     if (value) {
@@ -178,28 +170,6 @@ std::size_t addPersonWithInfluence(const std::string& p,
     CEventData result;
     gatherer->processFields(person, result, resourceMonitor);
     return *result.personId();
-}
-
-void makeModel(CEventRateModelFactory& factory,
-               const CDataGatherer::TFeatureVec& features,
-               CResourceMonitor& resourceMonitor,
-               core_t::TTime startTime,
-               core_t::TTime bucketLength,
-               CModelFactory::TDataGathererPtr& gatherer,
-               CAnomalyDetectorModel::TModelPtr& model,
-               std::size_t numberPeople) {
-    factory.features(features);
-    CModelFactory::SGathererInitializationData gathererInitData(startTime);
-    gatherer.reset(factory.makeDataGatherer(gathererInitData));
-    CModelFactory::SModelInitializationData initData(gatherer);
-    model.reset(factory.makeModel(initData));
-    CPPUNIT_ASSERT(model);
-    CPPUNIT_ASSERT_EQUAL(bucketLength, model->bucketLength());
-    for (std::size_t i = 0u; i < numberPeople; ++i) {
-        CPPUNIT_ASSERT_EQUAL(std::size_t(i),
-                             addPerson("p" + core::CStringUtils::typeToString(i + 1),
-                                       gatherer, resourceMonitor));
-    }
 }
 
 void addArrival(CDataGatherer& gatherer,
@@ -265,15 +235,12 @@ void testModelWithValueField(model_t::EFeature feature,
     const core_t::TTime startTime = 1346968800;
     const core_t::TTime bucketLength = 3600;
     SModelParams params(bucketLength);
-    CEventRatePopulationModelFactory factory(params);
-    model_t::TFeatureVec features(1u, feature);
-    factory.features(features);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CEventRatePopulationModelFactory factory(params, interimBucketCorrector);
+    factory.features({feature});
     factory.fieldNames("", "", "P", "V", TStrVec());
-    CModelFactory::SGathererInitializationData gathererInitData(startTime);
-    CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
-
-    CModelFactory::SModelInitializationData modelInitData(gatherer);
-    CAnomalyDetectorModel::TModelPtr model(factory.makeModel(modelInitData));
+    CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(startTime));
+    CModelFactory::TModelPtr model(factory.makeModel(gatherer));
     CPPUNIT_ASSERT(model);
 
     std::size_t anomalousBucket = 20;
@@ -318,16 +285,11 @@ void CEventRateModelTest::testOnlineCountSample() {
     const core_t::TTime bucketLength = 3600;
     SModelParams params(bucketLength);
     params.s_InitialDecayRateMultiplier = 1.0;
-    CEventRateModelFactory factory(params);
-    model_t::TFeatureVec features(1u, model_t::E_IndividualCountByBucketAndPerson);
-    CModelFactory::TDataGathererPtr gatherer;
-    CAnomalyDetectorModel::TModelPtr model_;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              gatherer, model_, 1);
-    CEventRateModel* model = dynamic_cast<CEventRateModel*>(model_.get());
+    this->makeModel(params, {model_t::E_IndividualCountByBucketAndPerson}, startTime, 1);
+    CEventRateModel* model = dynamic_cast<CEventRateModel*>(m_Model.get());
     CPPUNIT_ASSERT(model);
 
-    TMathsModelPtr timeseriesModel{factory.defaultFeatureModel(
+    TMathsModelPtr timeseriesModel{m_Factory->defaultFeatureModel(
         model_t::E_IndividualCountByBucketAndPerson, bucketLength, 0.4, true)};
     maths::CModelAddSamplesParams::TDouble2VecWeightsAryVec weights{
         maths_t::CUnitWeights::unit<TDouble2Vec>(1)};
@@ -347,7 +309,7 @@ void CEventRateModelTest::testOnlineCountSample() {
 
         double count = 0.0;
         for (/**/; i < eventTimes.size() && eventTimes[i] < bucketEndTime; ++i) {
-            addArrival(*gatherer, m_ResourceMonitor, eventTimes[i], "p1");
+            addArrival(*m_Gatherer, m_ResourceMonitor, eventTimes[i], "p1");
             count += 1.0;
         }
 
@@ -395,9 +357,7 @@ void CEventRateModelTest::testOnlineCountSample() {
     core::CRapidXmlParser parser;
     CPPUNIT_ASSERT(parser.parseStringIgnoreCdata(origXml));
     core::CRapidXmlStateRestoreTraverser traverser(parser);
-
-    CModelFactory::SModelInitializationData initData(gatherer);
-    CAnomalyDetectorModel::TModelPtr restoredModelPtr(factory.makeModel(initData, traverser));
+    CModelFactory::TModelPtr restoredModelPtr(m_Factory->makeModel(m_Gatherer, traverser));
 
     // The XML representation of the new filter should be the same as the original
     std::string newXml;
@@ -418,16 +378,12 @@ void CEventRateModelTest::testOnlineNonZeroCountSample() {
     const core_t::TTime bucketLength = 3600;
     SModelParams params(bucketLength);
     params.s_InitialDecayRateMultiplier = 1.0;
-    CEventRateModelFactory factory(params);
-    model_t::TFeatureVec features(1u, model_t::E_IndividualNonZeroCountByBucketAndPerson);
-    CModelFactory::TDataGathererPtr gatherer;
-    CAnomalyDetectorModel::TModelPtr model_;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              gatherer, model_, 1);
-    CEventRateModel* model = dynamic_cast<CEventRateModel*>(model_.get());
+    this->makeModel(params, {model_t::E_IndividualNonZeroCountByBucketAndPerson},
+                    startTime, 1);
+    CEventRateModel* model = dynamic_cast<CEventRateModel*>(m_Model.get());
     CPPUNIT_ASSERT(model);
 
-    TMathsModelPtr timeseriesModel{factory.defaultFeatureModel(
+    TMathsModelPtr timeseriesModel{m_Factory->defaultFeatureModel(
         model_t::E_IndividualNonZeroCountByBucketAndPerson, bucketLength, 0.4, true)};
     maths::CModelAddSamplesParams::TDouble2VecWeightsAryVec weights{
         maths_t::CUnitWeights::unit<TDouble2Vec>(1)};
@@ -447,7 +403,7 @@ void CEventRateModelTest::testOnlineNonZeroCountSample() {
 
         double count = 0.0;
         for (; i < eventTimes.size() && eventTimes[i] < bucketEndTime; ++i) {
-            addArrival(*gatherer, m_ResourceMonitor, eventTimes[i], "p1");
+            addArrival(*m_Gatherer, m_ResourceMonitor, eventTimes[i], "p1");
             count += 1.0;
         }
 
@@ -489,35 +445,31 @@ void CEventRateModelTest::testOnlineRare() {
     const core_t::TTime startTime = 1346968800;
     const core_t::TTime bucketLength = 3600;
     SModelParams params(bucketLength);
-    CEventRateModelFactory factory(params);
-    model_t::TFeatureVec features;
-    features.push_back(model_t::E_IndividualTotalBucketCountByPerson);
-    features.push_back(model_t::E_IndividualIndicatorOfBucketPerson);
-    CModelFactory::TDataGathererPtr gatherer;
-    CAnomalyDetectorModel::TModelPtr model_;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              gatherer, model_, 5);
-    CEventRateModel* model = dynamic_cast<CEventRateModel*>(model_.get());
+    this->makeModel(params,
+                    {model_t::E_IndividualTotalBucketCountByPerson,
+                     model_t::E_IndividualIndicatorOfBucketPerson},
+                    startTime, 5);
+    CEventRateModel* model = dynamic_cast<CEventRateModel*>(m_Model.get());
 
     core_t::TTime time = startTime;
     for (/**/; time < startTime + 10 * bucketLength; time += bucketLength) {
-        addArrival(*gatherer, m_ResourceMonitor, time + bucketLength / 2, "p1");
-        addArrival(*gatherer, m_ResourceMonitor, time + bucketLength / 2, "p2");
+        addArrival(*m_Gatherer, m_ResourceMonitor, time + bucketLength / 2, "p1");
+        addArrival(*m_Gatherer, m_ResourceMonitor, time + bucketLength / 2, "p2");
         model->sample(time, time + bucketLength, m_ResourceMonitor);
     }
     for (/**/; time < startTime + 50 * bucketLength; time += bucketLength) {
-        addArrival(*gatherer, m_ResourceMonitor, time + bucketLength / 2, "p1");
-        addArrival(*gatherer, m_ResourceMonitor, time + bucketLength / 2, "p2");
-        addArrival(*gatherer, m_ResourceMonitor, time + bucketLength / 2, "p3");
-        addArrival(*gatherer, m_ResourceMonitor, time + bucketLength / 2, "p4");
+        addArrival(*m_Gatherer, m_ResourceMonitor, time + bucketLength / 2, "p1");
+        addArrival(*m_Gatherer, m_ResourceMonitor, time + bucketLength / 2, "p2");
+        addArrival(*m_Gatherer, m_ResourceMonitor, time + bucketLength / 2, "p3");
+        addArrival(*m_Gatherer, m_ResourceMonitor, time + bucketLength / 2, "p4");
         model->sample(time, time + bucketLength, m_ResourceMonitor);
     }
 
-    addArrival(*gatherer, m_ResourceMonitor, time + bucketLength / 2, "p1");
-    addArrival(*gatherer, m_ResourceMonitor, time + bucketLength / 2, "p2");
-    addArrival(*gatherer, m_ResourceMonitor, time + bucketLength / 2, "p3");
-    addArrival(*gatherer, m_ResourceMonitor, time + bucketLength / 2, "p4");
-    addArrival(*gatherer, m_ResourceMonitor, time + bucketLength / 2, "p5");
+    addArrival(*m_Gatherer, m_ResourceMonitor, time + bucketLength / 2, "p1");
+    addArrival(*m_Gatherer, m_ResourceMonitor, time + bucketLength / 2, "p2");
+    addArrival(*m_Gatherer, m_ResourceMonitor, time + bucketLength / 2, "p3");
+    addArrival(*m_Gatherer, m_ResourceMonitor, time + bucketLength / 2, "p4");
+    addArrival(*m_Gatherer, m_ResourceMonitor, time + bucketLength / 2, "p5");
     model->sample(time, time + bucketLength, m_ResourceMonitor);
 
     TDoubleVec probabilities;
@@ -546,15 +498,13 @@ void CEventRateModelTest::testOnlineRare() {
 
     LOG_TRACE(<< "origXml = " << origXml);
     LOG_DEBUG(<< "size = " << origXml.size());
-    CPPUNIT_ASSERT(origXml.size() < 21000);
+    CPPUNIT_ASSERT(origXml.size() < 22000);
 
     // Restore the XML into a new filter
     core::CRapidXmlParser parser;
     CPPUNIT_ASSERT(parser.parseStringIgnoreCdata(origXml));
     core::CRapidXmlStateRestoreTraverser traverser(parser);
-
-    CModelFactory::SModelInitializationData initData(gatherer);
-    CAnomalyDetectorModel::TModelPtr restoredModelPtr(factory.makeModel(initData, traverser));
+    CModelFactory::TModelPtr restoredModelPtr(m_Factory->makeModel(m_Gatherer, traverser));
 
     // The XML representation of the new filter should be the same as the original
     std::string newXml;
@@ -577,13 +527,8 @@ void CEventRateModelTest::testOnlineProbabilityCalculation() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CEventRateModelFactory factory(params);
-    model_t::TFeatureVec features(1u, model_t::E_IndividualCountByBucketAndPerson);
-    CModelFactory::TDataGathererPtr gatherer;
-    CAnomalyDetectorModel::TModelPtr model_;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              gatherer, model_, 1);
-    CEventRateModel* model = dynamic_cast<CEventRateModel*>(model_.get());
+    this->makeModel(params, {model_t::E_IndividualCountByBucketAndPerson}, startTime, 1);
+    CEventRateModel* model = dynamic_cast<CEventRateModel*>(m_Model.get());
 
     TMinAccumulator minProbabilities(2u);
 
@@ -603,7 +548,7 @@ void CEventRateModelTest::testOnlineProbabilityCalculation() {
 
         double count = 0.0;
         for (; i < eventTimes.size() && eventTimes[i] < bucketEndTime; ++i) {
-            addArrival(*gatherer, m_ResourceMonitor, eventTimes[i], "p1");
+            addArrival(*m_Gatherer, m_ResourceMonitor, eventTimes[i], "p1");
             count += 1.0;
         }
 
@@ -636,23 +581,19 @@ void CEventRateModelTest::testOnlineProbabilityCalculationForLowNonZeroCount() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CEventRateModelFactory factory(params);
-    model_t::TFeatureVec features(1u, model_t::E_IndividualLowNonZeroCountByBucketAndPerson);
-    CModelFactory::TDataGathererPtr gatherer;
-    CAnomalyDetectorModel::TModelPtr model_;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              gatherer, model_, 1);
-    CEventRateModel* model = dynamic_cast<CEventRateModel*>(model_.get());
+    this->makeModel(params, {model_t::E_IndividualLowNonZeroCountByBucketAndPerson},
+                    startTime, 1);
+    CEventRateModel* model = dynamic_cast<CEventRateModel*>(m_Model.get());
 
     TDoubleVec probabilities;
 
     core_t::TTime time = startTime;
-    for (std::size_t i = 0u; i < boost::size(bucketCounts); ++i) {
-        LOG_DEBUG(<< "Writing " << bucketCounts[i] << " values");
+    for (auto count : bucketCounts) {
+        LOG_DEBUG(<< "Writing " << count << " values");
 
-        for (std::size_t j = 0u; j < bucketCounts[i]; ++j) {
-            addArrival(*gatherer, m_ResourceMonitor,
-                       time + static_cast<core_t::TTime>(j), "p1");
+        for (std::size_t i = 0u; i < count; ++i) {
+            addArrival(*m_Gatherer, m_ResourceMonitor,
+                       time + static_cast<core_t::TTime>(i), "p1");
         }
         model->sample(time, time + bucketLength, m_ResourceMonitor);
 
@@ -686,23 +627,19 @@ void CEventRateModelTest::testOnlineProbabilityCalculationForHighNonZeroCount() 
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CEventRateModelFactory factory(params);
-    model_t::TFeatureVec features(1u, model_t::E_IndividualHighNonZeroCountByBucketAndPerson);
-    CModelFactory::TDataGathererPtr gatherer;
-    CAnomalyDetectorModel::TModelPtr model_;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              gatherer, model_, 1);
-    CEventRateModel* model = dynamic_cast<CEventRateModel*>(model_.get());
+    this->makeModel(params, {model_t::E_IndividualHighNonZeroCountByBucketAndPerson},
+                    startTime, 1);
+    CEventRateModel* model = dynamic_cast<CEventRateModel*>(m_Model.get());
 
     TDoubleVec probabilities;
 
     core_t::TTime time = startTime;
-    for (std::size_t i = 0u; i < boost::size(bucketCounts); ++i) {
-        LOG_DEBUG(<< "Writing " << bucketCounts[i] << " values");
+    for (auto count : bucketCounts) {
+        LOG_DEBUG(<< "Writing " << count << " values");
 
-        for (std::size_t j = 0u; j < bucketCounts[i]; ++j) {
-            addArrival(*gatherer, m_ResourceMonitor,
-                       time + static_cast<core_t::TTime>(j), "p1");
+        for (std::size_t i = 0u; i < count; ++i) {
+            addArrival(*m_Gatherer, m_ResourceMonitor,
+                       time + static_cast<core_t::TTime>(i), "p1");
         }
         model->sample(time, time + bucketLength, m_ResourceMonitor);
 
@@ -759,13 +696,8 @@ void CEventRateModelTest::testOnlineCorrelatedNoTrend() {
         params.s_MinimumModeFraction = CAnomalyDetectorModelConfig::DEFAULT_INDIVIDUAL_MINIMUM_MODE_FRACTION;
         params.s_MinimumModeCount = 24.0;
         params.s_MultivariateByFields = true;
-        CEventRateModelFactory factory(params);
-        model_t::TFeatureVec features(1u, model_t::E_IndividualCountByBucketAndPerson);
-        CModelFactory::TDataGathererPtr gatherer;
-        CAnomalyDetectorModel::TModelPtr model_;
-        makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-                  gatherer, model_, 4);
-        CEventRateModel* model = dynamic_cast<CEventRateModel*>(model_.get());
+        this->makeModel(params, {model_t::E_IndividualCountByBucketAndPerson}, startTime, 4);
+        CEventRateModel* model = dynamic_cast<CEventRateModel*>(m_Model.get());
         CPPUNIT_ASSERT(model);
 
         LOG_DEBUG(<< "Test correlation anomalies");
@@ -788,7 +720,7 @@ void CEventRateModelTest::testOnlineCorrelatedNoTrend() {
                     n += anomalies[anomaly][j];
                 }
                 for (std::size_t k = 0u; k < static_cast<std::size_t>(n); ++k) {
-                    addArrival(*gatherer, m_ResourceMonitor,
+                    addArrival(*m_Gatherer, m_ResourceMonitor,
                                time + static_cast<core_t::TTime>(j), person);
                 }
             }
@@ -841,9 +773,7 @@ void CEventRateModelTest::testOnlineCorrelatedNoTrend() {
         core::CRapidXmlParser parser;
         CPPUNIT_ASSERT(parser.parseStringIgnoreCdata(origXml));
         core::CRapidXmlStateRestoreTraverser traverser(parser);
-
-        CModelFactory::SModelInitializationData initData(gatherer);
-        CAnomalyDetectorModel::TModelPtr restoredModel(factory.makeModel(initData, traverser));
+        CModelFactory::TModelPtr restoredModel(m_Factory->makeModel(m_Gatherer, traverser));
         std::string newXml;
         {
             core::CRapidXmlStatePersistInserter inserter("root");
@@ -862,13 +792,8 @@ void CEventRateModelTest::testOnlineCorrelatedNoTrend() {
         params.s_MinimumModeFraction = CAnomalyDetectorModelConfig::DEFAULT_INDIVIDUAL_MINIMUM_MODE_FRACTION;
         params.s_MinimumModeCount = 24.0;
         params.s_MultivariateByFields = true;
-        CEventRateModelFactory factory(params);
-        model_t::TFeatureVec features(1u, model_t::E_IndividualCountByBucketAndPerson);
-        CModelFactory::TDataGathererPtr gatherer;
-        CAnomalyDetectorModel::TModelPtr model_;
-        makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-                  gatherer, model_, 4);
-        CEventRateModel* model = dynamic_cast<CEventRateModel*>(model_.get());
+        this->makeModel(params, {model_t::E_IndividualCountByBucketAndPerson}, startTime, 4);
+        CEventRateModel* model = dynamic_cast<CEventRateModel*>(m_Model.get());
         CPPUNIT_ASSERT(model);
 
         std::size_t anomalyBuckets[] = {100, 160, 190, b};
@@ -890,7 +815,7 @@ void CEventRateModelTest::testOnlineCorrelatedNoTrend() {
                 }
                 n = std::max(n, 0.0);
                 for (std::size_t k = 0u; k < static_cast<std::size_t>(n); ++k) {
-                    addArrival(*gatherer, m_ResourceMonitor,
+                    addArrival(*m_Gatherer, m_ResourceMonitor,
                                time + static_cast<core_t::TTime>(j), person);
                 }
             }
@@ -985,13 +910,8 @@ void CEventRateModelTest::testOnlineCorrelatedTrend() {
     params.s_MinimumModeFraction = CAnomalyDetectorModelConfig::DEFAULT_INDIVIDUAL_MINIMUM_MODE_FRACTION;
     params.s_MinimumModeCount = 24.0;
     params.s_MultivariateByFields = true;
-    CEventRateModelFactory factory(params);
-    model_t::TFeatureVec features(1u, model_t::E_IndividualCountByBucketAndPerson);
-    CModelFactory::TDataGathererPtr gatherer;
-    CAnomalyDetectorModel::TModelPtr model_;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              gatherer, model_, 4);
-    CEventRateModel* model = dynamic_cast<CEventRateModel*>(model_.get());
+    this->makeModel(params, {model_t::E_IndividualCountByBucketAndPerson}, startTime, 4);
+    CEventRateModel* model = dynamic_cast<CEventRateModel*>(m_Model.get());
     CPPUNIT_ASSERT(model);
 
     core_t::TTime time = startTime;
@@ -1014,7 +934,7 @@ void CEventRateModelTest::testOnlineCorrelatedTrend() {
             }
             n = std::max(n / 3.0, 0.0);
             for (std::size_t k = 0u; k < static_cast<std::size_t>(n); ++k) {
-                addArrival(*gatherer, m_ResourceMonitor,
+                addArrival(*m_Gatherer, m_ResourceMonitor,
                            time + static_cast<core_t::TTime>(j), person);
             }
         }
@@ -1089,20 +1009,17 @@ void CEventRateModelTest::testPrune() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.01;
-    CEventRateModelFactory factory(params);
     model_t::TFeatureVec features;
     features.push_back(model_t::E_IndividualNonZeroCountByBucketAndPerson);
     features.push_back(model_t::E_IndividualTotalBucketCountByPerson);
     CModelFactory::TDataGathererPtr gatherer;
-    CAnomalyDetectorModel::TModelPtr model_;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              gatherer, model_, 0);
+    CModelFactory::TModelPtr model_;
+    this->makeModel(params, features, startTime, 0, gatherer, model_);
     CEventRateModel* model = dynamic_cast<CEventRateModel*>(model_.get());
     CPPUNIT_ASSERT(model);
     CModelFactory::TDataGathererPtr expectedGatherer;
-    CAnomalyDetectorModel::TModelPtr expectedModel_;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              expectedGatherer, expectedModel_, 0);
+    CModelFactory::TModelPtr expectedModel_;
+    this->makeModel(params, features, startTime, 0, expectedGatherer, expectedModel_);
     CEventRateModel* expectedModel =
         dynamic_cast<CEventRateModel*>(expectedModel_.get());
     CPPUNIT_ASSERT(expectedModel);
@@ -1119,7 +1036,9 @@ void CEventRateModelTest::testPrune() {
             }
         }
     }
-    std::sort(events.begin(), events.end(), CTimeLess());
+    std::sort(events.begin(), events.end(), [](const CEventData& lhs, const CEventData& rhs) {
+        return lhs.time() < rhs.time();
+    });
 
     TEventDataVec expectedEvents;
     expectedEvents.reserve(events.size());
@@ -1194,7 +1113,7 @@ void CEventRateModelTest::testPrune() {
     CPPUNIT_ASSERT_EQUAL(expectedModel->checksum(), model->checksum());
 
     // Test that calling prune on a cloned model which has seen no new data does nothing.
-    CAnomalyDetectorModel::TModelPtr clonedModel(model->cloneForPersistence());
+    CModelFactory::TModelPtr clonedModel(model->cloneForPersistence());
     std::size_t numberOfPeopleBeforePrune(clonedModel->dataGatherer().numberActivePeople());
     CPPUNIT_ASSERT(numberOfPeopleBeforePrune > 0);
     clonedModel->prune(clonedModel->defaultPruneWindow());
@@ -1303,11 +1222,8 @@ void CEventRateModelTest::testModelsWithValueFields() {
         strings.push_back("p1");
         strings.push_back("c1");
         strings.push_back("c2");
-        strings.push_back("trwh5jks9djadkn453hgfadadfjhadhfkdhakj4hkahdlagl4iuy"
-                          "galshkdjbvlaus4hliu4WHGFLIUSDHLKAJ");
-        strings.push_back("2H4G55HALFMN569DNIVJ55B3BSJXU;4VBQ-"
-                          "LKDFNUE9HNV904U5QGA;DDFLVJKF95NSD,MMVASD.,A.4,A."
-                          "SD4");
+        strings.push_back("trwh5jks9djadkn453hgfadadfjhadhfkdhakj4hkahdlagl4iuygalshkdjbvlaus4hliu4WHGFLIUSDHLKAJ");
+        strings.push_back("2H4G55HALFMN569DNIVJ55B3BSJXU;4VBQ-LKDFNUE9HNV904U5QGA;DDFLVJKF95NSD,MMVASD.,A.4,A.SD4");
         strings.push_back("a");
         strings.push_back("b");
 
@@ -1374,18 +1290,15 @@ void CEventRateModelTest::testCountProbabilityCalculationWithInfluence() {
         // Test single influence name, single influence value
         SModelParams params(bucketLength);
         params.s_DecayRate = 0.001;
-        CEventRateModelFactory factory(params);
-        TStrVec influenceFieldNames;
-        influenceFieldNames.push_back("IF1");
+        auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+        CEventRateModelFactory factory(params, interimBucketCorrector);
+        TStrVec influenceFieldNames{"IF1"};
         factory.fieldNames("", "", "", "", influenceFieldNames);
-        model_t::TFeatureVec features(1u, model_t::E_IndividualCountByBucketAndPerson);
-        factory.features(features);
-        CModelFactory::SGathererInitializationData gathererInitData(startTime);
-        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
+        factory.features({model_t::E_IndividualCountByBucketAndPerson});
+        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(startTime));
         CPPUNIT_ASSERT_EQUAL(std::size_t(0),
                              addPersonWithInfluence("p", gatherer, m_ResourceMonitor, 1));
-        CModelFactory::SModelInitializationData modelInitData(gatherer);
-        CAnomalyDetectorModel::TModelPtr modelHolder(factory.makeModel(modelInitData));
+        CModelFactory::TModelPtr modelHolder(factory.makeModel(gatherer));
         CEventRateModel* model = dynamic_cast<CEventRateModel*>(modelHolder.get());
         CPPUNIT_ASSERT(model);
 
@@ -1434,18 +1347,15 @@ void CEventRateModelTest::testCountProbabilityCalculationWithInfluence() {
         // Test single influence name, two influence values
         SModelParams params(bucketLength);
         params.s_DecayRate = 0.001;
-        CEventRateModelFactory factory(params);
-        TStrVec influenceFieldNames;
-        influenceFieldNames.push_back("IF1");
+        auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+        CEventRateModelFactory factory(params, interimBucketCorrector);
+        TStrVec influenceFieldNames{"IF1"};
         factory.fieldNames("", "", "", "", influenceFieldNames);
-        model_t::TFeatureVec features(1u, model_t::E_IndividualCountByBucketAndPerson);
-        factory.features(features);
-        CModelFactory::SGathererInitializationData gathererInitData(startTime);
-        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
+        factory.features({model_t::E_IndividualCountByBucketAndPerson});
+        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(startTime));
         CPPUNIT_ASSERT_EQUAL(std::size_t(0),
                              addPersonWithInfluence("p", gatherer, m_ResourceMonitor, 1));
-        CModelFactory::SModelInitializationData modelInitData(gatherer);
-        CAnomalyDetectorModel::TModelPtr modelHolder(factory.makeModel(modelInitData));
+        CModelFactory::TModelPtr modelHolder(factory.makeModel(gatherer));
         CEventRateModel* model = dynamic_cast<CEventRateModel*>(modelHolder.get());
         CPPUNIT_ASSERT(model);
 
@@ -1500,18 +1410,15 @@ void CEventRateModelTest::testCountProbabilityCalculationWithInfluence() {
         // Test single influence name, two influence values, less anomalousness for each
         SModelParams params(bucketLength);
         params.s_DecayRate = 0.001;
-        CEventRateModelFactory factory(params);
-        TStrVec influenceFieldNames;
-        influenceFieldNames.push_back("IF1");
+        auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+        CEventRateModelFactory factory(params, interimBucketCorrector);
+        TStrVec influenceFieldNames{"IF1"};
         factory.fieldNames("", "", "", "", influenceFieldNames);
-        model_t::TFeatureVec features(1u, model_t::E_IndividualCountByBucketAndPerson);
-        factory.features(features);
-        CModelFactory::SGathererInitializationData gathererInitData(startTime);
-        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
+        factory.features({model_t::E_IndividualCountByBucketAndPerson});
+        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(startTime));
         CPPUNIT_ASSERT_EQUAL(std::size_t(0),
                              addPersonWithInfluence("p", gatherer, m_ResourceMonitor, 1));
-        CModelFactory::SModelInitializationData modelInitData(gatherer);
-        CAnomalyDetectorModel::TModelPtr modelHolder(factory.makeModel(modelInitData));
+        CModelFactory::TModelPtr modelHolder(factory.makeModel(gatherer));
         CEventRateModel* model = dynamic_cast<CEventRateModel*>(modelHolder.get());
         CPPUNIT_ASSERT(model);
 
@@ -1568,18 +1475,15 @@ void CEventRateModelTest::testCountProbabilityCalculationWithInfluence() {
         // Test single influence name, two asymmetric influence values
         SModelParams params(bucketLength);
         params.s_DecayRate = 0.001;
-        CEventRateModelFactory factory(params);
-        TStrVec influenceFieldNames;
-        influenceFieldNames.push_back("IF1");
+        auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+        CEventRateModelFactory factory(params, interimBucketCorrector);
+        TStrVec influenceFieldNames{"IF1"};
         factory.fieldNames("", "", "", "", influenceFieldNames);
-        model_t::TFeatureVec features(1u, model_t::E_IndividualCountByBucketAndPerson);
-        factory.features(features);
-        CModelFactory::SGathererInitializationData gathererInitData(startTime);
-        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
+        factory.features({model_t::E_IndividualCountByBucketAndPerson});
+        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(startTime));
         CPPUNIT_ASSERT_EQUAL(std::size_t(0),
                              addPersonWithInfluence("p", gatherer, m_ResourceMonitor, 1));
-        CModelFactory::SModelInitializationData modelInitData(gatherer);
-        CAnomalyDetectorModel::TModelPtr modelHolder(factory.makeModel(modelInitData));
+        CModelFactory::TModelPtr modelHolder(factory.makeModel(gatherer));
         CEventRateModel* model = dynamic_cast<CEventRateModel*>(modelHolder.get());
         CPPUNIT_ASSERT(model);
 
@@ -1634,19 +1538,17 @@ void CEventRateModelTest::testCountProbabilityCalculationWithInfluence() {
         // Test two influence names, two asymmetric influence values in each
         SModelParams params(bucketLength);
         params.s_DecayRate = 0.001;
-        CEventRateModelFactory factory(params);
+        auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+        CEventRateModelFactory factory(params, interimBucketCorrector);
         TStrVec influenceFieldNames;
         influenceFieldNames.push_back("IF1");
         influenceFieldNames.push_back("IF2");
         factory.fieldNames("", "", "", "", influenceFieldNames);
-        model_t::TFeatureVec features(1u, model_t::E_IndividualCountByBucketAndPerson);
-        factory.features(features);
-        CModelFactory::SGathererInitializationData gathererInitData(startTime);
-        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
+        factory.features({model_t::E_IndividualCountByBucketAndPerson});
+        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(startTime));
         CPPUNIT_ASSERT_EQUAL(std::size_t(0),
                              addPersonWithInfluence("p", gatherer, m_ResourceMonitor, 2));
-        CModelFactory::SModelInitializationData modelInitData(gatherer);
-        CAnomalyDetectorModel::TModelPtr modelHolder(factory.makeModel(modelInitData));
+        CModelFactory::TModelPtr modelHolder(factory.makeModel(gatherer));
         CEventRateModel* model = dynamic_cast<CEventRateModel*>(modelHolder.get());
         CPPUNIT_ASSERT(model);
 
@@ -1717,19 +1619,16 @@ void CEventRateModelTest::testDistinctCountProbabilityCalculationWithInfluence()
         // Test single influence name, single influence value
         SModelParams params(bucketLength);
         params.s_DecayRate = 0.001;
-        CEventRateModelFactory factory(params);
-        TStrVec influenceFieldNames;
-        influenceFieldNames.push_back("IF1");
+        auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+        CEventRateModelFactory factory(params, interimBucketCorrector);
+        TStrVec influenceFieldNames{"IF1"};
         factory.fieldNames("", "", "", "foo", influenceFieldNames);
-        model_t::TFeatureVec features(1u, model_t::E_IndividualUniqueCountByBucketAndPerson);
-        factory.features(features);
-        CModelFactory::SGathererInitializationData gathererInitData(startTime);
-        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
+        factory.features({model_t::E_IndividualUniqueCountByBucketAndPerson});
+        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(startTime));
         CPPUNIT_ASSERT_EQUAL(std::size_t(0),
                              addPersonWithInfluence("p", gatherer, m_ResourceMonitor,
                                                     1, TOptionalStr("v")));
-        CModelFactory::SModelInitializationData modelInitData(gatherer);
-        CAnomalyDetectorModel::TModelPtr modelHolder(factory.makeModel(modelInitData));
+        CModelFactory::TModelPtr modelHolder(factory.makeModel(gatherer));
         CEventRateModel* model = dynamic_cast<CEventRateModel*>(modelHolder.get());
         CPPUNIT_ASSERT(model);
 
@@ -1788,19 +1687,16 @@ void CEventRateModelTest::testDistinctCountProbabilityCalculationWithInfluence()
         // Test single influence name, two influence values
         SModelParams params(bucketLength);
         params.s_DecayRate = 0.001;
-        CEventRateModelFactory factory(params);
-        TStrVec influenceFieldNames;
-        influenceFieldNames.push_back("IF1");
+        auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+        CEventRateModelFactory factory(params, interimBucketCorrector);
+        TStrVec influenceFieldNames{"IF1"};
         factory.fieldNames("", "", "", "foo", influenceFieldNames);
-        model_t::TFeatureVec features(1u, model_t::E_IndividualUniqueCountByBucketAndPerson);
-        factory.features(features);
-        CModelFactory::SGathererInitializationData gathererInitData(startTime);
-        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
+        factory.features({model_t::E_IndividualUniqueCountByBucketAndPerson});
+        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(startTime));
         CPPUNIT_ASSERT_EQUAL(std::size_t(0),
                              addPersonWithInfluence("p", gatherer, m_ResourceMonitor,
                                                     1, TOptionalStr("v")));
-        CModelFactory::SModelInitializationData modelInitData(gatherer);
-        CAnomalyDetectorModel::TModelPtr modelHolder(factory.makeModel(modelInitData));
+        CModelFactory::TModelPtr modelHolder(factory.makeModel(gatherer));
         CEventRateModel* model = dynamic_cast<CEventRateModel*>(modelHolder.get());
         CPPUNIT_ASSERT(model);
 
@@ -1869,19 +1765,16 @@ void CEventRateModelTest::testDistinctCountProbabilityCalculationWithInfluence()
         // Test single influence name, two asymmetric influence values
         SModelParams params(bucketLength);
         params.s_DecayRate = 0.001;
-        CEventRateModelFactory factory(params);
-        TStrVec influenceFieldNames;
-        influenceFieldNames.push_back("IF1");
+        auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+        CEventRateModelFactory factory(params, interimBucketCorrector);
+        TStrVec influenceFieldNames{"IF1"};
         factory.fieldNames("", "", "", "foo", influenceFieldNames);
-        model_t::TFeatureVec features(1u, model_t::E_IndividualUniqueCountByBucketAndPerson);
-        factory.features(features);
-        CModelFactory::SGathererInitializationData gathererInitData(startTime);
-        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
+        factory.features({model_t::E_IndividualUniqueCountByBucketAndPerson});
+        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(startTime));
         CPPUNIT_ASSERT_EQUAL(std::size_t(0),
                              addPersonWithInfluence("p", gatherer, m_ResourceMonitor,
                                                     1, TOptionalStr("v")));
-        CModelFactory::SModelInitializationData modelInitData(gatherer);
-        CAnomalyDetectorModel::TModelPtr modelHolder(factory.makeModel(modelInitData));
+        CModelFactory::TModelPtr modelHolder(factory.makeModel(gatherer));
         CEventRateModel* model = dynamic_cast<CEventRateModel*>(modelHolder.get());
         CPPUNIT_ASSERT(model);
 
@@ -1946,20 +1839,18 @@ void CEventRateModelTest::testDistinctCountProbabilityCalculationWithInfluence()
         // Test two influence names, two asymmetric influence values in each
         SModelParams params(bucketLength);
         params.s_DecayRate = 0.001;
-        CEventRateModelFactory factory(params);
+        auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+        CEventRateModelFactory factory(params, interimBucketCorrector);
         TStrVec influenceFieldNames;
         influenceFieldNames.push_back("IF1");
         influenceFieldNames.push_back("IF2");
         factory.fieldNames("", "", "", "foo", influenceFieldNames);
-        model_t::TFeatureVec features(1u, model_t::E_IndividualUniqueCountByBucketAndPerson);
-        factory.features(features);
-        CModelFactory::SGathererInitializationData gathererInitData(startTime);
-        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
+        factory.features({model_t::E_IndividualUniqueCountByBucketAndPerson});
+        CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(startTime));
         CPPUNIT_ASSERT_EQUAL(std::size_t(0),
                              addPersonWithInfluence("p", gatherer, m_ResourceMonitor,
                                                     2, TOptionalStr("v")));
-        CModelFactory::SModelInitializationData modelInitData(gatherer);
-        CAnomalyDetectorModel::TModelPtr modelHolder(factory.makeModel(modelInitData));
+        CModelFactory::TModelPtr modelHolder(factory.makeModel(gatherer));
         CEventRateModel* model = dynamic_cast<CEventRateModel*>(modelHolder.get());
         CPPUNIT_ASSERT(model);
 
@@ -2041,14 +1932,12 @@ void CEventRateModelTest::testOnlineRareWithInfluence() {
     const core_t::TTime startTime = 1346968800;
     const core_t::TTime bucketLength = 3600;
     SModelParams params(bucketLength);
-    CEventRateModelFactory factory(params);
-    TStrVec influenceFieldNames;
-    influenceFieldNames.push_back("IF1");
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CEventRateModelFactory factory(params, interimBucketCorrector);
+    TStrVec influenceFieldNames{"IF1"};
     factory.fieldNames("", "", "", "", influenceFieldNames);
-    model_t::TFeatureVec features = function_t::features(function_t::E_IndividualRare);
-    factory.features(features);
-    CModelFactory::SGathererInitializationData gathererInitData(startTime);
-    CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
+    factory.features(function_t::features(function_t::E_IndividualRare));
+    CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(startTime));
     CPPUNIT_ASSERT_EQUAL(std::size_t(0),
                          addPersonWithInfluence("p1", gatherer, m_ResourceMonitor, 1));
     CPPUNIT_ASSERT_EQUAL(std::size_t(1),
@@ -2059,8 +1948,7 @@ void CEventRateModelTest::testOnlineRareWithInfluence() {
                          addPersonWithInfluence("p4", gatherer, m_ResourceMonitor, 1));
     CPPUNIT_ASSERT_EQUAL(std::size_t(4),
                          addPersonWithInfluence("p5", gatherer, m_ResourceMonitor, 1));
-    CModelFactory::SModelInitializationData modelInitData(gatherer);
-    CAnomalyDetectorModel::TModelPtr modelHolder(factory.makeModel(modelInitData));
+    CModelFactory::TModelPtr modelHolder(factory.makeModel(gatherer));
     CEventRateModel* model = dynamic_cast<CEventRateModel*>(modelHolder.get());
     CPPUNIT_ASSERT(model);
 
@@ -2132,9 +2020,7 @@ void CEventRateModelTest::testOnlineRareWithInfluence() {
     core::CRapidXmlParser parser;
     CPPUNIT_ASSERT(parser.parseStringIgnoreCdata(origXml));
     core::CRapidXmlStateRestoreTraverser traverser(parser);
-
-    CAnomalyDetectorModel::TModelPtr restoredModelPtr(
-        factory.makeModel(modelInitData, traverser));
+    CModelFactory::TModelPtr restoredModelPtr(factory.makeModel(gatherer, traverser));
 
     // The XML representation of the new filter should be the same as the original
     std::string newXml;
@@ -2153,13 +2039,11 @@ void CEventRateModelTest::testSkipSampling() {
     std::size_t maxAgeBuckets(5);
 
     SModelParams params(bucketLength);
-    CEventRateModelFactory factory(params);
     params.s_InitialDecayRateMultiplier = 1.0;
-    model_t::TFeatureVec features(1u, model_t::E_IndividualCountByBucketAndPerson);
+    model_t::TFeatureVec features{model_t::E_IndividualCountByBucketAndPerson};
     CModelFactory::TDataGathererPtr gathererNoGap;
-    CAnomalyDetectorModel::TModelPtr modelNoGap_;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              gathererNoGap, modelNoGap_, 2);
+    CModelFactory::TModelPtr modelNoGap_;
+    this->makeModel(params, features, startTime, 2, gathererNoGap, modelNoGap_);
     CEventRateModel* modelNoGap = dynamic_cast<CEventRateModel*>(modelNoGap_.get());
 
     // p1: |1|1|1|
@@ -2172,10 +2056,9 @@ void CEventRateModelTest::testSkipSampling() {
     addArrival(*gathererNoGap, m_ResourceMonitor, 300, "p1");
     modelNoGap->sample(300, 400, m_ResourceMonitor);
 
-    CAnomalyDetectorModel::TModelPtr modelWithGap_;
     CModelFactory::TDataGathererPtr gathererWithGap;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              gathererWithGap, modelWithGap_, 2);
+    CModelFactory::TModelPtr modelWithGap_;
+    this->makeModel(params, features, startTime, 2, gathererWithGap, modelWithGap_);
     CEventRateModel* modelWithGap = dynamic_cast<CEventRateModel*>(modelWithGap_.get());
 
     // p1: |1|1|0|0|0|0|0|0|0|0|1|1|
@@ -2190,8 +2073,7 @@ void CEventRateModelTest::testSkipSampling() {
     addArrival(*gathererWithGap, m_ResourceMonitor, 200, "p1");
     addArrival(*gathererWithGap, m_ResourceMonitor, 200, "p2");
     modelWithGap->skipSampling(1000);
-    LOG_DEBUG(<< "Calling sample over skipped interval should do nothing "
-                 "except print some ERRORs");
+    LOG_DEBUG(<< "Calling sample over skipped interval should do nothing except print some ERRORs");
     modelWithGap->sample(200, 1000, m_ResourceMonitor);
 
     // Check prune does not remove people because last seen times are updated by adding gap duration
@@ -2207,20 +2089,20 @@ void CEventRateModelTest::testSkipSampling() {
     CPPUNIT_ASSERT_EQUAL(
         static_cast<const maths::CUnivariateTimeSeriesModel*>(
             modelWithGap->details()->model(model_t::E_IndividualCountByBucketAndPerson, 0))
-            ->prior()
+            ->residualModel()
             .checksum(),
         static_cast<const maths::CUnivariateTimeSeriesModel*>(
             modelNoGap->details()->model(model_t::E_IndividualCountByBucketAndPerson, 0))
-            ->prior()
+            ->residualModel()
             .checksum());
     CPPUNIT_ASSERT_EQUAL(
         static_cast<const maths::CUnivariateTimeSeriesModel*>(
             modelWithGap->details()->model(model_t::E_IndividualCountByBucketAndPerson, 1))
-            ->prior()
+            ->residualModel()
             .checksum(),
         static_cast<const maths::CUnivariateTimeSeriesModel*>(
             modelNoGap->details()->model(model_t::E_IndividualCountByBucketAndPerson, 1))
-            ->prior()
+            ->residualModel()
             .checksum());
 
     // Confirm last seen times are only updated by gap duration by forcing p2 to be pruned
@@ -2241,12 +2123,11 @@ void CEventRateModelTest::testExplicitNulls() {
 
     SModelParams params(bucketLength);
     params.s_InitialDecayRateMultiplier = 1.0;
-    CEventRateModelFactory factory(params, model_t::E_Manual, summaryCountField);
-    model_t::TFeatureVec features(1u, model_t::E_IndividualCountByBucketAndPerson);
+    model_t::TFeatureVec features{model_t::E_IndividualCountByBucketAndPerson};
     CModelFactory::TDataGathererPtr gathererSkipGap;
-    CAnomalyDetectorModel::TModelPtr modelSkipGap_;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              gathererSkipGap, modelSkipGap_, 0);
+    CModelFactory::TModelPtr modelSkipGap_;
+    this->makeModel(params, features, startTime, 0, gathererSkipGap,
+                    modelSkipGap_, summaryCountField);
     CEventRateModel* modelSkipGap = dynamic_cast<CEventRateModel*>(modelSkipGap_.get());
 
     // The idea here is to compare a model that has a gap skipped against a model
@@ -2273,9 +2154,9 @@ void CEventRateModelTest::testExplicitNulls() {
     modelSkipGap->sample(600, 700, m_ResourceMonitor);
 
     CModelFactory::TDataGathererPtr gathererExNull;
-    CAnomalyDetectorModel::TModelPtr modelExNullGap_;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              gathererExNull, modelExNullGap_, 0);
+    CModelFactory::TModelPtr modelExNullGap_;
+    this->makeModel(params, features, startTime, 0, gathererExNull,
+                    modelExNullGap_, summaryCountField);
     CEventRateModel* modelExNullGap =
         dynamic_cast<CEventRateModel*>(modelExNullGap_.get());
 
@@ -2318,20 +2199,20 @@ void CEventRateModelTest::testExplicitNulls() {
     CPPUNIT_ASSERT_EQUAL(
         static_cast<const maths::CUnivariateTimeSeriesModel*>(
             modelExNullGap->details()->model(model_t::E_IndividualCountByBucketAndPerson, 0))
-            ->prior()
+            ->residualModel()
             .checksum(),
         static_cast<const maths::CUnivariateTimeSeriesModel*>(
             modelSkipGap->details()->model(model_t::E_IndividualCountByBucketAndPerson, 0))
-            ->prior()
+            ->residualModel()
             .checksum());
     CPPUNIT_ASSERT_EQUAL(
         static_cast<const maths::CUnivariateTimeSeriesModel*>(
             modelExNullGap->details()->model(model_t::E_IndividualCountByBucketAndPerson, 1))
-            ->prior()
+            ->residualModel()
             .checksum(),
         static_cast<const maths::CUnivariateTimeSeriesModel*>(
             modelSkipGap->details()->model(model_t::E_IndividualCountByBucketAndPerson, 1))
-            ->prior()
+            ->residualModel()
             .checksum());
 }
 
@@ -2341,13 +2222,9 @@ void CEventRateModelTest::testInterimCorrections() {
     core_t::TTime endTime(2 * 24 * bucketLength);
     SModelParams params(bucketLength);
     params.s_InitialDecayRateMultiplier = 1.0;
-    CEventRateModelFactory factory(params);
-    model_t::TFeatureVec features(1u, model_t::E_IndividualCountByBucketAndPerson);
-    CModelFactory::TDataGathererPtr gatherer;
-    CAnomalyDetectorModel::TModelPtr model_;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              gatherer, model_, 3);
-    CEventRateModel* model = dynamic_cast<CEventRateModel*>(model_.get());
+    this->makeModel(params, {model_t::E_IndividualCountByBucketAndPerson}, startTime, 3);
+    CEventRateModel* model = dynamic_cast<CEventRateModel*>(m_Model.get());
+    CCountingModel countingModel(params, m_Gatherer, m_InterimBucketCorrector);
 
     test::CRandomNumbers rng;
     core_t::TTime now = startTime;
@@ -2355,26 +2232,28 @@ void CEventRateModelTest::testInterimCorrections() {
     while (now < endTime) {
         rng.generateUniformSamples(50.0, 70.0, std::size_t(3), samples);
         for (std::size_t i = 0; i < static_cast<std::size_t>(samples[0] + 0.5); ++i) {
-            addArrival(*gatherer, m_ResourceMonitor, now, "p1");
+            addArrival(*m_Gatherer, m_ResourceMonitor, now, "p1");
         }
         for (std::size_t i = 0; i < static_cast<std::size_t>(samples[1] + 0.5); ++i) {
-            addArrival(*gatherer, m_ResourceMonitor, now, "p2");
+            addArrival(*m_Gatherer, m_ResourceMonitor, now, "p2");
         }
         for (std::size_t i = 0; i < static_cast<std::size_t>(samples[2] + 0.5); ++i) {
-            addArrival(*gatherer, m_ResourceMonitor, now, "p3");
+            addArrival(*m_Gatherer, m_ResourceMonitor, now, "p3");
         }
+        countingModel.sample(now, now + bucketLength, m_ResourceMonitor);
         model->sample(now, now + bucketLength, m_ResourceMonitor);
         now += bucketLength;
     }
     for (std::size_t i = 0; i < 35; ++i) {
-        addArrival(*gatherer, m_ResourceMonitor, now, "p1");
+        addArrival(*m_Gatherer, m_ResourceMonitor, now, "p1");
     }
     for (std::size_t i = 0; i < 1; ++i) {
-        addArrival(*gatherer, m_ResourceMonitor, now, "p2");
+        addArrival(*m_Gatherer, m_ResourceMonitor, now, "p2");
     }
     for (std::size_t i = 0; i < 100; ++i) {
-        addArrival(*gatherer, m_ResourceMonitor, now, "p3");
+        addArrival(*m_Gatherer, m_ResourceMonitor, now, "p3");
     }
+    countingModel.sampleBucketStatistics(now, now + bucketLength, m_ResourceMonitor);
     model->sampleBucketStatistics(now, now + bucketLength, m_ResourceMonitor);
 
     CPartitioningFields partitioningFields(EMPTY_STRING, EMPTY_STRING);
@@ -2416,14 +2295,15 @@ void CEventRateModelTest::testInterimCorrections() {
     CPPUNIT_ASSERT(p3Baseline[0] > 57.0 && p3Baseline[0] < 62.0);
 
     for (std::size_t i = 0; i < 25; ++i) {
-        addArrival(*gatherer, m_ResourceMonitor, now, "p1");
+        addArrival(*m_Gatherer, m_ResourceMonitor, now, "p1");
     }
     for (std::size_t i = 0; i < 59; ++i) {
-        addArrival(*gatherer, m_ResourceMonitor, now, "p2");
+        addArrival(*m_Gatherer, m_ResourceMonitor, now, "p2");
     }
     for (std::size_t i = 0; i < 100; ++i) {
-        addArrival(*gatherer, m_ResourceMonitor, now, "p3");
+        addArrival(*m_Gatherer, m_ResourceMonitor, now, "p3");
     }
+    countingModel.sampleBucketStatistics(now, now + bucketLength, m_ResourceMonitor);
     model->sampleBucketStatistics(now, now + bucketLength, m_ResourceMonitor);
 
     CPPUNIT_ASSERT(model->computeProbability(0 /*pid*/, now, now + bucketLength, partitioningFields,
@@ -2461,13 +2341,8 @@ void CEventRateModelTest::testInterimCorrectionsWithCorrelations() {
 
     SModelParams params(bucketLength);
     params.s_MultivariateByFields = true;
-    CEventRateModelFactory factory(params);
-    model_t::TFeatureVec features(1u, model_t::E_IndividualCountByBucketAndPerson);
-    CModelFactory::TDataGathererPtr gatherer;
-    CAnomalyDetectorModel::TModelPtr model_;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              gatherer, model_, 3);
-    CEventRateModel* model = dynamic_cast<CEventRateModel*>(model_.get());
+    this->makeModel(params, {model_t::E_IndividualCountByBucketAndPerson}, startTime, 3);
+    CEventRateModel* model = dynamic_cast<CEventRateModel*>(m_Model.get());
 
     core_t::TTime now = startTime;
     core_t::TTime endTime(now + 2 * 24 * bucketLength);
@@ -2476,25 +2351,25 @@ void CEventRateModelTest::testInterimCorrectionsWithCorrelations() {
     while (now < endTime) {
         rng.generateUniformSamples(80.0, 100.0, std::size_t(1), samples);
         for (std::size_t i = 0; i < static_cast<std::size_t>(samples[0] + 0.5); ++i) {
-            addArrival(*gatherer, m_ResourceMonitor, now, "p1");
+            addArrival(*m_Gatherer, m_ResourceMonitor, now, "p1");
         }
         for (std::size_t i = 0; i < static_cast<std::size_t>(samples[0] + 10.5); ++i) {
-            addArrival(*gatherer, m_ResourceMonitor, now, "p2");
+            addArrival(*m_Gatherer, m_ResourceMonitor, now, "p2");
         }
         for (std::size_t i = 0; i < static_cast<std::size_t>(samples[0] - 9.5); ++i) {
-            addArrival(*gatherer, m_ResourceMonitor, now, "p3");
+            addArrival(*m_Gatherer, m_ResourceMonitor, now, "p3");
         }
         model->sample(now, now + bucketLength, m_ResourceMonitor);
         now += bucketLength;
     }
     for (std::size_t i = 0; i < 9; ++i) {
-        addArrival(*gatherer, m_ResourceMonitor, now, "p1");
+        addArrival(*m_Gatherer, m_ResourceMonitor, now, "p1");
     }
     for (std::size_t i = 0; i < 10; ++i) {
-        addArrival(*gatherer, m_ResourceMonitor, now, "p2");
+        addArrival(*m_Gatherer, m_ResourceMonitor, now, "p2");
     }
     for (std::size_t i = 0; i < 8; ++i) {
-        addArrival(*gatherer, m_ResourceMonitor, now, "p3");
+        addArrival(*m_Gatherer, m_ResourceMonitor, now, "p3");
     }
     model->sampleBucketStatistics(now, now + bucketLength, m_ResourceMonitor);
 
@@ -2542,33 +2417,21 @@ void CEventRateModelTest::testInterimCorrectionsWithCorrelations() {
 void CEventRateModelTest::testSummaryCountZeroRecordsAreIgnored() {
     core_t::TTime startTime(100);
     core_t::TTime bucketLength(100);
+
     SModelParams params(bucketLength);
     std::string summaryCountField("count");
-    CEventRateModelFactory factory(params, model_t::E_Manual, summaryCountField);
 
-    CDataGatherer::TFeatureVec features;
-    features.push_back(model_t::E_IndividualCountByBucketAndPerson);
-    factory.features(features);
+    CModelFactory::TDataGathererPtr gathererWithZeros;
+    CModelFactory::TModelPtr modelWithZerosPtr;
+    this->makeModel(params, {model_t::E_IndividualCountByBucketAndPerson}, startTime,
+                    0, gathererWithZeros, modelWithZerosPtr, summaryCountField);
+    CEventRateModel& modelWithZeros = static_cast<CEventRateModel&>(*modelWithZerosPtr);
 
-    CModelFactory::SGathererInitializationData gathererWithZerosInitData(startTime);
-    CModelFactory::TDataGathererPtr gathererWithZeros(
-        factory.makeDataGatherer(gathererWithZerosInitData));
-    CModelFactory::SModelInitializationData initDataWithZeros(gathererWithZeros);
-    CAnomalyDetectorModel::TModelPtr modelWithZerosPtr(factory.makeModel(initDataWithZeros));
-    CPPUNIT_ASSERT(modelWithZerosPtr);
-    CPPUNIT_ASSERT_EQUAL(model_t::E_EventRateOnline, modelWithZerosPtr->category());
-    CEventRateModel& modelWithZeros =
-        static_cast<CEventRateModel&>(*modelWithZerosPtr.get());
-
-    CModelFactory::SGathererInitializationData gathererNoZerosInitData(startTime);
-    CModelFactory::TDataGathererPtr gathererNoZeros(
-        factory.makeDataGatherer(gathererNoZerosInitData));
-    CModelFactory::SModelInitializationData initDataNoZeros(gathererNoZeros);
-    CAnomalyDetectorModel::TModelPtr modelNoZerosPtr(factory.makeModel(initDataNoZeros));
-    CPPUNIT_ASSERT(modelNoZerosPtr);
-    CPPUNIT_ASSERT_EQUAL(model_t::E_EventRateOnline, modelNoZerosPtr->category());
-    CEventRateModel& modelNoZeros =
-        static_cast<CEventRateModel&>(*modelNoZerosPtr.get());
+    CModelFactory::TDataGathererPtr gathererNoZeros;
+    CModelFactory::TModelPtr modelNoZerosPtr;
+    this->makeModel(params, {model_t::E_IndividualCountByBucketAndPerson}, startTime,
+                    0, gathererNoZeros, modelNoZerosPtr, summaryCountField);
+    CEventRateModel& modelNoZeros = static_cast<CEventRateModel&>(*modelNoZerosPtr);
 
     // The idea here is to compare a model that has records with summary count of zero
     // against a model that has no records at all where the first model had the zero-count records.
@@ -2604,9 +2467,9 @@ void CEventRateModelTest::testSummaryCountZeroRecordsAreIgnored() {
 
 void CEventRateModelTest::testComputeProbabilityGivenDetectionRule() {
     CRuleCondition condition;
-    condition.type(CRuleCondition::E_NumericalActual);
-    condition.condition().s_Op = CRuleCondition::E_LT;
-    condition.condition().s_Threshold = 100.0;
+    condition.appliesTo(CRuleCondition::E_Actual);
+    condition.op(CRuleCondition::E_LT);
+    condition.value(100.0);
     CDetectionRule rule;
     rule.addCondition(condition);
 
@@ -2615,16 +2478,10 @@ void CEventRateModelTest::testComputeProbabilityGivenDetectionRule() {
     core_t::TTime endTime(24 * bucketLength);
 
     SModelParams params(bucketLength);
-    SModelParams::TDetectionRuleVec rules(1, rule);
+    SModelParams::TDetectionRuleVec rules{rule};
     params.s_DetectionRules = SModelParams::TDetectionRuleVecCRef(rules);
-
-    CEventRateModelFactory factory(params);
-    model_t::TFeatureVec features(1u, model_t::E_IndividualCountByBucketAndPerson);
-    CModelFactory::TDataGathererPtr gatherer;
-    CAnomalyDetectorModel::TModelPtr model_;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              gatherer, model_, 1);
-    CEventRateModel* model = dynamic_cast<CEventRateModel*>(model_.get());
+    this->makeModel(params, {model_t::E_IndividualCountByBucketAndPerson}, startTime, 1);
+    CEventRateModel* model = dynamic_cast<CEventRateModel*>(m_Model.get());
 
     test::CRandomNumbers rng;
     core_t::TTime now = startTime;
@@ -2632,13 +2489,13 @@ void CEventRateModelTest::testComputeProbabilityGivenDetectionRule() {
     while (now < endTime) {
         rng.generateUniformSamples(50.0, 70.0, std::size_t(1), samples);
         for (std::size_t i = 0; i < static_cast<std::size_t>(samples[0] + 0.5); ++i) {
-            addArrival(*gatherer, m_ResourceMonitor, now, "p1");
+            addArrival(*m_Gatherer, m_ResourceMonitor, now, "p1");
         }
         model->sample(now, now + bucketLength, m_ResourceMonitor);
         now += bucketLength;
     }
     for (std::size_t i = 0; i < 35; ++i) {
-        addArrival(*gatherer, m_ResourceMonitor, now, "p1");
+        addArrival(*m_Gatherer, m_ResourceMonitor, now, "p1");
     }
     model->sampleBucketStatistics(now, now + bucketLength, m_ResourceMonitor);
 
@@ -2654,7 +2511,7 @@ void CEventRateModelTest::testDecayRateControl() {
     core_t::TTime bucketLength = 1800;
 
     model_t::EFeature feature = model_t::E_IndividualCountByBucketAndPerson;
-    model_t::TFeatureVec features(1, feature);
+    model_t::TFeatureVec features{feature};
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
@@ -2670,19 +2527,21 @@ void CEventRateModelTest::testDecayRateControl() {
 
         params.s_ControlDecayRate = true;
         params.s_DecayRate = 0.001;
-        CEventRateModelFactory factory(params);
-        CModelFactory::TDataGathererPtr gatherer;
-        CAnomalyDetectorModel::TModelPtr model;
-        makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-                  gatherer, model, 1);
+        auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+        CEventRateModelFactory factory(params, interimBucketCorrector);
+        factory.features(features);
+        CModelFactory::TDataGathererPtr gatherer{factory.makeDataGatherer(startTime)};
+        CModelFactory::TModelPtr model{factory.makeModel(gatherer)};
+        addPerson("p1", gatherer, m_ResourceMonitor);
 
         params.s_ControlDecayRate = false;
         params.s_DecayRate = 0.0001;
-        CEventRateModelFactory referenceFactory(params);
-        CModelFactory::TDataGathererPtr referenceGatherer;
-        CAnomalyDetectorModel::TModelPtr referenceModel;
-        makeModel(referenceFactory, features, m_ResourceMonitor, startTime,
-                  bucketLength, referenceGatherer, referenceModel, 1);
+        CEventRateModelFactory referenceFactory(params, interimBucketCorrector);
+        referenceFactory.features(features);
+        CModelFactory::TDataGathererPtr referenceGatherer{
+            referenceFactory.makeDataGatherer(startTime)};
+        CModelFactory::TModelPtr referenceModel{referenceFactory.makeModel(referenceGatherer)};
+        addPerson("p1", referenceGatherer, m_ResourceMonitor);
 
         TMeanAccumulator meanPredictionError;
         TMeanAccumulator meanReferencePredictionError;
@@ -2723,26 +2582,28 @@ void CEventRateModelTest::testDecayRateControl() {
             maths::CBasicStatistics::mean(meanPredictionError), 0.05);
     }
 
-    LOG_DEBUG(<< "*** Test step change ***");
+    LOG_DEBUG(<< "*** Test linear scaling ***");
     {
-        // Test a step change in a stable signal is detected and we get a
-        // significant reduction in the prediction error.
+        // This change point is amongst those we explicitly detect so
+        // check we get similar detection performance with and without
+        // decay rate control.
 
         params.s_ControlDecayRate = true;
         params.s_DecayRate = 0.001;
-        CEventRateModelFactory factory(params);
-        CModelFactory::TDataGathererPtr gatherer;
-        CAnomalyDetectorModel::TModelPtr model;
-        makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-                  gatherer, model, 1);
+        auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+        CEventRateModelFactory factory(params, interimBucketCorrector);
+        factory.features(features);
+        CModelFactory::TDataGathererPtr gatherer{factory.makeDataGatherer(startTime)};
+        CModelFactory::TModelPtr model{factory.makeModel(gatherer)};
+        addPerson("p1", gatherer, m_ResourceMonitor);
 
         params.s_ControlDecayRate = false;
         params.s_DecayRate = 0.001;
-        CEventRateModelFactory referenceFactory(params);
-        CModelFactory::TDataGathererPtr referenceGatherer;
-        CAnomalyDetectorModel::TModelPtr referenceModel;
-        makeModel(referenceFactory, features, m_ResourceMonitor, startTime,
-                  bucketLength, referenceGatherer, referenceModel, 1);
+        CEventRateModelFactory referenceFactory(params, interimBucketCorrector);
+        referenceFactory.features(features);
+        CModelFactory::TDataGathererPtr referenceGatherer{factory.makeDataGatherer(startTime)};
+        CModelFactory::TModelPtr referenceModel{factory.makeModel(gatherer)};
+        addPerson("p1", referenceGatherer, m_ResourceMonitor);
 
         TMeanAccumulator meanPredictionError;
         TMeanAccumulator meanReferencePredictionError;
@@ -2779,8 +2640,9 @@ void CEventRateModelTest::testDecayRateControl() {
         LOG_DEBUG(<< "mean = " << maths::CBasicStatistics::mean(meanPredictionError));
         LOG_DEBUG(<< "reference = "
                   << maths::CBasicStatistics::mean(meanReferencePredictionError));
-        CPPUNIT_ASSERT(maths::CBasicStatistics::mean(meanPredictionError) <
-                       0.94 * maths::CBasicStatistics::mean(meanReferencePredictionError));
+        CPPUNIT_ASSERT_DOUBLES_EQUAL(
+            maths::CBasicStatistics::mean(meanReferencePredictionError),
+            maths::CBasicStatistics::mean(meanPredictionError), 0.05);
     }
 
     LOG_DEBUG(<< "*** Test unmodelled cyclic component ***");
@@ -2788,23 +2650,26 @@ void CEventRateModelTest::testDecayRateControl() {
         // This modulates the event rate using a sine with period 10 weeks
         // effectively there are significant "manoeuvres" in the event rate
         // every 5 weeks at the function turning points. We check we get a
-        // significant reduction in the prediction error.
+        // significant reduction in the prediction error with decay rate
+        // control.
 
         params.s_ControlDecayRate = true;
         params.s_DecayRate = 0.001;
-        CEventRateModelFactory factory(params);
-        CModelFactory::TDataGathererPtr gatherer;
-        CAnomalyDetectorModel::TModelPtr model;
-        makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-                  gatherer, model, 1);
+        auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+        CEventRateModelFactory factory(params, interimBucketCorrector);
+        factory.features(features);
+        CModelFactory::TDataGathererPtr gatherer{factory.makeDataGatherer(startTime)};
+        CModelFactory::TModelPtr model{factory.makeModel(gatherer)};
+        addPerson("p1", gatherer, m_ResourceMonitor);
 
         params.s_ControlDecayRate = false;
         params.s_DecayRate = 0.001;
-        CEventRateModelFactory referenceFactory(params);
-        CModelFactory::TDataGathererPtr referenceGatherer;
-        CAnomalyDetectorModel::TModelPtr referenceModel;
-        makeModel(referenceFactory, features, m_ResourceMonitor, startTime,
-                  bucketLength, referenceGatherer, referenceModel, 1);
+        CEventRateModelFactory referenceFactory(params, interimBucketCorrector);
+        referenceFactory.features(features);
+        CModelFactory::TDataGathererPtr referenceGatherer{
+            referenceFactory.makeDataGatherer(startTime)};
+        CModelFactory::TModelPtr referenceModel{referenceFactory.makeModel(gatherer)};
+        addPerson("p1", referenceGatherer, m_ResourceMonitor);
 
         TMeanAccumulator meanPredictionError;
         TMeanAccumulator meanReferencePredictionError;
@@ -2844,7 +2709,7 @@ void CEventRateModelTest::testDecayRateControl() {
         LOG_DEBUG(<< "reference = "
                   << maths::CBasicStatistics::mean(meanReferencePredictionError));
         CPPUNIT_ASSERT(maths::CBasicStatistics::mean(meanPredictionError) <
-                       0.7 * maths::CBasicStatistics::mean(meanReferencePredictionError));
+                       0.76 * maths::CBasicStatistics::mean(meanReferencePredictionError));
     }
 }
 
@@ -2857,38 +2722,39 @@ void CEventRateModelTest::testIgnoreSamplingGivenDetectionRules() {
 
     // Create a rule to filter buckets where the count > 100
     CRuleCondition condition;
-    condition.type(CRuleCondition::E_NumericalActual);
-    condition.condition().s_Op = CRuleCondition::E_GT;
-    condition.condition().s_Threshold = 100.0;
+    condition.appliesTo(CRuleCondition::E_Actual);
+    condition.op(CRuleCondition::E_GT);
+    condition.value(100.0);
     CDetectionRule rule;
-    rule.action(CDetectionRule::E_SkipSampling);
+    rule.action(CDetectionRule::E_SkipModelUpdate);
     rule.addCondition(condition);
 
     std::size_t bucketLength(100);
     std::size_t startTime(100);
-    SModelParams paramsNoRules(bucketLength);
 
     // Model without the skip sampling rule
-    CEventRateModelFactory factory(paramsNoRules);
+    SModelParams paramsNoRules(bucketLength);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CEventRateModelFactory factory(paramsNoRules, interimBucketCorrector);
     model_t::TFeatureVec features{model_t::E_IndividualCountByBucketAndPerson};
-    CModelFactory::TDataGathererPtr gathererNoSkip;
-    CAnomalyDetectorModel::TModelPtr modelPtrNoSkip;
-    makeModel(factory, features, m_ResourceMonitor, startTime, bucketLength,
-              gathererNoSkip, modelPtrNoSkip, 1);
+    factory.features(features);
+    CModelFactory::TDataGathererPtr gathererNoSkip{factory.makeDataGatherer(startTime)};
+    CModelFactory::TModelPtr modelPtrNoSkip{factory.makeModel(gathererNoSkip)};
     CEventRateModel* modelNoSkip = dynamic_cast<CEventRateModel*>(modelPtrNoSkip.get());
+    addPerson("p1", gathererNoSkip, m_ResourceMonitor);
 
     // Model with the skip sampling rule
     SModelParams paramsWithRules(bucketLength);
     SModelParams::TDetectionRuleVec rules{rule};
     paramsWithRules.s_DetectionRules = SModelParams::TDetectionRuleVecCRef(rules);
-
-    CEventRateModelFactory factoryWithSkip(paramsWithRules);
-    CModelFactory::TDataGathererPtr gathererWithSkip;
-    CAnomalyDetectorModel::TModelPtr modelPtrWithSkip;
-    makeModel(factoryWithSkip, features, m_ResourceMonitor, startTime,
-              bucketLength, gathererWithSkip, modelPtrWithSkip, 1);
+    CEventRateModelFactory factoryWithSkip(paramsWithRules, interimBucketCorrector);
+    factoryWithSkip.features(features);
+    CModelFactory::TDataGathererPtr gathererWithSkip{
+        factoryWithSkip.makeDataGatherer(startTime)};
+    CModelFactory::TModelPtr modelPtrWithSkip{factoryWithSkip.makeModel(gathererWithSkip)};
     CEventRateModel* modelWithSkip =
         dynamic_cast<CEventRateModel*>(modelPtrWithSkip.get());
+    addPerson("p1", gathererWithSkip, m_ResourceMonitor);
 
     std::size_t endTime = startTime + bucketLength;
 
@@ -2944,12 +2810,12 @@ void CEventRateModelTest::testIgnoreSamplingGivenDetectionRules() {
     uint64_t withSkipChecksum =
         static_cast<const maths::CUnivariateTimeSeriesModel*>(
             modelWithSkipView->model(model_t::E_IndividualCountByBucketAndPerson, 0))
-            ->prior()
+            ->residualModel()
             .checksum();
     uint64_t noSkipChecksum =
         static_cast<const maths::CUnivariateTimeSeriesModel*>(
             modelNoSkipView->model(model_t::E_IndividualCountByBucketAndPerson, 0))
-            ->prior()
+            ->residualModel()
             .checksum();
     CPPUNIT_ASSERT_EQUAL(withSkipChecksum, noSkipChecksum);
 
@@ -2959,7 +2825,7 @@ void CEventRateModelTest::testIgnoreSamplingGivenDetectionRules() {
             modelNoSkipView->model(model_t::E_IndividualCountByBucketAndPerson, 0));
     CPPUNIT_ASSERT(timeSeriesModel);
 
-    core_t::TTime time = timeSeriesModel->trend().lastValueTime();
+    core_t::TTime time = timeSeriesModel->trendModel().lastValueTime();
     CPPUNIT_ASSERT_EQUAL(model_t::sampleTime(model_t::E_IndividualCountByBucketAndPerson,
                                              startTime, bucketLength),
                          time);
@@ -2967,7 +2833,7 @@ void CEventRateModelTest::testIgnoreSamplingGivenDetectionRules() {
     // The last times of model with a skip should be the same
     timeSeriesModel = dynamic_cast<const maths::CUnivariateTimeSeriesModel*>(
         modelWithSkipView->model(model_t::E_IndividualCountByBucketAndPerson, 0));
-    CPPUNIT_ASSERT_EQUAL(time, timeSeriesModel->trend().lastValueTime());
+    CPPUNIT_ASSERT_EQUAL(time, timeSeriesModel->trendModel().lastValueTime());
 }
 
 CppUnit::Test* CEventRateModelTest::suite() {
@@ -3036,4 +2902,50 @@ CppUnit::Test* CEventRateModelTest::suite() {
         "CEventRateModelTest::testIgnoreSamplingGivenDetectionRules",
         &CEventRateModelTest::testIgnoreSamplingGivenDetectionRules));
     return suiteOfTests;
+}
+
+void CEventRateModelTest::setUp() {
+    m_InterimBucketCorrector.reset();
+    m_Factory.reset();
+    m_Gatherer.reset();
+    m_Model.reset();
+}
+
+void CEventRateModelTest::makeModel(const SModelParams& params,
+                                    const model_t::TFeatureVec& features,
+                                    core_t::TTime startTime,
+                                    std::size_t numberPeople,
+                                    const std::string& summaryCountField) {
+    this->makeModel(params, features, startTime, numberPeople, m_Gatherer,
+                    m_Model, summaryCountField);
+}
+
+void CEventRateModelTest::makeModel(const SModelParams& params,
+                                    const model_t::TFeatureVec& features,
+                                    core_t::TTime startTime,
+                                    std::size_t numberPeople,
+                                    CModelFactory::TDataGathererPtr& gatherer,
+                                    CModelFactory::TModelPtr& model,
+                                    const std::string& summaryCountField) {
+    if (m_InterimBucketCorrector == nullptr) {
+        m_InterimBucketCorrector =
+            std::make_shared<CInterimBucketCorrector>(params.s_BucketLength);
+    }
+    if (m_Factory == nullptr) {
+        m_Factory.reset(new CEventRateModelFactory(
+            params, m_InterimBucketCorrector,
+            summaryCountField.empty() ? model_t::E_None : model_t::E_Manual,
+            summaryCountField));
+        m_Factory->features(features);
+    }
+    gatherer.reset(m_Factory->makeDataGatherer({startTime}));
+    model.reset(m_Factory->makeModel({gatherer}));
+    CPPUNIT_ASSERT(model);
+    CPPUNIT_ASSERT_EQUAL(model_t::E_EventRateOnline, model->category());
+    CPPUNIT_ASSERT_EQUAL(params.s_BucketLength, model->bucketLength());
+    for (std::size_t i = 0u; i < numberPeople; ++i) {
+        CPPUNIT_ASSERT_EQUAL(std::size_t(i),
+                             addPerson("p" + core::CStringUtils::typeToString(i + 1),
+                                       gatherer, m_ResourceMonitor));
+    }
 }

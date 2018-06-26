@@ -91,12 +91,10 @@ const std::string ATTRIBUTE_FIRST_BUCKET_TIME_TAG("d");
 const std::string ATTRIBUTE_LAST_BUCKET_TIME_TAG("e");
 const std::string PERSON_ATTRIBUTE_BUCKET_COUNT_TAG("f");
 const std::string DISTINCT_PERSON_COUNT_TAG("g");
-
 // Extra data tag deprecated at model version 34
 // TODO remove on next version bump
-// const std::string EXTRA_DATA_TAG("h");
-
-const std::string INTERIM_BUCKET_CORRECTOR_TAG("i");
+//const std::string EXTRA_DATA_TAG("h");
+//const std::string INTERIM_BUCKET_CORRECTOR_TAG("i");
 }
 
 CPopulationModel::CPopulationModel(const SModelParams& params,
@@ -303,7 +301,6 @@ void CPopulationModel::doAcceptPersistInserter(core::CStatePersistInserter& inse
                              boost::bind(&maths::CBjkstUniqueValues::acceptPersistInserter,
                                          &m_DistinctPersonCounts[cid], _1));
     }
-    this->interimBucketCorrectorAcceptPersistInserter(INTERIM_BUCKET_CORRECTOR_TAG, inserter);
 }
 
 bool CPopulationModel::doAcceptRestoreTraverser(core::CStateRestoreTraverser& traverser) {
@@ -332,8 +329,6 @@ bool CPopulationModel::doAcceptRestoreTraverser(core::CStateRestoreTraverser& tr
             m_DistinctPersonCounts.back().swap(sketch);
             continue;
         }
-        RESTORE(INTERIM_BUCKET_CORRECTOR_TAG,
-                this->interimBucketCorrectorAcceptRestoreTraverser(traverser))
     } while (traverser.next());
 
     return true;
@@ -397,6 +392,9 @@ void CPopulationModel::createUpdateNewModels(core_t::TTime time,
         }
     }
 
+    this->estimateMemoryUsageOrComputeAndUpdate(numberExistingPeople,
+                                                numberExistingAttributes, 0);
+
     if (numberNewPeople > 0) {
         resourceMonitor.acceptAllocationFailureResult(time);
         LOG_DEBUG(<< "Not enough memory to create person models");
@@ -445,16 +443,23 @@ void CPopulationModel::createNewModels(std::size_t n, std::size_t m) {
 void CPopulationModel::updateRecycledModels() {
     CDataGatherer& gatherer = this->dataGatherer();
     for (auto pid : gatherer.recycledPersonIds()) {
-        m_PersonLastBucketTimes[pid] = 0;
+        if (pid < m_PersonLastBucketTimes.size()) {
+            m_PersonLastBucketTimes[pid] = 0;
+        }
     }
 
     TSizeVec& attributes = gatherer.recycledAttributeIds();
     for (auto cid : attributes) {
-        m_AttributeFirstBucketTimes[cid] = CAnomalyDetectorModel::TIME_UNSET;
-        m_AttributeLastBucketTimes[cid] = CAnomalyDetectorModel::TIME_UNSET;
-        m_DistinctPersonCounts[cid] = m_NewDistinctPersonCounts;
-        if (m_NewPersonBucketCounts) {
-            m_PersonAttributeBucketCounts[cid] = *m_NewPersonBucketCounts;
+        if (cid < m_AttributeFirstBucketTimes.size()) {
+            m_AttributeFirstBucketTimes[cid] = CAnomalyDetectorModel::TIME_UNSET;
+            m_AttributeLastBucketTimes[cid] = CAnomalyDetectorModel::TIME_UNSET;
+            m_DistinctPersonCounts[cid] = m_NewDistinctPersonCounts;
+            if (m_NewPersonBucketCounts) {
+                m_PersonAttributeBucketCounts[cid] = *m_NewPersonBucketCounts;
+            }
+        } else {
+            LOG_ERROR(<< "Recycled attribute identifier '" << cid << "' out-of-range [0,"
+                      << m_AttributeFirstBucketTimes.size() << ")");
         }
     }
     attributes.clear();

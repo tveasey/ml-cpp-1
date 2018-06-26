@@ -46,6 +46,7 @@ class CAnomalyDetectorModel;
 class CDataGatherer;
 class CDetectionRule;
 class CInfluenceCalculator;
+class CInterimBucketCorrector;
 class CSearchKey;
 
 //! \brief A factory class interface for the CAnomalyDetectorModel hierarchy.
@@ -72,17 +73,18 @@ public:
     using TStrCRef = boost::reference_wrapper<const std::string>;
     using TStrCRefVec = std::vector<TStrCRef>;
     using TDataGathererPtr = std::shared_ptr<CDataGatherer>;
-    using TPriorPtr = std::shared_ptr<maths::CPrior>;
-    using TMultivariatePriorPtr = std::shared_ptr<maths::CMultivariatePrior>;
-    using TFeatureMultivariatePriorPtrPr = std::pair<model_t::EFeature, TMultivariatePriorPtr>;
-    using TFeatureMultivariatePriorPtrPrVec = std::vector<TFeatureMultivariatePriorPtrPr>;
+    using TPriorPtr = std::unique_ptr<maths::CPrior>;
+    using TMultivariatePriorSPtr = std::shared_ptr<maths::CMultivariatePrior>;
+    using TMultivariatePriorUPtr = std::unique_ptr<maths::CMultivariatePrior>;
+    using TFeatureMultivariatePriorSPtrPr = std::pair<model_t::EFeature, TMultivariatePriorSPtr>;
+    using TFeatureMultivariatePriorSPtrPrVec = std::vector<TFeatureMultivariatePriorSPtrPr>;
     using TDecompositionCPtr = std::shared_ptr<const maths::CTimeSeriesDecompositionInterface>;
     using TMathsModelPtr = std::shared_ptr<maths::CModel>;
-    using TCorrelationsPtr = std::shared_ptr<maths::CTimeSeriesCorrelations>;
-    using TFeatureCorrelationsPtrPr = std::pair<model_t::EFeature, TCorrelationsPtr>;
-    using TFeatureCorrelationsPtrPrVec = std::vector<TFeatureCorrelationsPtrPr>;
     using TFeatureMathsModelPtrPr = std::pair<model_t::EFeature, TMathsModelPtr>;
     using TFeatureMathsModelPtrPrVec = std::vector<TFeatureMathsModelPtrPr>;
+    using TCorrelationsPtr = std::unique_ptr<maths::CTimeSeriesCorrelations>;
+    using TFeatureCorrelationsPtrPr = std::pair<model_t::EFeature, TCorrelationsPtr>;
+    using TFeatureCorrelationsPtrPrVec = std::vector<TFeatureCorrelationsPtrPr>;
     using TModelPtr = std::shared_ptr<CAnomalyDetectorModel>;
     using TModelCPtr = std::shared_ptr<const CAnomalyDetectorModel>;
     using TInfluenceCalculatorCPtr = std::shared_ptr<const CInfluenceCalculator>;
@@ -91,6 +93,8 @@ public:
     using TFeatureInfluenceCalculatorCPtrPrVec = std::vector<TFeatureInfluenceCalculatorCPtrPr>;
     using TFeatureInfluenceCalculatorCPtrPrVecVec =
         std::vector<TFeatureInfluenceCalculatorCPtrPrVec>;
+    using TInterimBucketCorrectorWPtr = std::weak_ptr<CInterimBucketCorrector>;
+    using TInterimBucketCorrectorPtr = std::shared_ptr<CInterimBucketCorrector>;
     using TDetectionRuleVec = std::vector<CDetectionRule>;
     using TDetectionRuleVecCRef = boost::reference_wrapper<const TDetectionRuleVec>;
     using TStrDetectionRulePr = std::pair<std::string, model::CDetectionRule>;
@@ -105,7 +109,7 @@ public:
     //! need to change the signature of every factory function each
     //! time we need extra data to initialize a model.
     struct MODEL_EXPORT SModelInitializationData {
-        explicit SModelInitializationData(const TDataGathererPtr& dataGatherer);
+        SModelInitializationData(const TDataGathererPtr& dataGatherer);
 
         TDataGathererPtr s_DataGatherer;
     };
@@ -121,7 +125,7 @@ public:
                                     const std::string& partitionFieldValue,
                                     unsigned int sampleOverrideCount = 0u);
 
-        //! This constructor is meant to simplify unit tests
+        //! This constructor is to simplify unit testing.
         SGathererInitializationData(const core_t::TTime startTime);
 
         core_t::TTime s_StartTime;
@@ -133,7 +137,11 @@ public:
     static const std::string EMPTY_STRING;
 
 public:
-    CModelFactory(const SModelParams& params);
+    //! \warning The user must ensure that \p interimBucketCorrector
+    //! outlives this object. If model factories are obtained from
+    //! CModelConfig this is ensured for you.
+    CModelFactory(const SModelParams& params,
+                  const TInterimBucketCorrectorWPtr& interimBucketCorrector);
     virtual ~CModelFactory() = default;
 
     //! Create a copy of the factory owned by the calling code.
@@ -191,21 +199,21 @@ public:
 
     //! Get the default correlate priors to use for correlated pairs of time
     //! series of \p features.
-    const TFeatureMultivariatePriorPtrPrVec&
+    const TFeatureMultivariatePriorSPtrPrVec&
     defaultCorrelatePriors(const TFeatureVec& features) const;
 
     //! Get the default models for correlations of \p features.
-    const TFeatureCorrelationsPtrPrVec& defaultCorrelates(const TFeatureVec& features) const;
+    TFeatureCorrelationsPtrPrVec defaultCorrelates(const TFeatureVec& features) const;
 
     //! Get the default prior to use for \p feature.
     TPriorPtr defaultPrior(model_t::EFeature feature) const;
 
     //! Get the default prior to use for multivariate \p feature.
-    TMultivariatePriorPtr defaultMultivariatePrior(model_t::EFeature feature) const;
+    TMultivariatePriorUPtr defaultMultivariatePrior(model_t::EFeature feature) const;
 
     //! Get the default prior to use for correlared pairs of time
     //! series for univariate \p feature.
-    TMultivariatePriorPtr defaultCorrelatePrior(model_t::EFeature feature) const;
+    TMultivariatePriorUPtr defaultCorrelatePrior(model_t::EFeature feature) const;
 
     //! Get the default prior for \p feature.
     //!
@@ -218,7 +226,7 @@ public:
     //!
     //! \param[in] feature The feature for which to get the prior.
     //! \param[in] params The model parameters.
-    virtual TMultivariatePriorPtr
+    virtual TMultivariatePriorUPtr
     defaultMultivariatePrior(model_t::EFeature feature, const SModelParams& params) const = 0;
 
     //! Get the default prior for pairs of correlated time series
@@ -226,7 +234,7 @@ public:
     //!
     //! \param[in] feature The feature for which to get the prior.
     //! \param[in] params The model parameters.
-    virtual TMultivariatePriorPtr
+    virtual TMultivariatePriorUPtr
     defaultCorrelatePrior(model_t::EFeature feature, const SModelParams& params) const = 0;
 
     //! Get the default prior to use for categorical data.
@@ -290,8 +298,15 @@ public:
     void detectionRules(TDetectionRuleVecCRef detectionRules);
     //@}
 
-    //! Set the scheduled events
+    //! Set the scheduled events.
     void scheduledEvents(TStrDetectionRulePrVecCRef scheduledEvents);
+
+    //! Set the interim bucket corrector.
+    //!
+    //! \warning The caller must ensure that \p interimBucketCorrector
+    //! outlives this object. If model factories are obtained from
+    //! CModelConfig this is ensured for you.
+    void interimBucketCorrector(const TInterimBucketCorrectorWPtr& interimBucketCorrector);
 
     //! \name Customization by mlmodel.conf
     //@{
@@ -314,11 +329,6 @@ public:
 
     //! Set the prune window scale factor maximum
     void pruneWindowScaleMaximum(double factor);
-
-    //! Set the number of times we sample the people's attribute
-    //! distributions to compute raw total probabilities for population
-    //! models.
-    void totalProbabilityCalcSamplingSize(std::size_t samplingSize);
 
     //! Set whether multivariate analysis of correlated 'by' fields should
     //! be performed.
@@ -351,8 +361,11 @@ public:
     //! component.
     std::size_t componentSize() const;
 
+    //! Get the minimum seasonal variance scale, specific to the model
+    virtual double minimumSeasonalVarianceScale() const = 0;
+
 protected:
-    using TMultivariatePriorPtrVec = std::vector<TMultivariatePriorPtr>;
+    using TMultivariatePriorUPtrVec = std::vector<TMultivariatePriorUPtr>;
     using TOptionalSearchKey = boost::optional<CSearchKey>;
 
 protected:
@@ -361,20 +374,23 @@ protected:
     //! \note This only swaps the state held on this base class.
     void swap(CModelFactory& other);
 
+    //! Get the singleton interim bucket correction calculator.
+    TInterimBucketCorrectorPtr interimBucketCorrector() const;
+
     //! Get a multivariate normal prior with dimension \p dimension.
     //!
     //! \param[in] dimension The dimension.
     //! \param[in] params The model parameters.
     //! \warning Up to ten dimensions are supported.
-    TMultivariatePriorPtr multivariateNormalPrior(std::size_t dimension,
-                                                  const SModelParams& params) const;
+    TMultivariatePriorUPtr multivariateNormalPrior(std::size_t dimension,
+                                                   const SModelParams& params) const;
 
     //! Get a multivariate multimodal prior with dimension \p dimension.
     //!
     //! \param[in] dimension The dimension.
     //! \param[in] params The model parameters.
     //! \warning Up to ten dimensions are supported.
-    TMultivariatePriorPtr
+    TMultivariatePriorUPtr
     multivariateMultimodalPrior(std::size_t dimension,
                                 const SModelParams& params,
                                 const maths::CMultivariatePrior& modePrior) const;
@@ -384,9 +400,9 @@ protected:
     //! \param[in] dimension The dimension.
     //! \param[in] params The model parameters.
     //! \param[in] models The component models to select between.
-    TMultivariatePriorPtr multivariateOneOfNPrior(std::size_t dimension,
-                                                  const SModelParams& params,
-                                                  const TMultivariatePriorPtrVec& models) const;
+    TMultivariatePriorUPtr multivariateOneOfNPrior(std::size_t dimension,
+                                                   const SModelParams& params,
+                                                   const TMultivariatePriorUPtrVec& models) const;
 
     //! Get the default prior for time-of-day and time-of-week modeling.
     //! This is just a mixture of normals which allows more modes than
@@ -400,13 +416,12 @@ protected:
     //! modes than we typically do.
     //!
     //! \param[in] params The model parameters.
-    TMultivariatePriorPtr latLongPrior(const SModelParams& params) const;
+    TMultivariatePriorUPtr latLongPrior(const SModelParams& params) const;
 
 private:
     using TFeatureVecMathsModelMap = std::map<TFeatureVec, TFeatureMathsModelPtrPrVec>;
     using TFeatureVecMultivariatePriorMap =
-        std::map<TFeatureVec, TFeatureMultivariatePriorPtrPrVec>;
-    using TFeatureVecCorrelationsMap = std::map<TFeatureVec, TFeatureCorrelationsPtrPrVec>;
+        std::map<TFeatureVec, TFeatureMultivariatePriorSPtrPrVec>;
     using TStrFeatureVecPr = std::pair<std::string, TFeatureVec>;
     using TStrFeatureVecPrInfluenceCalculatorCPtrMap =
         std::map<TStrFeatureVecPr, TFeatureInfluenceCalculatorCPtrPrVec, maths::COrderings::SLess>;
@@ -419,14 +434,20 @@ private:
     //! The global model configuration parameters.
     SModelParams m_ModelParams;
 
+    //! A reference to the singleton interim bucket correction calculator.
+    //!
+    //! \note It is the responsibility of the user of the factory class
+    //! to ensure that the interim bucket corrector is not deleted whilst
+    //! still in use. We store it here by weak pointer since we don't want
+    //! this to update the reference count so we properly account for its
+    //! memory usage in the objects this creates.
+    TInterimBucketCorrectorWPtr m_InterimBucketCorrector;
+
     //! A cache of models for collections of features.
     mutable TFeatureVecMathsModelMap m_MathsModelCache;
 
     //! A cache of priors for correlate pairs of collections of features.
     mutable TFeatureVecMultivariatePriorMap m_CorrelatePriorCache;
-
-    //! A cache of models of the correlations of collections of features.
-    mutable TFeatureVecCorrelationsMap m_CorrelationsCache;
 
     //! A cache of influence calculators for collections of features.
     mutable TStrFeatureVecPrInfluenceCalculatorCPtrMap m_InfluenceCalculatorCache;

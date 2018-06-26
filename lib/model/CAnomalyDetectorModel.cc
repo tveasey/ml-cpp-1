@@ -81,8 +81,7 @@ CAnomalyDetectorModel::CAnomalyDetectorModel(const SModelParams& params,
                                              const TDataGathererPtr& dataGatherer,
                                              const TFeatureInfluenceCalculatorCPtrPrVecVec& influenceCalculators)
     : m_Params(params), m_DataGatherer(dataGatherer), m_BucketCount(0.0),
-      m_InfluenceCalculators(influenceCalculators),
-      m_InterimBucketCorrector(new CInterimBucketCorrector(dataGatherer->bucketLength())) {
+      m_InfluenceCalculators(influenceCalculators) {
     if (!m_DataGatherer) {
         LOG_ABORT(<< "Must provide a data gatherer");
     }
@@ -101,8 +100,7 @@ CAnomalyDetectorModel::CAnomalyDetectorModel(bool isForPersistence,
       // data gatherer that are invariant.
       m_Params(other.m_Params), m_DataGatherer(other.m_DataGatherer),
       m_PersonBucketCounts(other.m_PersonBucketCounts),
-      m_BucketCount(other.m_BucketCount), m_InfluenceCalculators(),
-      m_InterimBucketCorrector(new CInterimBucketCorrector(*other.m_InterimBucketCorrector)) {
+      m_BucketCount(other.m_BucketCount) {
     if (!isForPersistence) {
         LOG_ABORT(<< "This constructor only creates clones for persistence");
     }
@@ -175,21 +173,6 @@ std::string CAnomalyDetectorModel::printAttributes(const TSizeVec& cids,
     return result;
 }
 
-void CAnomalyDetectorModel::sampleBucketStatistics(core_t::TTime startTime,
-                                                   core_t::TTime endTime,
-                                                   CResourceMonitor& /*resourceMonitor*/) {
-    const CDataGatherer& gatherer{this->dataGatherer()};
-    core_t::TTime bucketLength{this->bucketLength()};
-    for (core_t::TTime time = startTime; time < endTime; time += bucketLength) {
-        const auto& counts = gatherer.bucketCounts(time);
-        std::size_t totalBucketCount{0u};
-        for (const auto& count : counts) {
-            totalBucketCount += CDataGatherer::extractData(count);
-        }
-        this->currentBucketTotalCount(totalBucketCount);
-    }
-}
-
 void CAnomalyDetectorModel::sample(core_t::TTime startTime,
                                    core_t::TTime endTime,
                                    CResourceMonitor& /*resourceMonitor*/) {
@@ -200,7 +183,6 @@ void CAnomalyDetectorModel::sample(core_t::TTime startTime,
     core_t::TTime bucketLength{this->bucketLength()};
     for (core_t::TTime time = startTime; time < endTime; time += bucketLength) {
         const auto& counts = gatherer.bucketCounts(time);
-        std::size_t totalBucketCount{0u};
 
         TSizeUSet uniquePeople;
         for (const auto& count : counts) {
@@ -208,11 +190,8 @@ void CAnomalyDetectorModel::sample(core_t::TTime startTime,
             if (uniquePeople.insert(pid).second) {
                 m_PersonBucketCounts[pid] += 1.0;
             }
-            totalBucketCount += CDataGatherer::extractData(count);
         }
 
-        m_InterimBucketCorrector->update(time, totalBucketCount);
-        this->currentBucketTotalCount(totalBucketCount);
         m_BucketCount += 1.0;
 
         double alpha{std::exp(-this->params().s_DecayRate)};
@@ -329,8 +308,6 @@ void CAnomalyDetectorModel::debugMemoryUsage(core::CMemoryUsage::TMemoryUsagePtr
     core::CMemoryDebug::dynamicSize("m_Params", m_Params, mem);
     core::CMemoryDebug::dynamicSize("m_PersonBucketCounts", m_PersonBucketCounts, mem);
     core::CMemoryDebug::dynamicSize("m_InfluenceCalculators", m_InfluenceCalculators, mem);
-    core::CMemoryDebug::dynamicSize("m_InterimBucketCorrector",
-                                    m_InterimBucketCorrector, mem);
 }
 
 std::size_t CAnomalyDetectorModel::memoryUsage() const {
@@ -338,7 +315,6 @@ std::size_t CAnomalyDetectorModel::memoryUsage() const {
     mem += core::CMemory::dynamicSize(m_DataGatherer);
     mem += core::CMemory::dynamicSize(m_PersonBucketCounts);
     mem += core::CMemory::dynamicSize(m_InfluenceCalculators);
-    mem += core::CMemory::dynamicSize(m_InterimBucketCorrector);
     return mem;
 }
 
@@ -448,13 +424,14 @@ void CAnomalyDetectorModel::createNewModels(std::size_t n, std::size_t /*m*/) {
 void CAnomalyDetectorModel::updateRecycledModels() {
     TSizeVec& people{m_DataGatherer->recycledPersonIds()};
     for (auto pid : people) {
-        m_PersonBucketCounts[pid] = 0.0;
+        if (pid < m_PersonBucketCounts.size()) {
+            m_PersonBucketCounts[pid] = 0.0;
+        } else {
+            LOG_ERROR(<< "Recycled person identifier '" << pid << "' out-of-range [,"
+                      << m_PersonBucketCounts.size() << ")");
+        }
     }
     people.clear();
-}
-
-const CInterimBucketCorrector& CAnomalyDetectorModel::interimValueCorrector() const {
-    return *m_InterimBucketCorrector;
 }
 
 bool CAnomalyDetectorModel::shouldIgnoreResult(model_t::EFeature feature,
@@ -464,10 +441,10 @@ bool CAnomalyDetectorModel::shouldIgnoreResult(model_t::EFeature feature,
                                                core_t::TTime time) const {
     bool shouldIgnore =
         checkScheduledEvents(this->params().s_ScheduledEvents.get(),
-                             boost::cref(*this), feature, CDetectionRule::E_FilterResults,
+                             boost::cref(*this), feature, CDetectionRule::E_SkipResult,
                              resultType, pid, cid, time) ||
         checkRules(this->params().s_DetectionRules.get(), boost::cref(*this), feature,
-                   CDetectionRule::E_FilterResults, resultType, pid, cid, time);
+                   CDetectionRule::E_SkipResult, resultType, pid, cid, time);
 
     return shouldIgnore;
 }
@@ -478,29 +455,13 @@ bool CAnomalyDetectorModel::shouldIgnoreSample(model_t::EFeature feature,
                                                core_t::TTime time) const {
     bool shouldIgnore =
         checkScheduledEvents(this->params().s_ScheduledEvents.get(),
-                             boost::cref(*this), feature, CDetectionRule::E_SkipSampling,
+                             boost::cref(*this), feature, CDetectionRule::E_SkipModelUpdate,
                              SKIP_SAMPLING_RESULT_TYPE, pid, cid, time) ||
         checkRules(this->params().s_DetectionRules.get(), boost::cref(*this),
-                   feature, CDetectionRule::E_SkipSampling,
+                   feature, CDetectionRule::E_SkipModelUpdate,
                    SKIP_SAMPLING_RESULT_TYPE, pid, cid, time);
 
     return shouldIgnore;
-}
-
-bool CAnomalyDetectorModel::interimBucketCorrectorAcceptRestoreTraverser(core::CStateRestoreTraverser& traverser) {
-    if (traverser.traverseSubLevel(boost::bind(&CInterimBucketCorrector::acceptRestoreTraverser,
-                                               m_InterimBucketCorrector.get(), _1)) == false) {
-        LOG_ERROR(<< "Invalid interim bucket corrector");
-        return false;
-    }
-    return true;
-}
-
-void CAnomalyDetectorModel::interimBucketCorrectorAcceptPersistInserter(
-    const std::string& tag,
-    core::CStatePersistInserter& inserter) const {
-    inserter.insertLevel(tag, boost::bind(&CInterimBucketCorrector::acceptPersistInserter,
-                                          m_InterimBucketCorrector.get(), _1));
 }
 
 const CAnomalyDetectorModel::TStr1Vec&
@@ -517,29 +478,25 @@ const core_t::TTime CAnomalyDetectorModel::TIME_UNSET(-1);
 const std::string CAnomalyDetectorModel::EMPTY_STRING;
 
 CAnomalyDetectorModel::SFeatureModels::SFeatureModels(model_t::EFeature feature,
-                                                      TMathsModelPtr newModel)
+                                                      TMathsModelSPtr newModel)
     : s_Feature(feature), s_NewModel(newModel) {
 }
 
 bool CAnomalyDetectorModel::SFeatureModels::acceptRestoreTraverser(const SModelParams& params_,
                                                                    core::CStateRestoreTraverser& traverser) {
     maths_t::EDataType dataType{s_NewModel->dataType()};
-    maths::SModelRestoreParams params{
-        s_NewModel->params(),
-        maths::STimeSeriesDecompositionRestoreParams{
-            CAnomalyDetectorModelConfig::trendDecayRate(params_.s_DecayRate,
-                                                        params_.s_BucketLength),
-            params_.s_BucketLength, params_.s_ComponentSize},
-        params_.distributionRestoreParams(dataType)};
+    maths::SModelRestoreParams params{s_NewModel->params(),
+                                      params_.decompositionRestoreParams(dataType),
+                                      params_.distributionRestoreParams(dataType)};
     do {
         if (traverser.name() == MODEL_TAG) {
-            TMathsModelPtr prior;
+            TMathsModelUPtr model;
             if (!traverser.traverseSubLevel(
                     boost::bind<bool>(maths::CModelStateSerialiser(),
-                                      boost::cref(params), boost::ref(prior), _1))) {
+                                      boost::cref(params), boost::ref(model), _1))) {
                 return false;
             }
-            s_Models.push_back(prior);
+            s_Models.push_back(std::move(model));
         }
     } while (traverser.next());
     return true;
@@ -562,10 +519,11 @@ std::size_t CAnomalyDetectorModel::SFeatureModels::memoryUsage() const {
     return core::CMemory::dynamicSize(s_NewModel) + core::CMemory::dynamicSize(s_Models);
 }
 
-CAnomalyDetectorModel::SFeatureCorrelateModels::SFeatureCorrelateModels(model_t::EFeature feature,
-                                                                        TMultivariatePriorPtr modelPrior,
-                                                                        TCorrelationsPtr model)
-    : s_Feature(feature), s_ModelPrior(modelPrior), s_Models(model->clone()) {
+CAnomalyDetectorModel::SFeatureCorrelateModels::SFeatureCorrelateModels(
+    model_t::EFeature feature,
+    const TMultivariatePriorSPtr& modelPrior,
+    TCorrelationsPtr&& model)
+    : s_Feature(feature), s_ModelPrior(modelPrior), s_Models(std::move(model)) {
 }
 
 bool CAnomalyDetectorModel::SFeatureCorrelateModels::acceptRestoreTraverser(
@@ -629,13 +587,13 @@ std::size_t CAnomalyDetectorModel::CTimeSeriesCorrelateModelAllocator::chunkSize
     return 500;
 }
 
-CAnomalyDetectorModel::TMultivariatePriorPtr
+CAnomalyDetectorModel::CTimeSeriesCorrelateModelAllocator::TMultivariatePriorUPtr
 CAnomalyDetectorModel::CTimeSeriesCorrelateModelAllocator::newPrior() const {
-    return TMultivariatePriorPtr(m_PrototypePrior->clone());
+    return TMultivariatePriorUPtr(m_PrototypePrior->clone());
 }
 
 void CAnomalyDetectorModel::CTimeSeriesCorrelateModelAllocator::prototypePrior(
-    const TMultivariatePriorPtr& prior) {
+    const TMultivariatePriorSPtr& prior) {
     m_PrototypePrior = prior;
 }
 }

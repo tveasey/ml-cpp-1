@@ -10,6 +10,7 @@
 #include <core/CTriple.h>
 
 #include <model/CAnomalyDetectorModel.h>
+#include <model/CInterimBucketCorrector.h>
 #include <model/CModelDetailsView.h>
 
 #include <boost/unordered_map.hpp>
@@ -117,14 +118,7 @@ public:
                                    core_t::TTime time,
                                    const TDouble1Vec& value);
 
-    void mockTimeSeriesModels(const TMathsModelPtrVec& model);
-
-protected:
-    virtual core_t::TTime currentBucketStartTime() const;
-    virtual void currentBucketStartTime(core_t::TTime time);
-    virtual void createNewModels(std::size_t n, std::size_t m);
-    virtual void updateRecycledModels();
-    virtual void clearPrunedResources(const TSizeVec& people, const TSizeVec& attributes);
+    void mockTimeSeriesModels(TMathsModelUPtrVec&& model);
 
 private:
     using TDouble1Vec = CAnomalyDetectorModel::TDouble1Vec;
@@ -134,7 +128,12 @@ private:
         boost::unordered_map<TFeatureSizeSizeTimeTriplePr, TDouble1Vec>;
 
 private:
-    virtual void currentBucketTotalCount(uint64_t totalCount);
+    virtual core_t::TTime currentBucketStartTime() const;
+    virtual void currentBucketStartTime(core_t::TTime time);
+    virtual void createNewModels(std::size_t n, std::size_t m);
+    virtual void updateRecycledModels();
+    virtual void clearPrunedResources(const TSizeVec& people, const TSizeVec& attributes);
+    virtual const model::CInterimBucketCorrector& interimValueCorrector() const;
     virtual void doSkipSampling(core_t::TTime startTime, core_t::TTime endTime);
     virtual CMemoryUsageEstimator* memoryUsageEstimator() const;
 
@@ -142,7 +141,8 @@ private:
     bool m_IsPopulation;
     TFeatureSizeSizeTimeTriplePrDouble1VecUMap m_BucketValues;
     TFeatureSizeSizeTimeTriplePrDouble1VecUMap m_BucketBaselineMeans;
-    TMathsModelPtrVec m_Models;
+    TMathsModelUPtrVec m_Models;
+    model::CInterimBucketCorrector m_InterimBucketCorrector;
 };
 
 //! \brief A details view for a mock model.

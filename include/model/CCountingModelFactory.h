@@ -32,9 +32,10 @@ public:
     //! intended for unit testing and are not necessarily good defaults.
     //! The CModelConfig class is responsible for providing sensible
     //! default values for the factory for use within our products.
-    explicit CCountingModelFactory(const SModelParams& params,
-                                   model_t::ESummaryMode summaryMode = model_t::E_None,
-                                   const std::string& summaryCountFieldName = "");
+    CCountingModelFactory(const SModelParams& params,
+                          const TInterimBucketCorrectorWPtr& interimBucketCorrector,
+                          model_t::ESummaryMode summaryMode = model_t::E_None,
+                          const std::string& summaryCountFieldName = "");
 
     //! Create a copy of the factory owned by the calling code.
     virtual CCountingModelFactory* clone() const;
@@ -78,12 +79,12 @@ public:
     virtual TPriorPtr defaultPrior(model_t::EFeature feature, const SModelParams& params) const;
 
     //! Get the default prior for \p feature which is a stub.
-    virtual TMultivariatePriorPtr
+    virtual TMultivariatePriorUPtr
     defaultMultivariatePrior(model_t::EFeature feature, const SModelParams& params) const;
 
     //! Get the default prior for pairs of correlated time series
     //! of \p feature which is a stub.
-    virtual TMultivariatePriorPtr
+    virtual TMultivariatePriorUPtr
     defaultCorrelatePrior(model_t::EFeature feature, const SModelParams& params) const;
     //@}
 
@@ -120,6 +121,9 @@ public:
     //! Set the bucket results delay
     virtual void bucketResultsDelay(std::size_t bucketResultsDelay);
     //@}
+
+    //! Get the minimum seasonal variance scale
+    virtual double minimumSeasonalVarianceScale() const;
 
 private:
     //! Get the field values which partition the data for modeling.

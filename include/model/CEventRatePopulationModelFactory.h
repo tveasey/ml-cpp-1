@@ -22,7 +22,7 @@ namespace model {
 //! This concrete factory implements the methods to make new models
 //! and data gatherers, and create default priors suitable for the
 //! CEventRatePopulationModel class.
-class MODEL_EXPORT CEventRatePopulationModelFactory : public CModelFactory {
+class MODEL_EXPORT CEventRatePopulationModelFactory final : public CModelFactory {
 public:
     //! Lift all overloads into scope.
     using CModelFactory::defaultMultivariatePrior;
@@ -33,9 +33,10 @@ public:
     //! intended for unit testing and are not necessarily good defaults.
     //! The CModelConfig class is responsible for providing sensible
     //! default values for the factory for use within our products.
-    explicit CEventRatePopulationModelFactory(const SModelParams& params,
-                                              model_t::ESummaryMode summaryMode = model_t::E_None,
-                                              const std::string& summaryCountFieldName = "");
+    CEventRatePopulationModelFactory(const SModelParams& params,
+                                     const TInterimBucketCorrectorWPtr& interimBucketCorrector,
+                                     model_t::ESummaryMode summaryMode = model_t::E_None,
+                                     const std::string& summaryCountFieldName = "");
 
     //! Create a copy of the factory owned by the calling code.
     virtual CEventRatePopulationModelFactory* clone() const;
@@ -86,7 +87,7 @@ public:
     //!
     //! \param[in] feature The feature for which to get the prior.
     //! \param[in] params The model parameters.
-    virtual TMultivariatePriorPtr
+    virtual TMultivariatePriorUPtr
     defaultMultivariatePrior(model_t::EFeature feature, const SModelParams& params) const;
 
     //! Get the default prior for pairs of correlated time series
@@ -94,7 +95,7 @@ public:
     //!
     //! \param[in] feature The feature for which to get the prior.
     //! \param[in] params The model parameters.
-    virtual TMultivariatePriorPtr
+    virtual TMultivariatePriorUPtr
     defaultCorrelatePrior(model_t::EFeature feature, const SModelParams& params) const;
     //@}
 
@@ -133,13 +134,16 @@ public:
     virtual void bucketResultsDelay(std::size_t bucketResultsDelay);
     //@}
 
+    //! Get the minimum seasonal variance scale
+    virtual double minimumSeasonalVarianceScale() const;
+
 private:
     //! Get the field values which partition the data for modeling.
     virtual TStrCRefVec partitioningFields() const;
 
 private:
     //! The identifier of the search for which this generates models.
-    int m_Identifier;
+    int m_Identifier = 0;
 
     //! Indicates whether the data being gathered are already summarized
     //! by an external aggregation process.
@@ -170,13 +174,13 @@ private:
 
     //! If true the models will process missing person and attribute
     //! fields.
-    bool m_UseNull;
+    bool m_UseNull = false;
 
     //! The count features which will be modeled.
     TFeatureVec m_Features;
 
     //! The bucket results delay.
-    std::size_t m_BucketResultsDelay;
+    std::size_t m_BucketResultsDelay = 0;
 
     //! A cached search key.
     mutable TOptionalSearchKey m_SearchKeyCache;

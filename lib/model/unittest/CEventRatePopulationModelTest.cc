@@ -20,15 +20,16 @@
 
 #include <model/CAnnotatedProbabilityBuilder.h>
 #include <model/CAnomalyDetectorModelConfig.h>
+#include <model/CCountingModel.h>
 #include <model/CDataGatherer.h>
 #include <model/CDetectionRule.h>
 #include <model/CEventData.h>
 #include <model/CEventRatePopulationModel.h>
 #include <model/CEventRatePopulationModelFactory.h>
+#include <model/CInterimBucketCorrector.h>
 #include <model/CModelDetailsView.h>
 #include <model/CPartitioningFields.h>
 #include <model/CResourceMonitor.h>
-#include <model/CRuleCondition.h>
 
 #include <test/CRandomNumbers.h>
 
@@ -223,10 +224,9 @@ void CEventRatePopulationModelTest::testBasicAccessors() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CEventRatePopulationModelFactory factory(params);
-    CModelFactory::TFeatureVec features;
-    features.push_back(model_t::E_PopulationCountByBucketPersonAndAttribute);
-    factory.features(features);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CEventRatePopulationModelFactory factory(params, interimBucketCorrector);
+    factory.features({model_t::E_PopulationCountByBucketPersonAndAttribute});
     CModelFactory::SGathererInitializationData gathererInitData(startTime);
     CModelFactory::TDataGathererPtr gatherer(
         dynamic_cast<CDataGatherer*>(factory.makeDataGatherer(gathererInitData)));
@@ -354,6 +354,7 @@ void CEventRatePopulationModelTest::testFeatures() {
     // Bucket non-zero count unique person count.
     SModelParams params(bucketLength);
     params.s_InitialDecayRateMultiplier = 1.0;
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
     CEventRatePopulationModelFactory factory(params);
     CModelFactory::TFeatureVec features{model_t::E_PopulationCountByBucketPersonAndAttribute,
                                         model_t::E_PopulationUniquePersonCountByAttribute};
@@ -489,11 +490,10 @@ void CEventRatePopulationModelTest::testComputeProbability() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CEventRatePopulationModelFactory factory(params);
-    CModelFactory::TFeatureVec features;
-    features.push_back(model_t::E_PopulationCountByBucketPersonAndAttribute);
-    features.push_back(model_t::E_PopulationUniquePersonCountByAttribute);
-    factory.features(features);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CEventRatePopulationModelFactory factory(params, interimBucketCorrector);
+    factory.features({model_t::E_PopulationCountByBucketPersonAndAttribute,
+                      model_t::E_PopulationUniquePersonCountByAttribute});
     CModelFactory::SGathererInitializationData gathererInitData(startTime);
     CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
     CModelFactory::SModelInitializationData modelInitData(gatherer);
@@ -628,11 +628,10 @@ void CEventRatePopulationModelTest::testPrune() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.01;
-    CEventRatePopulationModelFactory factory(params);
-    CDataGatherer::TFeatureVec features;
-    features.push_back(model_t::E_PopulationCountByBucketPersonAndAttribute);
-    features.push_back(model_t::E_PopulationUniquePersonCountByAttribute);
-    factory.features(features);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CEventRatePopulationModelFactory factory(params, interimBucketCorrector);
+    factory.features({model_t::E_PopulationCountByBucketPersonAndAttribute,
+                      model_t::E_PopulationUniquePersonCountByAttribute});
     CModelFactory::SGathererInitializationData gathererInitData(startTime);
     CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
     CModelFactory::SModelInitializationData modelInitData(gatherer);
@@ -803,11 +802,10 @@ void CEventRatePopulationModelTest::testFrequency() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CEventRatePopulationModelFactory factory(params);
-    CModelFactory::TFeatureVec features;
-    features.push_back(model_t::E_PopulationCountByBucketPersonAndAttribute);
-    features.push_back(model_t::E_PopulationUniquePersonCountByAttribute);
-    factory.features(features);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CEventRatePopulationModelFactory factory(params, interimBucketCorrector);
+    factory.features({model_t::E_PopulationCountByBucketPersonAndAttribute,
+                      model_t::E_PopulationUniquePersonCountByAttribute});
     CModelFactory::SGathererInitializationData gathererInitData(startTime);
     CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
     const model::CDataGatherer& populationGatherer(
@@ -914,11 +912,10 @@ void CEventRatePopulationModelTest::testSampleRateWeight() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CEventRatePopulationModelFactory factory(params);
-    CModelFactory::TFeatureVec features;
-    features.push_back(model_t::E_PopulationCountByBucketPersonAndAttribute);
-    features.push_back(model_t::E_PopulationUniquePersonCountByAttribute);
-    factory.features(features);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CEventRatePopulationModelFactory factory(params, interimBucketCorrector);
+    factory.features({model_t::E_PopulationCountByBucketPersonAndAttribute,
+                      model_t::E_PopulationUniquePersonCountByAttribute});
 
     CModelFactory::SGathererInitializationData gathererInitData(startTime);
     CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
@@ -1020,11 +1017,10 @@ void CEventRatePopulationModelTest::testPeriodicity() {
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
     params.s_MinimumModeCount = 24.0;
-    CEventRatePopulationModelFactory factory(params);
-    CModelFactory::TFeatureVec features;
-    features.push_back(model_t::E_PopulationCountByBucketPersonAndAttribute);
-    features.push_back(model_t::E_PopulationUniquePersonCountByAttribute);
-    factory.features(features);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CEventRatePopulationModelFactory factory(params, interimBucketCorrector);
+    factory.features({model_t::E_PopulationCountByBucketPersonAndAttribute,
+                      model_t::E_PopulationUniquePersonCountByAttribute});
 
     CModelFactory::SGathererInitializationData gathererInitData(startTime);
     CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
@@ -1101,11 +1097,11 @@ void CEventRatePopulationModelTest::testSkipSampling() {
     core_t::TTime startTime(100);
     std::size_t bucketLength(100);
     std::size_t maxAgeBuckets(5);
-    SModelParams params(bucketLength);
 
-    CEventRatePopulationModelFactory factory(params);
-    model_t::TFeatureVec features(1u, model_t::E_PopulationCountByBucketPersonAndAttribute);
-    factory.features(features);
+    SModelParams params(bucketLength);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CEventRatePopulationModelFactory factory(params, interimBucketCorrector);
+    factory.features({model_t::E_PopulationCountByBucketPersonAndAttribute});
 
     CModelFactory::SGathererInitializationData gathererNoGapInitData(startTime);
     CModelFactory::TDataGathererPtr gathererNoGap(factory.makeDataGatherer(gathererNoGapInitData));
@@ -1137,8 +1133,7 @@ void CEventRatePopulationModelTest::testSkipSampling() {
     modelWithGap->sample(100, 200, m_ResourceMonitor);
     addArrival(SMessage(200, "p1", "a1"), gathererWithGap, m_ResourceMonitor);
     modelWithGap->skipSampling(1000);
-    LOG_DEBUG(<< "Calling sample over skipped interval should do nothing "
-                 "except print some ERRORs");
+    LOG_DEBUG(<< "Calling sample over skipped interval should do nothing except print some ERRORs");
     modelWithGap->sample(200, 1000, m_ResourceMonitor);
 
     // Check prune does not remove people because last seen times are updated by adding gap duration
@@ -1155,20 +1150,20 @@ void CEventRatePopulationModelTest::testSkipSampling() {
     CPPUNIT_ASSERT_EQUAL(
         static_cast<const maths::CUnivariateTimeSeriesModel*>(
             modelWithGap->details()->model(model_t::E_PopulationCountByBucketPersonAndAttribute, 0))
-            ->prior()
+            ->residualModel()
             .checksum(),
         static_cast<const maths::CUnivariateTimeSeriesModel*>(
             modelNoGap->details()->model(model_t::E_PopulationCountByBucketPersonAndAttribute, 0))
-            ->prior()
+            ->residualModel()
             .checksum());
     CPPUNIT_ASSERT_EQUAL(
         static_cast<const maths::CUnivariateTimeSeriesModel*>(
             modelWithGap->details()->model(model_t::E_PopulationCountByBucketPersonAndAttribute, 1))
-            ->prior()
+            ->residualModel()
             .checksum(),
         static_cast<const maths::CUnivariateTimeSeriesModel*>(
             modelNoGap->details()->model(model_t::E_PopulationCountByBucketPersonAndAttribute, 1))
-            ->prior()
+            ->residualModel()
             .checksum());
 
     // Confirm last seen times are only updated by gap duration by forcing p2 and a2 to be pruned
@@ -1186,17 +1181,16 @@ void CEventRatePopulationModelTest::testSkipSampling() {
 void CEventRatePopulationModelTest::testInterimCorrections() {
     core_t::TTime startTime(3600);
     std::size_t bucketLength(3600);
-    SModelParams params(bucketLength);
-    CEventRatePopulationModelFactory factory(params);
-    model_t::TFeatureVec features(1u, model_t::E_PopulationCountByBucketPersonAndAttribute);
-    factory.features(features);
 
-    CModelFactory::SGathererInitializationData gathererInitData(startTime);
-    CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
-    CModelFactory::SModelInitializationData modelInitData(gatherer);
-    CAnomalyDetectorModel::TModelPtr modelHolder(factory.makeModel(modelInitData));
+    SModelParams params(bucketLength);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CEventRatePopulationModelFactory factory(params, interimBucketCorrector);
+    factory.features({model_t::E_PopulationCountByBucketPersonAndAttribute});
+    CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(startTime));
+    CAnomalyDetectorModel::TModelPtr modelHolder(factory.makeModel(gatherer));
     CEventRatePopulationModel* model =
         dynamic_cast<CEventRatePopulationModel*>(modelHolder.get());
+    CCountingModel countingModel(params, gatherer, interimBucketCorrector);
 
     test::CRandomNumbers rng;
     core_t::TTime now = startTime;
@@ -1213,6 +1207,7 @@ void CEventRatePopulationModelTest::testInterimCorrections() {
         for (std::size_t i = 0; i < static_cast<std::size_t>(samples[2] + 0.5); ++i) {
             addArrival(SMessage(now, "p3", "a2"), gatherer, m_ResourceMonitor);
         }
+        countingModel.sample(now, now + bucketLength, m_ResourceMonitor);
         model->sample(now, now + bucketLength, m_ResourceMonitor);
         now += bucketLength;
     }
@@ -1225,6 +1220,7 @@ void CEventRatePopulationModelTest::testInterimCorrections() {
     for (std::size_t i = 0; i < 100; ++i) {
         addArrival(SMessage(now, "p3", "a2"), gatherer, m_ResourceMonitor);
     }
+    countingModel.sampleBucketStatistics(now, now + bucketLength, m_ResourceMonitor);
     model->sampleBucketStatistics(now, now + bucketLength, m_ResourceMonitor);
 
     CPartitioningFields partitioningFields(EMPTY_STRING, EMPTY_STRING);
@@ -1274,11 +1270,10 @@ void CEventRatePopulationModelTest::testPersistence() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CEventRatePopulationModelFactory factory(params);
-    CModelFactory::TFeatureVec features;
-    features.push_back(model_t::E_PopulationCountByBucketPersonAndAttribute);
-    features.push_back(model_t::E_PopulationUniquePersonCountByAttribute);
-    factory.features(features);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CEventRatePopulationModelFactory factory(params, interimBucketCorrector);
+    factory.features({model_t::E_PopulationCountByBucketPersonAndAttribute,
+                      model_t::E_PopulationUniquePersonCountByAttribute});
     CModelFactory::SGathererInitializationData gathererInitData(startTime);
     CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
 
@@ -1347,16 +1342,14 @@ void CEventRatePopulationModelTest::testIgnoreSamplingGivenDetectionRules() {
     core::CPatternSet valueFilter;
     valueFilter.initFromJson(filterJson);
 
-    CRuleCondition condition;
-    condition.type(CRuleCondition::E_CategoricalMatch);
-    condition.valueFilter(valueFilter);
     CDetectionRule rule;
-    rule.action(CDetectionRule::E_SkipSampling);
-    rule.addCondition(condition);
+    rule.action(CDetectionRule::E_SkipModelUpdate);
+    rule.includeScope("", valueFilter);
 
     SModelParams paramsNoRules(bucketLength);
-    CEventRatePopulationModelFactory factory(paramsNoRules);
-    model_t::TFeatureVec features(1u, model_t::E_PopulationCountByBucketPersonAndAttribute);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CEventRatePopulationModelFactory factory(paramsNoRules, interimBucketCorrector);
+    model_t::TFeatureVec features{model_t::E_PopulationCountByBucketPersonAndAttribute};
     factory.features(features);
 
     CModelFactory::SGathererInitializationData gathererNoSkipInitData(startTime);
@@ -1368,8 +1361,11 @@ void CEventRatePopulationModelTest::testIgnoreSamplingGivenDetectionRules() {
     SModelParams paramsWithRules(bucketLength);
     SModelParams::TDetectionRuleVec rules{rule};
     paramsWithRules.s_DetectionRules = SModelParams::TDetectionRuleVecCRef(rules);
+    auto interimBucketCorrectorWithRules =
+        std::make_shared<CInterimBucketCorrector>(bucketLength);
 
-    CEventRatePopulationModelFactory factoryWithSkipRule(paramsWithRules);
+    CEventRatePopulationModelFactory factoryWithSkipRule(
+        paramsWithRules, interimBucketCorrectorWithRules);
     factoryWithSkipRule.features(features);
 
     CModelFactory::SGathererInitializationData gathererWithSkipInitData(startTime);
@@ -1451,7 +1447,7 @@ void CEventRatePopulationModelTest::testIgnoreSamplingGivenDetectionRules() {
             model_t::E_PopulationCountByBucketPersonAndAttribute, 0));
     CPPUNIT_ASSERT(timeSeriesModel);
 
-    core_t::TTime time = timeSeriesModel->trend().lastValueTime();
+    core_t::TTime time = timeSeriesModel->trendModel().lastValueTime();
     CPPUNIT_ASSERT_EQUAL(model_t::sampleTime(model_t::E_PopulationCountByBucketPersonAndAttribute,
                                              200, bucketLength),
                          time);
@@ -1459,23 +1455,23 @@ void CEventRatePopulationModelTest::testIgnoreSamplingGivenDetectionRules() {
     // The last times of the underlying time series models should all be the same
     timeSeriesModel = dynamic_cast<const maths::CUnivariateTimeSeriesModel*>(
         modelNoSkipView->model(model_t::E_PopulationCountByBucketPersonAndAttribute, 1));
-    CPPUNIT_ASSERT_EQUAL(time, timeSeriesModel->trend().lastValueTime());
+    CPPUNIT_ASSERT_EQUAL(time, timeSeriesModel->trendModel().lastValueTime());
     timeSeriesModel = dynamic_cast<const maths::CUnivariateTimeSeriesModel*>(
         modelNoSkipView->model(model_t::E_PopulationCountByBucketPersonAndAttribute, 2));
-    CPPUNIT_ASSERT_EQUAL(time, timeSeriesModel->trend().lastValueTime());
+    CPPUNIT_ASSERT_EQUAL(time, timeSeriesModel->trendModel().lastValueTime());
 
     timeSeriesModel = dynamic_cast<const maths::CUnivariateTimeSeriesModel*>(
         modelWithSkipView->model(model_t::E_PopulationCountByBucketPersonAndAttribute, 0));
-    CPPUNIT_ASSERT_EQUAL(time, timeSeriesModel->trend().lastValueTime());
+    CPPUNIT_ASSERT_EQUAL(time, timeSeriesModel->trendModel().lastValueTime());
     timeSeriesModel = dynamic_cast<const maths::CUnivariateTimeSeriesModel*>(
         modelWithSkipView->model(model_t::E_PopulationCountByBucketPersonAndAttribute, 1));
-    CPPUNIT_ASSERT_EQUAL(time, timeSeriesModel->trend().lastValueTime());
+    CPPUNIT_ASSERT_EQUAL(time, timeSeriesModel->trendModel().lastValueTime());
     timeSeriesModel = dynamic_cast<const maths::CUnivariateTimeSeriesModel*>(
         modelWithSkipView->model(model_t::E_PopulationCountByBucketPersonAndAttribute, 2));
-    CPPUNIT_ASSERT_EQUAL(time, timeSeriesModel->trend().lastValueTime());
+    CPPUNIT_ASSERT_EQUAL(time, timeSeriesModel->trendModel().lastValueTime());
     timeSeriesModel = dynamic_cast<const maths::CUnivariateTimeSeriesModel*>(
         modelWithSkipView->model(model_t::E_PopulationCountByBucketPersonAndAttribute, 3));
-    CPPUNIT_ASSERT_EQUAL(time, timeSeriesModel->trend().lastValueTime());
+    CPPUNIT_ASSERT_EQUAL(time, timeSeriesModel->trendModel().lastValueTime());
 }
 
 CppUnit::Test* CEventRatePopulationModelTest::suite() {

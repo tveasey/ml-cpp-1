@@ -21,17 +21,20 @@
 #include <model/CDataGatherer.h>
 #include <model/CMetricPopulationModel.h>
 
+#include <boost/make_unique.hpp>
+
 #include <memory>
 
 namespace ml {
 namespace model {
 
-CMetricPopulationModelFactory::CMetricPopulationModelFactory(const SModelParams& params,
-                                                             model_t::ESummaryMode summaryMode,
-                                                             const std::string& summaryCountFieldName)
-    : CModelFactory(params), m_Identifier(), m_SummaryMode(summaryMode),
-      m_SummaryCountFieldName(summaryCountFieldName), m_UseNull(false),
-      m_BucketResultsDelay(0) {
+CMetricPopulationModelFactory::CMetricPopulationModelFactory(
+    const SModelParams& params,
+    const TInterimBucketCorrectorWPtr& interimBucketCorrector,
+    model_t::ESummaryMode summaryMode,
+    const std::string& summaryCountFieldName)
+    : CModelFactory(params, interimBucketCorrector), m_SummaryMode(summaryMode),
+      m_SummaryCountFieldName(summaryCountFieldName) {
 }
 
 CMetricPopulationModelFactory* CMetricPopulationModelFactory::clone() const {
@@ -55,9 +58,10 @@ CMetricPopulationModelFactory::makeModel(const SModelInitializationData& initDat
 
     return new CMetricPopulationModel(
         this->modelParams(), dataGatherer,
-        this->defaultFeatureModels(features, dataGatherer->bucketLength(), 1.0, false),
-        this->defaultCorrelatePriors(features),
-        this->defaultCorrelates(features), influenceCalculators);
+        this->defaultFeatureModels(features, dataGatherer->bucketLength(),
+                                   this->minimumSeasonalVarianceScale(), false),
+        this->defaultCorrelatePriors(features), this->defaultCorrelates(features),
+        influenceCalculators, this->interimBucketCorrector());
 }
 
 CAnomalyDetectorModel*
@@ -79,28 +83,28 @@ CMetricPopulationModelFactory::makeModel(const SModelInitializationData& initDat
     return new CMetricPopulationModel(
         this->modelParams(), dataGatherer,
         this->defaultFeatureModels(features, dataGatherer->bucketLength(), 1.0, false),
-        this->defaultCorrelatePriors(features),
-        this->defaultCorrelates(features), influenceCalculators, traverser);
+        this->defaultCorrelatePriors(features), this->defaultCorrelates(features),
+        influenceCalculators, this->interimBucketCorrector(), traverser);
 }
 
 CDataGatherer*
 CMetricPopulationModelFactory::makeDataGatherer(const SGathererInitializationData& initData) const {
-    return new CDataGatherer(
-        model_t::E_PopulationMetric, m_SummaryMode, this->modelParams(),
-        m_SummaryCountFieldName, m_PartitionFieldName,
-        initData.s_PartitionFieldValue, m_PersonFieldName, m_AttributeFieldName,
-        m_ValueFieldName, m_InfluenceFieldNames, m_UseNull, this->searchKey(),
-        m_Features, initData.s_StartTime, initData.s_SampleOverrideCount);
+    return new CDataGatherer(model_t::E_PopulationMetric, m_SummaryMode,
+                             this->modelParams(), m_SummaryCountFieldName,
+                             initData.s_PartitionFieldValue, m_PersonFieldName,
+                             m_AttributeFieldName, m_ValueFieldName,
+                             m_InfluenceFieldNames, this->searchKey(), m_Features,
+                             initData.s_StartTime, initData.s_SampleOverrideCount);
 }
 
 CDataGatherer*
 CMetricPopulationModelFactory::makeDataGatherer(const std::string& partitionFieldValue,
                                                 core::CStateRestoreTraverser& traverser) const {
-    return new CDataGatherer(
-        model_t::E_PopulationMetric, m_SummaryMode, this->modelParams(),
-        m_SummaryCountFieldName, m_PartitionFieldName, partitionFieldValue,
-        m_PersonFieldName, m_AttributeFieldName, m_ValueFieldName,
-        m_InfluenceFieldNames, m_UseNull, this->searchKey(), traverser);
+    return new CDataGatherer(model_t::E_PopulationMetric, m_SummaryMode,
+                             this->modelParams(), m_SummaryCountFieldName,
+                             partitionFieldValue, m_PersonFieldName,
+                             m_AttributeFieldName, m_ValueFieldName,
+                             m_InfluenceFieldNames, this->searchKey(), traverser);
 }
 
 CMetricPopulationModelFactory::TPriorPtr
@@ -109,16 +113,14 @@ CMetricPopulationModelFactory::defaultPrior(model_t::EFeature feature,
     // Categorical data all use the multinomial prior. The creation
     // of these priors is managed by defaultCategoricalPrior.
     if (model_t::isCategorical(feature)) {
-        return TPriorPtr();
+        return nullptr;
     }
 
     // If the feature data only ever takes a single value we use a
     // special lightweight prior.
     if (model_t::isConstant(feature)) {
-        return std::make_shared<maths::CConstantPrior>();
+        return boost::make_unique<maths::CConstantPrior>();
     }
-
-    using TPriorPtrVec = std::vector<TPriorPtr>;
 
     // The data will be arbitrary metric values. Metrics with negative values
     // will be handled by adjusting offsets in the gamma and log-normal priors
@@ -142,14 +144,14 @@ CMetricPopulationModelFactory::defaultPrior(model_t::EFeature feature,
         maths::CNormalMeanPrecConjugate::nonInformativePrior(dataType, params.s_DecayRate);
 
     // Create the component priors.
-    TPriorPtrVec priors;
+    maths::COneOfNPrior::TPriorPtrVec priors;
     priors.reserve(params.s_MinimumModeFraction <= 0.5 ? 4u : 3u);
     priors.emplace_back(gammaPrior.clone());
     priors.emplace_back(logNormalPrior.clone());
     priors.emplace_back(normalPrior.clone());
     if (params.s_MinimumModeFraction <= 0.5) {
         // Create the multimode prior.
-        TPriorPtrVec modePriors;
+        maths::COneOfNPrior::TPriorPtrVec modePriors;
         modePriors.reserve(3u);
         modePriors.emplace_back(gammaPrior.clone());
         modePriors.emplace_back(logNormalPrior.clone());
@@ -164,10 +166,10 @@ CMetricPopulationModelFactory::defaultPrior(model_t::EFeature feature,
         priors.emplace_back(multimodalPrior.clone());
     }
 
-    return std::make_shared<maths::COneOfNPrior>(priors, dataType, params.s_DecayRate);
+    return boost::make_unique<maths::COneOfNPrior>(priors, dataType, params.s_DecayRate);
 }
 
-CMetricPopulationModelFactory::TMultivariatePriorPtr
+CMetricPopulationModelFactory::TMultivariatePriorUPtr
 CMetricPopulationModelFactory::defaultMultivariatePrior(model_t::EFeature feature,
                                                         const SModelParams& params) const {
     std::size_t dimension = model_t::dimension(feature);
@@ -177,37 +179,37 @@ CMetricPopulationModelFactory::defaultMultivariatePrior(model_t::EFeature featur
         return this->latLongPrior(params);
     }
 
-    TMultivariatePriorPtrVec priors;
+    TMultivariatePriorUPtrVec priors;
     priors.reserve(params.s_MinimumModeFraction <= 0.5 ? 2u : 1u);
-    TMultivariatePriorPtr multivariateNormal =
-        this->multivariateNormalPrior(dimension, params);
-    priors.push_back(multivariateNormal);
+    TMultivariatePriorUPtr normal{this->multivariateNormalPrior(dimension, params)};
+    priors.push_back(std::move(normal));
     if (params.s_MinimumModeFraction <= 0.5) {
-        priors.push_back(this->multivariateMultimodalPrior(dimension, params, *multivariateNormal));
+        priors.push_back(this->multivariateMultimodalPrior(dimension, params,
+                                                           *priors.back()));
     }
 
     return this->multivariateOneOfNPrior(dimension, params, priors);
 }
 
-CMetricPopulationModelFactory::TMultivariatePriorPtr
+CMetricPopulationModelFactory::TMultivariatePriorUPtr
 CMetricPopulationModelFactory::defaultCorrelatePrior(model_t::EFeature /*feature*/,
                                                      const SModelParams& params) const {
-    TMultivariatePriorPtrVec priors;
+    TMultivariatePriorUPtrVec priors;
     priors.reserve(params.s_MinimumModeFraction <= 0.5 ? 2u : 1u);
-    TMultivariatePriorPtr multivariateNormal = this->multivariateNormalPrior(2, params);
-    priors.push_back(multivariateNormal);
+    TMultivariatePriorUPtr normal{this->multivariateNormalPrior(2, params)};
+    priors.push_back(std::move(normal));
     if (params.s_MinimumModeFraction <= 0.5) {
-        priors.push_back(this->multivariateMultimodalPrior(2, params, *multivariateNormal));
+        priors.push_back(this->multivariateMultimodalPrior(2, params, *priors.back()));
     }
     return this->multivariateOneOfNPrior(2, params, priors);
 }
 
 const CSearchKey& CMetricPopulationModelFactory::searchKey() const {
     if (!m_SearchKeyCache) {
-        m_SearchKeyCache.reset(CSearchKey(
-            m_Identifier, function_t::function(m_Features), m_UseNull,
-            this->modelParams().s_ExcludeFrequent, m_ValueFieldName, m_AttributeFieldName,
-            m_PersonFieldName, m_PartitionFieldName, m_InfluenceFieldNames));
+        m_SearchKeyCache.emplace(m_Identifier, function_t::function(m_Features),
+                                 m_UseNull, this->modelParams().s_ExcludeFrequent,
+                                 m_ValueFieldName, m_AttributeFieldName, m_PersonFieldName,
+                                 m_PartitionFieldName, m_InfluenceFieldNames);
     }
     return *m_SearchKeyCache;
 }
@@ -254,6 +256,10 @@ void CMetricPopulationModelFactory::features(const TFeatureVec& features) {
 
 void CMetricPopulationModelFactory::bucketResultsDelay(std::size_t bucketResultsDelay) {
     m_BucketResultsDelay = bucketResultsDelay;
+}
+
+double CMetricPopulationModelFactory::minimumSeasonalVarianceScale() const {
+    return 1.0;
 }
 
 CMetricPopulationModelFactory::TStrCRefVec

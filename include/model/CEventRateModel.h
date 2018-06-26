@@ -60,6 +60,7 @@ public:
     using TSizeFeatureDataPrVec = std::vector<TSizeFeatureDataPr>;
     using TFeatureSizeFeatureDataPrVecPr = std::pair<model_t::EFeature, TSizeFeatureDataPrVec>;
     using TFeatureSizeFeatureDataPrVecPrVec = std::vector<TFeatureSizeFeatureDataPrVecPr>;
+    using TInterimBucketCorrectorCPtr = std::shared_ptr<const CInterimBucketCorrector>;
     using TCategoryProbabilityCache = CModelTools::CCategoryProbabilityCache;
 
     //! The statistics we maintain about a bucketing interval.
@@ -70,8 +71,6 @@ public:
         core_t::TTime s_StartTime;
         //! The non-zero person counts in the current bucket.
         TSizeUInt64PrVec s_PersonCounts;
-        //! The total count in the current bucket.
-        uint64_t s_TotalCount;
         //! The feature data samples for the current bucketing interval.
         TFeatureSizeFeatureDataPrVecPrVec s_FeatureData;
         //! A cache of the corrections applied to interim results.
@@ -94,13 +93,16 @@ public:
     //! of seeing the people we are modeling.
     //! \param[in] influenceCalculators The influence calculators to use
     //! for each feature.
+    //! \param[in] interimBucketCorrector Calculates corrections for interim
+    //! buckets.
     CEventRateModel(const SModelParams& params,
                     const TDataGathererPtr& dataGatherer,
-                    const TFeatureMathsModelPtrPrVec& newFeatureModels,
-                    const TFeatureMultivariatePriorPtrPrVec& newFeatureCorrelateModelPriors,
-                    const TFeatureCorrelationsPtrPrVec& featureCorrelatesModels,
+                    const TFeatureMathsModelSPtrPrVec& newFeatureModels,
+                    const TFeatureMultivariatePriorSPtrPrVec& newFeatureCorrelateModelPriors,
+                    TFeatureCorrelationsPtrPrVec&& featureCorrelatesModels,
                     const maths::CMultinomialConjugate& probabilityPrior,
-                    const TFeatureInfluenceCalculatorCPtrPrVecVec& influenceCalculators);
+                    const TFeatureInfluenceCalculatorCPtrPrVecVec& influenceCalculators,
+                    const TInterimBucketCorrectorCPtr& interimBucketCorrector);
 
     //! Constructor used for restoring persisted models.
     //!
@@ -108,10 +110,11 @@ public:
     //! and so must be sampled for before this model can be used.
     CEventRateModel(const SModelParams& params,
                     const TDataGathererPtr& dataGatherer,
-                    const TFeatureMathsModelPtrPrVec& newFeatureModels,
-                    const TFeatureMultivariatePriorPtrPrVec& newFeatureCorrelateModelPriors,
-                    const TFeatureCorrelationsPtrPrVec& featureCorrelatesModels,
+                    const TFeatureMathsModelSPtrPrVec& newFeatureModels,
+                    const TFeatureMultivariatePriorSPtrPrVec& newFeatureCorrelateModelPriors,
+                    TFeatureCorrelationsPtrPrVec&& featureCorrelatesModels,
                     const TFeatureInfluenceCalculatorCPtrPrVecVec& influenceCalculators,
+                    const TInterimBucketCorrectorCPtr& interimBucketCorrector,
                     core::CStateRestoreTraverser& traverser);
 
     //! Create a copy that will result in the same persisted state as the
@@ -277,23 +280,14 @@ private:
     //! Get writable person counts in the current bucket.
     virtual TSizeUInt64PrVec& currentBucketPersonCounts();
 
-    //! Set the current bucket total count.
-    virtual void currentBucketTotalCount(uint64_t totalCount);
-
-    //! Get the total count of the current bucket.
-    uint64_t currentBucketTotalCount() const;
-
     //! Get the interim corrections of the current bucket.
     TFeatureSizeSizeTripleDouble1VecUMap& currentBucketInterimCorrections() const;
 
-    //! Create the time series models for "n" newly observed people.
-    virtual void createNewModels(std::size_t n, std::size_t m);
-
-    //! Reinitialize the time series models for recycled people.
-    virtual void updateRecycledModels();
-
     //! Clear out large state objects for people that are pruned.
     virtual void clearPrunedResources(const TSizeVec& people, const TSizeVec& attributes);
+
+    //! Get the object which calculates corrections for interim buckets.
+    virtual const CInterimBucketCorrector& interimValueCorrector() const;
 
     //! Check if there are correlates for \p feature and the person
     //! identified by \p pid.
@@ -324,6 +318,9 @@ private:
     //! we are modeling (this captures information about the person
     //! rarity).
     maths::CMultinomialConjugate m_ProbabilityPrior;
+
+    //! Calculates corrections for interim buckets.
+    TInterimBucketCorrectorCPtr m_InterimBucketCorrector;
 
     //! A cache of the person probabilities as of the start of the
     //! for the bucketing interval.

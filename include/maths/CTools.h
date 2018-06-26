@@ -350,9 +350,9 @@ public:
     static double safeCdfComplement(const chi_squared& chi2, double x);
     //@}
 
-    //! Compute the deviation from the probability of seeing a more
-    //! extreme event for a distribution, i.e. for a sample \f$x\f$
-    //! from a R.V. the probability \f$P(R)\f$ of the set:
+    //! Compute the anomalousness from the probability of seeing a
+    //! more extreme event for a distribution, i.e. for a sample
+    //! \f$x\f$ from a R.V. the probability \f$P(R)\f$ of the set:
     //! <pre class="fragment">
     //!   \f$ R = \{y\ |\ f(y) \leq f(x)\} \f$
     //! </pre>
@@ -361,10 +361,10 @@ public:
     //! This is a monotonically decreasing function of \f$P(R)\f$ and
     //! is chosen so that for \f$P(R)\f$ near one it is zero and as
     //! \f$P(R) \rightarrow 0\f$ it saturates at 100.
-    static double deviation(double p);
+    static double anomalyScore(double p);
 
-    //! The inverse of the deviation function.
-    static double inverseDeviation(double deviation);
+    //! The inverse of the anomalyScore function.
+    static double inverseAnomalyScore(double deviation);
 
     //! \name Differential Entropy
     //! Compute the differential entropy of the specified distribution.\n\n
@@ -662,23 +662,40 @@ public:
     //! Shift \p x to the right by \p eps times \p x.
     static double shiftRight(double x, double eps = std::numeric_limits<double>::epsilon());
 
+    //! Compute \f$x^2\f$.
+    static double pow2(double x) { return x * x; }
+
     //! Sigmoid function of \p p.
     static double sigmoid(double p) { return 1.0 / (1.0 + 1.0 / p); }
 
-    //! A smooth Heaviside function centred at one.
+    //! The logistic function.
     //!
-    //! This is a smooth version of the Heaviside function implemented
-    //! as \f$sigmoid\left(\frac{sign (x - 1)}{wb}\right)\f$ normalized
-    //! to the range [0, 1], where \f$b\f$ is \p boundary and \f$w\f$
-    //! is \p width. Note, if \p sign is one this is a step up and if
-    //! it is -1 it is a step down.
+    //! i.e. \f$sigmoid\left(\frac{sign (x - x0)}{width}\right)\f$.
     //!
     //! \param[in] x The argument.
     //! \param[in] width The step width.
+    //! \param[in] x0 The centre of the step.
     //! \param[in] sign Determines whether it's a step up or down.
-    static double smoothHeaviside(double x, double width, double sign = 1.0) {
-        return sigmoid(std::exp(sign * (x - 1.0) / width)) / sigmoid(std::exp(1.0 / width));
+    static double logisticFunction(double x, double width, double x0 = 0.0, double sign = 1.0) {
+        return sigmoid(std::exp(std::copysign(1.0, sign) * (x - x0) / width));
     }
+
+    //! A custom, numerically robust, implementation of \f$(1 - x) ^ p\f$.
+    //!
+    //! \note It is assumed that p is integer.
+    static double powOneMinusX(double x, double p);
+
+    //! A custom, numerically robust, implementation of \f$1 - (1 - x) ^ p\f$.
+    //!
+    //! \note It is assumed that p is integer.
+    static double oneMinusPowOneMinusX(double x, double p);
+
+    //! A custom implementation of \f$\log(1 - x)\f$ which handles the
+    //! cancellation error for small x.
+    static double logOneMinusX(double x);
+
+    //! A wrapper around lgamma which handles corner cases if requested
+    static bool lgamma(double value, double& result, bool checkForFinite = false);
 };
 }
 }

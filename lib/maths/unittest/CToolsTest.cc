@@ -26,6 +26,8 @@
 #include <boost/optional.hpp>
 #include <boost/range.hpp>
 
+#include <array>
+
 using namespace ml;
 using namespace maths;
 using namespace test;
@@ -1035,14 +1037,14 @@ void CToolsTest::testMixtureProbabilityOfLessLikelySample() {
     }
 }
 
-void CToolsTest::testDeviation() {
-    // Test p = inverseDeviation(deviation(p))
+void CToolsTest::testAnomalyScore() {
+    // Test p = inverseAnomalyScore(anomalyScore(p))
 
     double p = 0.04;
     for (std::size_t i = 0u; i < 305; ++i, p *= 0.1) {
-        double deviation = CTools::deviation(p);
-        LOG_DEBUG(<< "p = " << p << ", deviation = " << deviation);
-        CPPUNIT_ASSERT_DOUBLES_EQUAL(p, CTools::inverseDeviation(deviation), 1e-3 * p);
+        double anomalyScore = CTools::anomalyScore(p);
+        LOG_DEBUG(<< "p = " << p << ", anomalyScore = " << anomalyScore);
+        CPPUNIT_ASSERT_DOUBLES_EQUAL(p, CTools::inverseAnomalyScore(anomalyScore), 1e-3 * p);
     }
 }
 
@@ -1168,6 +1170,54 @@ void CToolsTest::testMiscellaneous() {
     }
 }
 
+void CToolsTest::testLgamma() {
+    std::array<double, 8> testData = {3.5,
+                                      0.125,
+                                      -0.125,
+                                      0.000244140625,
+                                      1.3552527156068805e-20,
+                                      4.95547e+25,
+                                      5.01753e+25,
+                                      8.64197e+25};
+
+    std::array<double, 8> expectedData = {
+        1.2009736023470742248160218814507129957702389154682,
+        2.0194183575537963453202905211670995899482809521344,
+        2.1653002489051702517540619481440174064962195287626,
+        8.3176252939431805089043336920440196990966796875000,
+        45.7477139169563926657247066032141447067260742187500,
+        2.882355039447984e+27,
+        2.919076782442754e+27,
+        5.074673490557339e+27};
+
+    for (std::size_t i = 0u; i < testData.size(); ++i) {
+        double actual;
+        double expected = expectedData[i];
+        CPPUNIT_ASSERT(maths::CTools::lgamma(testData[i], actual, true));
+        CPPUNIT_ASSERT_DOUBLES_EQUAL(expected, actual, 1e-5 * expected);
+    }
+
+    double result;
+    CPPUNIT_ASSERT(maths::CTools::lgamma(0, result));
+    CPPUNIT_ASSERT_EQUAL(result, std::numeric_limits<double>::infinity());
+
+    CPPUNIT_ASSERT((maths::CTools::lgamma(0, result, true) == false));
+    CPPUNIT_ASSERT_EQUAL(result, std::numeric_limits<double>::infinity());
+
+    CPPUNIT_ASSERT((maths::CTools::lgamma(-1, result)));
+    CPPUNIT_ASSERT_EQUAL(result, std::numeric_limits<double>::infinity());
+
+    CPPUNIT_ASSERT((maths::CTools::lgamma(-1, result, true) == false));
+    CPPUNIT_ASSERT_EQUAL(result, std::numeric_limits<double>::infinity());
+
+    CPPUNIT_ASSERT((maths::CTools::lgamma(std::numeric_limits<double>::max() - 1, result)));
+    CPPUNIT_ASSERT_EQUAL(result, std::numeric_limits<double>::infinity());
+
+    CPPUNIT_ASSERT((maths::CTools::lgamma(std::numeric_limits<double>::max() - 1,
+                                          result, true) == false));
+    CPPUNIT_ASSERT_EQUAL(result, std::numeric_limits<double>::infinity());
+}
+
 CppUnit::Test* CToolsTest::suite() {
     CppUnit::TestSuite* suiteOfTests = new CppUnit::TestSuite("CToolsTest");
 
@@ -1180,13 +1230,15 @@ CppUnit::Test* CToolsTest::suite() {
         "CToolsTest::testMixtureProbabilityOfLessLikelySample",
         &CToolsTest::testMixtureProbabilityOfLessLikelySample));
     suiteOfTests->addTest(new CppUnit::TestCaller<CToolsTest>(
-        "CToolsTest::testDeviation", &CToolsTest::testDeviation));
+        "CToolsTest::testAnomalyScore", &CToolsTest::testAnomalyScore));
     suiteOfTests->addTest(new CppUnit::TestCaller<CToolsTest>(
         "CToolsTest::testSpread", &CToolsTest::testSpread));
     suiteOfTests->addTest(new CppUnit::TestCaller<CToolsTest>(
         "CToolsTest::testFastLog", &CToolsTest::testFastLog));
     suiteOfTests->addTest(new CppUnit::TestCaller<CToolsTest>(
         "CToolsTest::testMiscellaneous", &CToolsTest::testMiscellaneous));
+    suiteOfTests->addTest(new CppUnit::TestCaller<CToolsTest>(
+        "CToolsTest::testLgamma", &CToolsTest::testLgamma));
 
     return suiteOfTests;
 }

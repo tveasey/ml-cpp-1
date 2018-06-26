@@ -14,6 +14,7 @@
 
 #include <model/CDataGatherer.h>
 #include <model/CEventData.h>
+#include <model/CInterimBucketCorrector.h>
 #include <model/CMetricBucketGatherer.h>
 #include <model/CMetricPopulationModelFactory.h>
 #include <model/CResourceMonitor.h>
@@ -34,7 +35,6 @@ using namespace model;
 namespace {
 
 using TDoubleVec = std::vector<double>;
-using TFeatureVec = std::vector<model_t::EFeature>;
 using TStrVec = std::vector<std::string>;
 using TStrStrPr = std::pair<std::string, std::string>;
 using TStrStrPrDoubleMap = std::map<TStrStrPr, double>;
@@ -149,8 +149,9 @@ void CMetricPopulationDataGathererTest::testMean() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CMetricPopulationModelFactory factory(params);
-    TFeatureVec features(1u, model_t::E_PopulationMeanByPersonAndAttribute);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CMetricPopulationModelFactory factory(params, interimBucketCorrector);
+    model_t::TFeatureVec features{model_t::E_PopulationMeanByPersonAndAttribute};
     factory.features(features);
     CModelFactory::SGathererInitializationData initData(startTime);
     CModelFactory::TDataGathererPtr gathererPtr(factory.makeDataGatherer(initData));
@@ -214,8 +215,9 @@ void CMetricPopulationDataGathererTest::testMin() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CMetricPopulationModelFactory factory(params);
-    TFeatureVec features(1u, model_t::E_PopulationMinByPersonAndAttribute);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CMetricPopulationModelFactory factory(params, interimBucketCorrector);
+    model_t::TFeatureVec features{model_t::E_PopulationMinByPersonAndAttribute};
     factory.features(features);
     CModelFactory::SGathererInitializationData initData(startTime);
     CModelFactory::TDataGathererPtr gathererPtr(factory.makeDataGatherer(initData));
@@ -279,8 +281,9 @@ void CMetricPopulationDataGathererTest::testMax() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CMetricPopulationModelFactory factory(params);
-    TFeatureVec features(1u, model_t::E_PopulationMaxByPersonAndAttribute);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CMetricPopulationModelFactory factory(params, interimBucketCorrector);
+    model_t::TFeatureVec features{model_t::E_PopulationMaxByPersonAndAttribute};
     factory.features(features);
     CModelFactory::SGathererInitializationData initData(startTime);
     CModelFactory::TDataGathererPtr gathererPtr(factory.makeDataGatherer(initData));
@@ -339,8 +342,9 @@ void CMetricPopulationDataGathererTest::testSum() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CMetricPopulationModelFactory factory(params);
-    TFeatureVec features(1u, model_t::E_PopulationSumByBucketPersonAndAttribute);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CMetricPopulationModelFactory factory(params, interimBucketCorrector);
+    model_t::TFeatureVec features{model_t::E_PopulationSumByBucketPersonAndAttribute};
     factory.features(features);
     CModelFactory::SGathererInitializationData initData(startTime);
     CModelFactory::TDataGathererPtr gathererPtr(factory.makeDataGatherer(initData));
@@ -391,7 +395,7 @@ void CMetricPopulationDataGathererTest::testSampleCount() {
     const std::string attribute("c1");
     const std::string person("p1");
     const std::size_t numberBuckets = 40;
-    const std::size_t personMessageCount[numberBuckets] = {
+    const std::size_t personMessageCount[] = {
         11,  11,  11,  11,  110, 110, 110, 110, 110, 110, 110, 110, 110, 110,
         110, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110,
         110, 110, 110, 97,  97,  97,  97,  97,  97,  97,  97,  97};
@@ -416,10 +420,9 @@ void CMetricPopulationDataGathererTest::testSampleCount() {
         }
     }
 
-    CMetricPopulationModelFactory factory(params);
-    TFeatureVec features;
-    features.push_back(model_t::E_PopulationMeanByPersonAndAttribute);
-    factory.features(features);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CMetricPopulationModelFactory factory(params, interimBucketCorrector);
+    factory.features({model_t::E_PopulationMeanByPersonAndAttribute});
     CModelFactory::SGathererInitializationData initData(startTime);
     CModelFactory::TDataGathererPtr gathererPtr(factory.makeDataGatherer(initData));
     CDataGatherer& gatherer(*gathererPtr);
@@ -468,8 +471,9 @@ void CMetricPopulationDataGathererTest::testFeatureData() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CMetricPopulationModelFactory factory(params);
-    TFeatureVec features;
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CMetricPopulationModelFactory factory(params, interimBucketCorrector);
+    model_t::TFeatureVec features;
     features.push_back(model_t::E_PopulationMeanByPersonAndAttribute);
     features.push_back(model_t::E_PopulationMinByPersonAndAttribute);
     features.push_back(model_t::E_PopulationMaxByPersonAndAttribute);
@@ -644,15 +648,14 @@ void CMetricPopulationDataGathererTest::testRemovePeople() {
     const core_t::TTime bucketLength = 3600;
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    TFeatureVec features;
+    model_t::TFeatureVec features;
     features.push_back(model_t::E_PopulationMeanByPersonAndAttribute);
     features.push_back(model_t::E_PopulationMinByPersonAndAttribute);
     features.push_back(model_t::E_PopulationMaxByPersonAndAttribute);
     features.push_back(model_t::E_PopulationSumByBucketPersonAndAttribute);
     CDataGatherer gatherer(model_t::E_PopulationMetric, model_t::E_None, params,
-                           EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
-                           EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, TStrVec(),
-                           false, searchKey, features, startTime, 0);
+                           EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
+                           EMPTY_STRING, {}, searchKey, features, startTime, 0);
 
     TMessageVec messages;
     generateTestMessages(startTime, messages);
@@ -783,15 +786,14 @@ void CMetricPopulationDataGathererTest::testRemoveAttributes() {
     const core_t::TTime bucketLength = 3600;
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    TFeatureVec features;
+    model_t::TFeatureVec features;
     features.push_back(model_t::E_PopulationMeanByPersonAndAttribute);
     features.push_back(model_t::E_PopulationMinByPersonAndAttribute);
     features.push_back(model_t::E_PopulationMaxByPersonAndAttribute);
     features.push_back(model_t::E_PopulationSumByBucketPersonAndAttribute);
     CDataGatherer gatherer(model_t::E_PopulationMetric, model_t::E_None, params,
-                           EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
-                           EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, TStrVec(),
-                           false, searchKey, features, startTime, 0);
+                           EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
+                           EMPTY_STRING, {}, searchKey, features, startTime, 0);
 
     TMessageVec messages;
     generateTestMessages(startTime, messages);
@@ -951,16 +953,15 @@ void CMetricPopulationDataGathererTest::testInfluenceStatistics() {
         "[(i21, (11, 1)), (i22, (7, 1)), (i23, (12.4, 1))]"};
     const std::string* expected = expectedStatistics;
 
-    TFeatureVec features;
+    model_t::TFeatureVec features;
     features.push_back(model_t::E_PopulationMeanByPersonAndAttribute);
     features.push_back(model_t::E_PopulationMinByPersonAndAttribute);
     features.push_back(model_t::E_PopulationMaxByPersonAndAttribute);
     features.push_back(model_t::E_PopulationHighSumByBucketPersonAndAttribute);
     TStrVec influencerNames(boost::begin(influencerNames_), boost::end(influencerNames_));
-    CDataGatherer gatherer(model_t::E_PopulationMetric, model_t::E_None, params,
+    CDataGatherer gatherer(model_t::E_PopulationMetric, model_t::E_None, params, EMPTY_STRING,
                            EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
-                           EMPTY_STRING, EMPTY_STRING, influencerNames, false,
-                           searchKey, features, startTime, 2u);
+                           influencerNames, searchKey, features, startTime, 2u);
 
     core_t::TTime bucketStart = startTime;
     for (std::size_t i = 0u, b = 0u; i < boost::size(data); ++i) {
@@ -1014,15 +1015,15 @@ void CMetricPopulationDataGathererTest::testPersistence() {
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
 
-    TFeatureVec features;
+    model_t::TFeatureVec features;
     features.push_back(model_t::E_PopulationMeanByPersonAndAttribute);
     features.push_back(model_t::E_PopulationMinByPersonAndAttribute);
     features.push_back(model_t::E_PopulationMaxByPersonAndAttribute);
     features.push_back(model_t::E_PopulationHighSumByBucketPersonAndAttribute);
     CDataGatherer origDataGatherer(model_t::E_PopulationMetric, model_t::E_None,
-                                   params, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
-                                   EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, TStrVec(),
-                                   false, searchKey, features, startTime, 0);
+                                   params, EMPTY_STRING, EMPTY_STRING,
+                                   EMPTY_STRING, EMPTY_STRING, EMPTY_STRING, {},
+                                   searchKey, features, startTime, 0);
 
     TMessageVec messages;
     generateTestMessages(startTime, messages);
@@ -1058,10 +1059,10 @@ void CMetricPopulationDataGathererTest::testPersistence() {
     CPPUNIT_ASSERT(parser.parseStringIgnoreCdata(origXml));
     core::CRapidXmlStateRestoreTraverser traverser(parser);
 
-    CDataGatherer restoredDataGatherer(model_t::E_PopulationMetric, model_t::E_None,
-                                       params, EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
+    CDataGatherer restoredDataGatherer(model_t::E_PopulationMetric,
+                                       model_t::E_None, params, EMPTY_STRING,
                                        EMPTY_STRING, EMPTY_STRING, EMPTY_STRING,
-                                       TStrVec(), false, searchKey, traverser);
+                                       EMPTY_STRING, {}, searchKey, traverser);
 
     // The XML representation of the new data gatherer should be the same as the
     // original
@@ -1084,9 +1085,9 @@ void CMetricPopulationDataGathererTest::testReleaseMemory() {
 
     SModelParams params(bucketLength);
     params.s_LatencyBuckets = 3;
-    CMetricPopulationModelFactory factory(params);
-    TFeatureVec features(1u, model_t::E_PopulationMeanByPersonAndAttribute);
-    factory.features(features);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CMetricPopulationModelFactory factory(params, interimBucketCorrector);
+    factory.features({model_t::E_PopulationMeanByPersonAndAttribute});
     CModelFactory::SGathererInitializationData initData(startTime);
     CModelFactory::TDataGathererPtr gathererPtr(factory.makeDataGatherer(initData));
     CDataGatherer& gatherer(*gathererPtr);

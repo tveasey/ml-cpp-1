@@ -21,8 +21,10 @@
 #include <model/CAnomalyDetectorModel.h>
 #include <model/CAnomalyScore.h>
 #include <model/CDataGatherer.h>
+#include <model/CForecastModelPersist.h>
 #include <model/CModelDetailsView.h>
 #include <model/CModelPlotData.h>
+#include <model/CSampleCounts.h>
 #include <model/CSearchKey.h>
 
 #include <boost/bind.hpp>
@@ -98,7 +100,7 @@ CAnomalyDetector::CAnomalyDetector(int detectorIndex,
                                    const std::string& partitionFieldValue,
                                    core_t::TTime firstTime,
                                    const TModelFactoryCPtr& modelFactory)
-    : m_Limits(limits), m_DetectorIndex(detectorIndex), m_ModelConfig(modelConfig),
+    : m_DetectorIndex(detectorIndex), m_Limits(limits), m_ModelConfig(modelConfig),
       m_LastBucketEndTime(maths::CIntegerTools::ceil(firstTime, modelConfig.bucketLength())),
       m_DataGatherer(makeDataGatherer(modelFactory, m_LastBucketEndTime, partitionFieldValue)),
       m_ModelFactory(modelFactory),
@@ -119,7 +121,7 @@ CAnomalyDetector::CAnomalyDetector(int detectorIndex,
 }
 
 CAnomalyDetector::CAnomalyDetector(bool isForPersistence, const CAnomalyDetector& other)
-    : m_Limits(other.m_Limits), m_DetectorIndex(other.m_DetectorIndex),
+    : m_DetectorIndex(other.m_DetectorIndex), m_Limits(other.m_Limits),
       m_ModelConfig(other.m_ModelConfig),
       // Empty result function is fine in this case
       // Empty result count function is fine in this case
@@ -514,8 +516,10 @@ CAnomalyDetector::getForecastPrerequisites() const {
     return prerequisites;
 }
 
-CForecastDataSink::SForecastResultSeries CAnomalyDetector::getForecastModels() const {
-    CForecastDataSink::SForecastResultSeries series;
+CForecastDataSink::SForecastResultSeries
+CAnomalyDetector::getForecastModels(bool persistOnDisk,
+                                    const std::string& persistenceFolder) const {
+    CForecastDataSink::SForecastResultSeries series(m_ModelFactory->modelParams());
 
     if (m_DataGatherer->isPopulation()) {
         return series;
@@ -533,17 +537,38 @@ CForecastDataSink::SForecastResultSeries CAnomalyDetector::getForecastModels() c
     series.s_DetectorIndex = m_DetectorIndex;
     series.s_PartitionFieldName = key.partitionFieldName();
     series.s_PartitionFieldValue = m_DataGatherer->partitionFieldValue();
+    series.s_MinimumSeasonalVarianceScale = m_ModelFactory->minimumSeasonalVarianceScale();
 
-    for (std::size_t pid = 0u, maxPid = m_DataGatherer->numberPeople(); pid < maxPid; ++pid) {
-        // todo: Add terms filtering here
-        if (m_DataGatherer->isPersonActive(pid)) {
-            for (auto feature : view->features()) {
-                const maths::CModel* model = view->model(feature, pid);
-                if (model != nullptr && model->isForecastPossible()) {
-                    series.s_ToForecast.emplace_back(
-                        feature,
-                        CForecastDataSink::TMathsModelPtr(model->cloneForForecast()),
-                        m_DataGatherer->personName(pid));
+    if (persistOnDisk) {
+        CForecastModelPersist::CPersist persister(persistenceFolder);
+
+        for (std::size_t pid = 0u, maxPid = m_DataGatherer->numberPeople();
+             pid < maxPid; ++pid) {
+            // todo: Add terms filtering here
+            if (m_DataGatherer->isPersonActive(pid)) {
+                for (auto feature : view->features()) {
+                    const maths::CModel* model = view->model(feature, pid);
+                    if (model != nullptr && model->isForecastPossible()) {
+                        persister.addModel(model, feature, m_DataGatherer->personName(pid));
+                    }
+                }
+            }
+        }
+
+        series.s_ToForecastPersisted = persister.finalizePersistAndGetFile();
+    } else {
+        for (std::size_t pid = 0u, maxPid = m_DataGatherer->numberPeople();
+             pid < maxPid; ++pid) {
+            // todo: Add terms filtering here
+            if (m_DataGatherer->isPersonActive(pid)) {
+                for (auto feature : view->features()) {
+                    const maths::CModel* model = view->model(feature, pid);
+                    if (model != nullptr && model->isForecastPossible()) {
+                        series.s_ToForecast.emplace_back(
+                            feature,
+                            CForecastDataSink::TMathsModelPtr(model->cloneForForecast()),
+                            m_DataGatherer->personName(pid));
+                    }
                 }
             }
         }
@@ -588,14 +613,12 @@ void CAnomalyDetector::showMemoryUsage(std::ostream& stream) const {
 
 void CAnomalyDetector::debugMemoryUsage(core::CMemoryUsage::TMemoryUsagePtr mem) const {
     mem->setName("Anomaly Detector Memory Usage");
+    core::CMemoryDebug::dynamicSize("m_DataGatherer", m_DataGatherer, mem);
     core::CMemoryDebug::dynamicSize("m_Model", m_Model, mem);
 }
 
 std::size_t CAnomalyDetector::memoryUsage() const {
-    // We only account for the model in CResourceMonitor,
-    // so we just include that here.
-    std::size_t mem = core::CMemory::dynamicSize(m_Model);
-    return mem;
+    return core::CMemory::dynamicSize(m_DataGatherer) + core::CMemory::dynamicSize(m_Model);
 }
 
 const core_t::TTime& CAnomalyDetector::lastBucketEndTime() const {

@@ -16,6 +16,7 @@
 #include <model/CHierarchicalResults.h>
 #include <model/CHierarchicalResultsAggregator.h>
 #include <model/CHierarchicalResultsNormalizer.h>
+#include <model/CInterimBucketCorrector.h>
 #include <model/CResourceMonitor.h>
 #include <model/CResultsQueue.h>
 #include <model/CSearchKey.h>
@@ -107,10 +108,8 @@ public:
 public:
     using TPersistCompleteFunc =
         std::function<void(const CModelSnapshotJsonWriter::SModelSnapshotReport&)>;
-    using TAnomalyDetectorPtr = model::CAnomalyDetector::TAnomalyDetectorPtr;
+    using TAnomalyDetectorPtr = std::shared_ptr<model::CAnomalyDetector>;
     using TAnomalyDetectorPtrVec = std::vector<TAnomalyDetectorPtr>;
-    using TAnomalyDetectorPtrVecItr = std::vector<TAnomalyDetectorPtr>::iterator;
-    using TAnomalyDetectorPtrVecCItr = std::vector<TAnomalyDetectorPtr>::const_iterator;
     using TKeyVec = std::vector<model::CSearchKey>;
     using TKeyAnomalyDetectorPtrUMap =
         boost::unordered_map<model::CSearchKey::TStrKeyPr, TAnomalyDetectorPtr, model::CStrKeyPrHash, model::CStrKeyPrEqual>;
@@ -131,6 +130,7 @@ public:
                                const TModelPlotDataVecQueue& modelPlotQueue,
                                core_t::TTime time,
                                const model::CResourceMonitor::SResults& modelSizeStats,
+                               const model::CInterimBucketCorrector& interimBucketCorrector,
                                const model::CHierarchicalResultsAggregator& aggregator,
                                core_t::TTime latestRecordTime,
                                core_t::TTime lastResultsTime);
@@ -139,6 +139,7 @@ public:
         TModelPlotDataVecQueue s_ModelPlotQueue;
         core_t::TTime s_Time;
         model::CResourceMonitor::SResults s_ModelSizeStats;
+        model::CInterimBucketCorrector s_InterimBucketCorrector;
         model::CHierarchicalResultsAggregator s_Aggregator;
         std::string s_NormalizerState;
         core_t::TTime s_LatestRecordTime;
@@ -263,6 +264,7 @@ private:
                       core_t::TTime time,
                       const TKeyCRefAnomalyDetectorPtrPrVec& detectors,
                       const model::CResourceMonitor::SResults& modelSizeStats,
+                      const model::CInterimBucketCorrector& interimBucketCorrector,
                       const model::CHierarchicalResultsAggregator& aggregator,
                       const std::string& normalizerState,
                       core_t::TTime latestRecordTime,
@@ -355,7 +357,7 @@ private:
     //! Update configuration
     void doForecast(const std::string& controlMessage);
 
-    model::CAnomalyDetector::TAnomalyDetectorPtr
+    TAnomalyDetectorPtr
     makeDetector(int identifier,
                  const model::CAnomalyDetectorModelConfig& modelConfig,
                  model::CLimits& limits,

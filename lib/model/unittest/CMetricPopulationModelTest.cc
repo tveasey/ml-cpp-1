@@ -27,12 +27,12 @@
 #include <model/CDataGatherer.h>
 #include <model/CDetectionRule.h>
 #include <model/CEventData.h>
+#include <model/CInterimBucketCorrector.h>
 #include <model/CMetricPopulationModel.h>
 #include <model/CMetricPopulationModelFactory.h>
 #include <model/CModelDetailsView.h>
 #include <model/CPartitioningFields.h>
 #include <model/CResourceMonitor.h>
-#include <model/CRuleCondition.h>
 
 #include <test/CRandomNumbers.h>
 
@@ -305,8 +305,9 @@ void CMetricPopulationModelTest::testBasicAccessors() {
     LOG_DEBUG(<< "# messages = " << messages.size());
 
     SModelParams params(bucketLength);
-    CMetricPopulationModelFactory factory(params);
-    CModelFactory::TFeatureVec features;
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CMetricPopulationModelFactory factory(params, interimBucketCorrector);
+    model_t::TFeatureVec features;
     features.push_back(model_t::E_PopulationMeanByPersonAndAttribute);
     features.push_back(model_t::E_PopulationMinByPersonAndAttribute);
     features.push_back(model_t::E_PopulationMaxByPersonAndAttribute);
@@ -463,10 +464,11 @@ void CMetricPopulationModelTest::testMinMaxAndMean() {
     SModelParams params(bucketLength);
     params.s_InitialDecayRateMultiplier = 1.0;
     params.s_MaximumUpdatesPerBucket = 0.0;
-    CMetricPopulationModelFactory factory(params);
-    CModelFactory::TFeatureVec features{model_t::E_PopulationMeanByPersonAndAttribute,
-                                        model_t::E_PopulationMinByPersonAndAttribute,
-                                        model_t::E_PopulationMaxByPersonAndAttribute};
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CMetricPopulationModelFactory factory(params, interimBucketCorrector);
+    model_t::TFeatureVec features{model_t::E_PopulationMeanByPersonAndAttribute,
+                                  model_t::E_PopulationMinByPersonAndAttribute,
+                                  model_t::E_PopulationMaxByPersonAndAttribute};
     factory.features(features);
     CModelFactory::SGathererInitializationData gathererInitData(startTime);
     CModelFactory::TDataGathererPtr gatherer(
@@ -595,10 +597,9 @@ void CMetricPopulationModelTest::testVarp() {
     core_t::TTime startTime(3600);
     core_t::TTime bucketLength(3600);
     SModelParams params(bucketLength);
-    CDataGatherer::TFeatureVec features;
-    features.push_back(model_t::E_PopulationVarianceByPersonAndAttribute);
-    CMetricPopulationModelFactory factory(params);
-    factory.features(features);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CMetricPopulationModelFactory factory(params, interimBucketCorrector);
+    factory.features({model_t::E_PopulationVarianceByPersonAndAttribute});
     factory.fieldNames("", "P", "", "V", TStrVec(1, "I"));
     CModelFactory::SGathererInitializationData gathererInitData(startTime);
     CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
@@ -716,9 +717,9 @@ void CMetricPopulationModelTest::testComputeProbability() {
                              bucketLength, messages);
 
         SModelParams params(bucketLength);
-        CMetricPopulationModelFactory factory(params);
-        CModelFactory::TFeatureVec features(1, features_[i]);
-        factory.features(features);
+        auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+        CMetricPopulationModelFactory factory(params, interimBucketCorrector);
+        factory.features({features_[i]});
         CModelFactory::SGathererInitializationData gathererInitData(startTime);
         CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
         CModelFactory::SModelInitializationData modelInitData(gatherer);
@@ -875,8 +876,9 @@ void CMetricPopulationModelTest::testPrune() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.01;
-    CMetricPopulationModelFactory factory(params);
-    CDataGatherer::TFeatureVec features;
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CMetricPopulationModelFactory factory(params, interimBucketCorrector);
+    model_t::TFeatureVec features;
     features.push_back(model_t::E_PopulationMeanByPersonAndAttribute);
     features.push_back(model_t::E_PopulationMinByPersonAndAttribute);
     features.push_back(model_t::E_PopulationMaxByPersonAndAttribute);
@@ -1055,10 +1057,9 @@ void CMetricPopulationModelTest::testFrequency() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CMetricPopulationModelFactory factory(params);
-    CModelFactory::TFeatureVec features;
-    features.push_back(model_t::E_PopulationMeanByPersonAndAttribute);
-    factory.features(features);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CMetricPopulationModelFactory factory(params, interimBucketCorrector);
+    factory.features({model_t::E_PopulationMeanByPersonAndAttribute});
     CModelFactory::SGathererInitializationData gathererInitData(startTime);
     CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
     const model::CDataGatherer& populationGatherer(
@@ -1167,10 +1168,9 @@ void CMetricPopulationModelTest::testSampleRateWeight() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CMetricPopulationModelFactory factory(params);
-    CModelFactory::TFeatureVec features;
-    features.push_back(model_t::E_PopulationSumByBucketPersonAndAttribute);
-    factory.features(features);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CMetricPopulationModelFactory factory(params, interimBucketCorrector);
+    factory.features({model_t::E_PopulationSumByBucketPersonAndAttribute});
     CModelFactory::SGathererInitializationData gathererInitData(startTime);
     CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
 
@@ -1271,10 +1271,9 @@ void CMetricPopulationModelTest::testPeriodicity() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CMetricPopulationModelFactory factory(params);
-    CModelFactory::TFeatureVec features;
-    features.push_back(model_t::E_PopulationMeanByPersonAndAttribute);
-    factory.features(features);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CMetricPopulationModelFactory factory(params, interimBucketCorrector);
+    factory.features({model_t::E_PopulationMeanByPersonAndAttribute});
 
     CModelFactory::SGathererInitializationData gathererInitData(startTime);
     CModelFactory::TDataGathererPtr gatherer(factory.makeDataGatherer(gathererInitData));
@@ -1354,8 +1353,9 @@ void CMetricPopulationModelTest::testPersistence() {
 
     SModelParams params(bucketLength);
     params.s_DecayRate = 0.001;
-    CMetricPopulationModelFactory factory(params);
-    CModelFactory::TFeatureVec features;
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CMetricPopulationModelFactory factory(params, interimBucketCorrector);
+    model_t::TFeatureVec features;
     features.push_back(model_t::E_PopulationMeanByPersonAndAttribute);
     features.push_back(model_t::E_PopulationMinByPersonAndAttribute);
     features.push_back(model_t::E_PopulationMaxByPersonAndAttribute);
@@ -1428,18 +1428,15 @@ void CMetricPopulationModelTest::testIgnoreSamplingGivenDetectionRules() {
     core::CPatternSet valueFilter;
     valueFilter.initFromJson(filterJson);
 
-    CRuleCondition condition;
-    condition.type(CRuleCondition::E_CategoricalMatch);
-    condition.valueFilter(valueFilter);
     CDetectionRule rule;
-    rule.action(CDetectionRule::E_SkipSampling);
-    rule.addCondition(condition);
+    rule.action(CDetectionRule::E_SkipModelUpdate);
+    rule.includeScope("", valueFilter);
 
-    CDataGatherer::TFeatureVec features;
-    features.push_back(model_t::E_PopulationMeanByPersonAndAttribute);
+    model_t::TFeatureVec features{model_t::E_PopulationMeanByPersonAndAttribute};
 
     SModelParams paramsNoRules(bucketLength);
-    CMetricPopulationModelFactory factoryNoSkip(paramsNoRules);
+    auto interimBucketCorrector = std::make_shared<CInterimBucketCorrector>(bucketLength);
+    CMetricPopulationModelFactory factoryNoSkip(paramsNoRules, interimBucketCorrector);
     factoryNoSkip.features(features);
     CModelFactory::SGathererInitializationData gathererInitData(startTime);
     CModelFactory::TDataGathererPtr gathererNoSkip(
@@ -1450,8 +1447,10 @@ void CMetricPopulationModelTest::testIgnoreSamplingGivenDetectionRules() {
     SModelParams paramsWithRules(bucketLength);
     SModelParams::TDetectionRuleVec rules{rule};
     paramsWithRules.s_DetectionRules = SModelParams::TDetectionRuleVecCRef(rules);
+    auto interimBucketCorrectorWithRules =
+        std::make_shared<CInterimBucketCorrector>(bucketLength);
 
-    CMetricPopulationModelFactory factoryWithSkip(paramsWithRules);
+    CMetricPopulationModelFactory factoryWithSkip(paramsWithRules, interimBucketCorrectorWithRules);
     factoryWithSkip.features(features);
     CModelFactory::TDataGathererPtr gathererWithSkip(
         factoryWithSkip.makeDataGatherer(gathererInitData));

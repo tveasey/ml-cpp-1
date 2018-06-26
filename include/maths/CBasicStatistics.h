@@ -67,10 +67,13 @@ public:
     }
 
     //! Compute the sample mean.
-    static double mean(const TDoubleVec& sample);
+    static double mean(const TDoubleVec& data);
 
     //! Compute the sample median.
-    static double median(const TDoubleVec& dataIn);
+    static double median(const TDoubleVec& data);
+
+    //! Compute the median absolute deviation.
+    static double mad(const TDoubleVec& data);
 
     //! Compute the maximum of \p first, \p second and \p third.
     template<typename T>
@@ -196,6 +199,14 @@ public:
         //! Update the moments with the collection \p x.
         template<typename U>
         void add(const std::vector<U>& x) {
+            for (const auto& xi : x) {
+                this->add(xi);
+            }
+        }
+
+        //! Update the moments with the collection \p x.
+        template<typename U, std::size_t N>
+        void add(const core::CSmallVector<U, N>& x) {
             for (const auto& xi : x) {
                 this->add(xi);
             }
@@ -1233,6 +1244,9 @@ public:
     class COrderStatisticsStack
         : public COrderStatisticsImpl<T, boost::array<T, N>, LESS>,
           private boost::addable<COrderStatisticsStack<T, N, LESS>> {
+
+        static_assert(N > 0, "N must be > 0");
+
     private:
         using TArray = boost::array<T, N>;
         using TImpl = COrderStatisticsImpl<T, TArray, LESS>;
@@ -1319,10 +1333,18 @@ public:
 
     public:
         explicit COrderStatisticsHeap(std::size_t n, const LESS& less = LESS{})
-            : TImpl{std::vector<T>(n, T{}), less} {}
+            : TImpl{std::vector<T>(std::max(n, std::size_t(1)), T{}), less} {
+            if (n == 0) {
+                LOG_ERROR(<< "Invalid size of 0 for order statistics accumulator");
+            }
+        }
 
         //! Reset the number of statistics to gather to \p n.
         void resize(std::size_t n) {
+            if (n == 0) {
+                LOG_ERROR(<< "Invalid resize to 0 for order statistics accumulator");
+                n = 1;
+            }
             this->clear();
             this->statistics().resize(n);
         }

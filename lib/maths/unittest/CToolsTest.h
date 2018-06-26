@@ -14,10 +14,11 @@ public:
     void testProbabilityOfLessLikelySample();
     void testIntervalExpectation();
     void testMixtureProbabilityOfLessLikelySample();
-    void testDeviation();
+    void testAnomalyScore();
     void testSpread();
     void testFastLog();
     void testMiscellaneous();
+    void testLgamma();
 
     static CppUnit::Test* suite();
 };
