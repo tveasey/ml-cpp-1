@@ -831,7 +831,7 @@ bool COneOfNPrior::probabilityOfLessLikelySamples(maths_t::EProbabilityCalculati
                                                   double& upperBound,
                                                   maths_t::ETail& tail) const {
 
-    lowerBound = upperBound = 0.0;
+    lowerBound = upperBound = 1.0;
     tail = maths_t::E_UndeterminedTail;
 
     if (samples.empty()) {
@@ -839,7 +839,6 @@ bool COneOfNPrior::probabilityOfLessLikelySamples(maths_t::EProbabilityCalculati
         return false;
     }
     if (this->isNonInformative()) {
-        lowerBound = upperBound = 1.0;
         return true;
     }
 
@@ -858,12 +857,14 @@ bool COneOfNPrior::probabilityOfLessLikelySamples(maths_t::EProbabilityCalculati
 
     TDoubleSizePr5Vec logWeights = this->normalizedLogWeights();
 
+    lowerBound = upperBound = 0.0;
     TDoubleTailPrMaxAccumulator tail_;
+    double remainingWeight = 1.0;
     for (std::size_t i = 0u; i < logWeights.size(); ++i) {
         double weight = std::exp(logWeights[i].first);
         const CPrior& model = *m_Models[logWeights[i].second].second;
 
-        if (lowerBound > static_cast<double>(m_Models.size() - i) * weight / MAXIMUM_RELATIVE_ERROR) {
+        if (lowerBound > remainingWeight / MAXIMUM_RELATIVE_ERROR) {
             // The probability calculation is relatively expensive so don't
             // evaluate the probabilities that aren't needed to get good
             // accuracy.
@@ -875,6 +876,7 @@ bool COneOfNPrior::probabilityOfLessLikelySamples(maths_t::EProbabilityCalculati
         if (!model.probabilityOfLessLikelySamples(calculation, samples, weights, modelLowerBound,
                                                   modelUpperBound, modelTail)) {
             // Logging handled at a lower level.
+            upperBound += remainingWeight;
             return false;
         }
 
@@ -884,6 +886,7 @@ bool COneOfNPrior::probabilityOfLessLikelySamples(maths_t::EProbabilityCalculati
         lowerBound += weight * modelLowerBound;
         upperBound += weight * modelUpperBound;
         tail_.add({weight * (modelLowerBound + modelUpperBound), modelTail});
+        remainingWeight -= weight;
     }
 
     if (!(lowerBound >= 0.0 && lowerBound <= 1.001) ||

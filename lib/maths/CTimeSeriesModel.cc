@@ -170,8 +170,6 @@ const double MINUS_LOG_TOLERANCE{
 
 //! Derate the minimum Winsorisation weight.
 double deratedMinimumWeight(double derate) {
-    derate = CTools::truncate(derate, 0.0, 1.0);
-    return MINIMUM_WEIGHT + (0.5 - MINIMUM_WEIGHT) * derate;
 }
 
 //! Get the one tail p-value from a specified Winsorisation weight.
@@ -196,7 +194,10 @@ double changeWeight(const TChangeDetectorPtr& detector) {
 }
 
 double tailWeight(const CPrior& prior, double derate, double scale, double value) {
-    double minimumWeight{deratedMinimumWeight(derate)};
+    double minimumWeight{[derate]() {
+        derate = CTools::truncate(derate, 0.0, 1.0);
+        return MINIMUM_WEIGHT + (0.9 - MINIMUM_WEIGHT) * derate;
+    }()};
 
     double f{};
     double lowerBound;

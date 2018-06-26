@@ -143,30 +143,28 @@ CMetricPopulationModelFactory::defaultPrior(model_t::EFeature feature,
     maths::CNormalMeanPrecConjugate normalPrior =
         maths::CNormalMeanPrecConjugate::nonInformativePrior(dataType, params.s_DecayRate);
 
-    // Create the component priors.
-    maths::COneOfNPrior::TPriorPtrVec priors;
-    priors.reserve(params.s_MinimumModeFraction <= 0.5 ? 4u : 3u);
-    priors.emplace_back(gammaPrior.clone());
-    priors.emplace_back(logNormalPrior.clone());
-    priors.emplace_back(normalPrior.clone());
-    if (params.s_MinimumModeFraction <= 0.5) {
-        // Create the multimode prior.
-        maths::COneOfNPrior::TPriorPtrVec modePriors;
-        modePriors.reserve(3u);
-        modePriors.emplace_back(gammaPrior.clone());
-        modePriors.emplace_back(logNormalPrior.clone());
-        modePriors.emplace_back(normalPrior.clone());
-        maths::COneOfNPrior modePrior(modePriors, dataType, params.s_DecayRate);
-        maths::CXMeansOnline1d clusterer(
-            dataType, maths::CAvailableModeDistributions::ALL,
-            maths_t::E_ClustersFractionWeight, params.s_DecayRate, params.s_MinimumModeFraction,
-            params.s_MinimumModeCount, params.minimumCategoryCount());
-        maths::CMultimodalPrior multimodalPrior(dataType, clusterer, modePrior,
-                                                params.s_DecayRate);
-        priors.emplace_back(multimodalPrior.clone());
+    if (params.s_MinimumModeFraction > 0.5) {
+        // Only using unimodal distributions.
+        TPriorPtrVec priors;
+        priors.reserve(3u);
+        priors.emplace_back(gammaPrior.clone());
+        priors.emplace_back(logNormalPrior.clone());
+        priors.emplace_back(normalPrior.clone());
+        return boost::make_unique<maths::COneOfNPrior>(priors, dataType, params.s_DecayRate);
     }
 
-    return boost::make_unique<maths::COneOfNPrior>(priors, dataType, params.s_DecayRate);
+    TPriorPtrVec modePriors;
+    modePriors.reserve(3u);
+    modePriors.emplace_back(gammaPrior.clone());
+    modePriors.emplace_back(logNormalPrior.clone());
+    modePriors.emplace_back(normalPrior.clone());
+    maths::COneOfNPrior modePrior(modePriors, dataType, params.s_DecayRate);
+    maths::CXMeansOnline1d clusterer(
+        dataType, maths::CAvailableModeDistributions::ALL,
+        maths_t::E_ClustersFractionWeight, params.s_DecayRate, params.s_MinimumModeFraction,
+        params.s_MinimumModeCount, params.minimumCategoryCount());
+    return boost::make_unique<maths::CMultimodalPrior>(dataType, clusterer, modePrior,
+                                                       params.s_DecayRate);
 }
 
 CMetricPopulationModelFactory::TMultivariatePriorUPtr
