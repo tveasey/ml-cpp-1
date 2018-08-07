@@ -145,6 +145,7 @@ void CTimeSeriesChangeDetectorTest::testLevelShift() {
     this->testChange(
         trends, maths::SChangeDescription::E_LevelShift,
         [](TGenerator trend, core_t::TTime time) { return trend(time) + 0.5; },
+        [](const ml::maths::SChangeDescription& change) { return change.s_Value[0]; },
         5.0, 0.0, 16.0);
 }
 
@@ -153,6 +154,7 @@ void CTimeSeriesChangeDetectorTest::testLinearScale() {
     this->testChange(
         trends, maths::SChangeDescription::E_LinearScale,
         [](TGenerator trend, core_t::TTime time) { return 3.0 * trend(time); },
+        [](const ml::maths::SChangeDescription& change) { return change.s_Value[1]; },
         3.0, 0.0, 15.0);
 }
 
@@ -162,11 +164,13 @@ void CTimeSeriesChangeDetectorTest::testTimeShift() {
                      [](TGenerator trend, core_t::TTime time) {
                          return trend(time - core::constants::HOUR);
                      },
+                     [](const ml::maths::SChangeDescription& change) { return change.s_Value[0]; },
                      -static_cast<double>(core::constants::HOUR), 0.03, 23.0);
     this->testChange(trends, maths::SChangeDescription::E_TimeShift,
                      [](TGenerator trend, core_t::TTime time) {
                          return trend(time + core::constants::HOUR);
                      },
+                     [](const ml::maths::SChangeDescription& change) { return change.s_Value[0]; },
                      +static_cast<double>(core::constants::HOUR), 0.03, 23.0);
 }
 
@@ -253,6 +257,7 @@ CppUnit::Test* CTimeSeriesChangeDetectorTest::suite() {
 void CTimeSeriesChangeDetectorTest::testChange(const TGeneratorVec& trends,
                                                maths::SChangeDescription::EDescription description,
                                                TChange applyChange,
+                                               TExtractValue extractValue,
                                                double expectedChange,
                                                double maximumFalseNegatives,
                                                double maximumMeanBucketsToDetectChange) {
@@ -308,7 +313,7 @@ void CTimeSeriesChangeDetectorTest::testChange(const TGeneratorVec& trends,
                     bucketsToDetect.reset(i - 949);
                 }
                 CPPUNIT_ASSERT_EQUAL(change->s_Description, description);
-                CPPUNIT_ASSERT_DOUBLES_EQUAL(expectedChange, change->s_Value[0],
+                CPPUNIT_ASSERT_DOUBLES_EQUAL(expectedChange, extractValue(*change),
                                              0.5 * std::fabs(expectedChange));
                 break;
             }

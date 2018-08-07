@@ -1409,7 +1409,7 @@ CUnivariateTimeSeriesModel::applyChange(const SChangeDescription& change) {
                 value.second += change.s_Value[0];
                 break;
             case SChangeDescription::E_LinearScale:
-                value.second *= change.s_Value[0];
+                value.second *= change.s_Value[1]; // TODO
                 break;
             case SChangeDescription::E_TimeShift:
                 value.first += static_cast<core_t::TTime>(change.s_Value[0]);

@@ -49,7 +49,10 @@ struct MATHS_EXPORT SChangeDescription {
 
     SChangeDescription(EDescription decription,
                        double value,
-                       double magnitude,
+                       const TDecompositionPtr& trendModel,
+                       const TPriorPtr& residualModel);
+    SChangeDescription(EDescription decription,
+                       const TDouble2Vec& value,
                        const TDecompositionPtr& trendModel,
                        const TPriorPtr& residualModel);
 
@@ -61,9 +64,6 @@ struct MATHS_EXPORT SChangeDescription {
 
     //! The change value.
     TDouble2Vec s_Value;
-
-    //! The magnitude of the change.
-    TDouble2Vec s_Magnitude;
 
     //! The time series trend model to use after the change.
     TDecompositionPtr s_TrendModel;
@@ -136,7 +136,7 @@ public:
 private:
     using TChangeModel = time_series_change_detector_detail::CUnivariateChangeModel;
     using TChangeModelPtr = std::unique_ptr<TChangeModel>;
-    using TChangeModelPtr5Vec = core::CSmallVector<TChangeModelPtr, 5>;
+    using TChangeModelPtr4Vec = core::CSmallVector<TChangeModelPtr, 4>;
     using TMinMaxAccumulator = CBasicStatistics::CMinMax<core_t::TTime>;
     using TRegression = CRegression::CLeastSquaresOnline<1, double>;
 
@@ -168,7 +168,7 @@ private:
     TDecompositionPtr m_TrendModel;
 
     //! The change models.
-    TChangeModelPtr5Vec m_ChangeModels;
+    TChangeModelPtr4Vec m_ChangeModels;
 };
 
 namespace time_series_change_detector_detail {
@@ -418,11 +418,17 @@ public:
     virtual uint64_t checksum(uint64_t seed) const;
 
 private:
+    using TDoubleDoublePr = std::pair<double, double>;
+    using TVector = CVectorNx1<double, 4>;
     using TMeanAccumulator = CBasicStatistics::SSampleMean<double>::TAccumulator;
+    using TVectorMeanAccumulator = CBasicStatistics::SSampleMean<TVector>::TAccumulator;
+
+private:
+    TDoubleDoublePr shiftAndScale() const;
 
 private:
     //! The optimal shift.
-    TMeanAccumulator m_Scale;
+    TVectorMeanAccumulator m_ScaleParameters;
 
     //! The mean magnitude of the change.
     TMeanAccumulator m_Magnitude;
