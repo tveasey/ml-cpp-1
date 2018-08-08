@@ -83,7 +83,11 @@ public:
     //! at \p time fixed.
     void shiftSlope(core_t::TTime time, double shift);
 
-    //! Apply a level shift of \p value at \p time and \p value.
+    //! Shift the level of the regression models.
+    void shiftLevel(double shift);
+
+    //! Apply a change point level shift of \p value at \p time and
+    //! value of the time series \p value.
     void shiftLevel(core_t::TTime time, double value, double shift);
 
     //! Apply no level shift at \p time and \p value.

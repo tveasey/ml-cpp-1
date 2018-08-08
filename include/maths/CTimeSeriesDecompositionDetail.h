@@ -651,7 +651,7 @@ public:
             void removeExcludedComponents(const CSeasonalTime& time);
 
             //! Remove low value components
-            bool prune(core_t::TTime time, core_t::TTime bucketLength);
+            bool prune(core_t::TTime time, core_t::TTime bucketLength, CTrendComponent& trend);
 
             //! Shift the components' time origin to \p time.
             void shiftOrigin(core_t::TTime time);

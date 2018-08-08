@@ -1752,7 +1752,7 @@ void CTimeSeriesDecompositionDetail::CComponents::canonicalize(core_t::TTime tim
 
     this->shiftOrigin(time);
 
-    if (m_Seasonal && m_Seasonal->prune(time, m_BucketLength)) {
+    if (m_Seasonal && m_Seasonal->prune(time, m_BucketLength, m_Trend)) {
         m_Seasonal.reset();
     }
     if (m_Calendar && m_Calendar->prune(time, m_BucketLength)) {
@@ -2159,74 +2159,47 @@ void CTimeSeriesDecompositionDetail::CComponents::CSeasonal::removeExcludedCompo
 }
 
 bool CTimeSeriesDecompositionDetail::CComponents::CSeasonal::prune(core_t::TTime time,
-                                                                   core_t::TTime bucketLength) {
+                                                                   core_t::TTime bucketLength,
+                                                                   CTrendComponent& trend) {
     std::size_t n{m_Components.size()};
 
-    if (n > 1) {
-        TTimeTimePrSizeFMap windowed;
-        windowed.reserve(n);
-        for (const auto& component : m_Components) {
-            const CSeasonalTime& time_{component.time()};
-            if (time_.windowed()) {
-                ++windowed[time_.window()];
-            }
-        }
+    TBoolVec remove(n, false);
+    for (std::size_t i = 0u; i < n; ++i) {
+        const CSeasonalTime& time_{m_Components[i].time()};
+        if (m_PredictionErrors[i].remove(bucketLength, time_.period())) {
+            LOG_DEBUG(<< "Removing seasonal component"
+                      << " with period '" << time_.period() << "' at " << time);
+            remove[i] = true;
 
-        TBoolVec remove(n, false);
-        TTimeTimePrDoubleFMap shifts;
-        shifts.reserve(n);
-        for (std::size_t i = 0u; i < n; ++i) {
-            const CSeasonalTime& time_{m_Components[i].time()};
-            auto j = windowed.find(time_.window());
-            if (j == windowed.end() || j->second > 1) {
-                if (m_PredictionErrors[i].remove(bucketLength, time_.period())) {
-                    LOG_DEBUG(<< "Removing seasonal component"
-                              << " with period '" << time_.period() << "' at " << time);
-                    remove[i] = true;
-                    shifts[time_.window()] += m_Components[i].meanValue();
-                    --j->second;
+            // Check to see if we can apply the shift (for the mean seasonal
+            // component value) to a component for the same window.
+            bool appliedShift{false};
+            for (std::size_t j = 0; appliedShift == false && j < n; ++j) {
+                if (j != i && m_Components[j].time().window() == time_.window()) {
+                    m_Components[j].shiftLevel(m_Components[i].meanValue());
+                    appliedShift = true;
                 }
             }
-        }
 
-        CSetTools::simultaneousRemoveIf(remove, m_Components, m_PredictionErrors,
-                                        [](bool remove_) { return remove_; });
+            // Fallback to shifting any non-windowed component.
+            for (std::size_t j = 0; appliedShift == false && j < n; ++j) {
+                if (j != i && m_Components[j].time().windowed() == false) {
+                    m_Components[j].shiftLevel(m_Components[i].time().fractionInWindow() *
+                                               m_Components[i].meanValue());
+                    appliedShift = true;
+                }
+            }
 
-        for (auto& shift : shifts) {
-            if (windowed.count(shift.first) > 0) {
-                for (auto& component : m_Components) {
-                    if (shift.first == component.time().window()) {
-                        component.shiftLevel(shift.second);
-                        break;
-                    }
-                }
-            } else {
-                bool fallback = true;
-                for (auto& component : m_Components) {
-                    if (!component.time().windowed()) {
-                        component.shiftLevel(shift.second);
-                        fallback = false;
-                        break;
-                    }
-                }
-                if (fallback) {
-                    TTimeTimePrVec shifted;
-                    shifted.reserve(m_Components.size());
-                    for (auto& component : m_Components) {
-                        const CSeasonalTime& time_ = component.time();
-                        auto containsWindow = [&time_](const TTimeTimePr& window) {
-                            return !(time_.windowEnd() <= window.first ||
-                                     time_.windowStart() >= window.second);
-                        };
-                        if (std::find_if(shifted.begin(), shifted.end(),
-                                         containsWindow) == shifted.end()) {
-                            component.shiftLevel(shift.second);
-                        }
-                    }
-                }
+            // Fallback to shifting the trend.
+            if (appliedShift == false) {
+                trend.shiftLevel(m_Components[i].time().fractionInWindow() *
+                                 m_Components[i].meanValue());
             }
         }
     }
+
+    CSetTools::simultaneousRemoveIf(remove, m_Components, m_PredictionErrors,
+                                    [](bool remove_) { return remove_; });
 
     return m_Components.empty();
 }
@@ -2239,8 +2212,9 @@ void CTimeSeriesDecompositionDetail::CComponents::CSeasonal::shiftOrigin(core_t:
 
 void CTimeSeriesDecompositionDetail::CComponents::CSeasonal::linearScale(core_t::TTime time,
                                                                          double scale) {
-    for (auto& component : m_Components) {
-        component.linearScale(time, scale);
+    for (std::size_t i = 0; i < m_Components.size(); ++i) {
+        m_Components[i].linearScale(time, scale);
+        m_PredictionErrors[i].clear();
     }
 }
 
