@@ -162,11 +162,7 @@ protected:
 
     //! Get and possibly add a normalizer for \p node.
     template<typename FACTORY>
-    void elements(const TNode& node,
-                  bool pivot,
-                  const FACTORY& factory,
-                  TTypePtrVec& result,
-                  bool distinctLeavesPerPartition = false) {
+    void elements(const TNode& node, bool pivot, const FACTORY& factory, TTypePtrVec& result) {
         result.clear();
         if (this->isSimpleCount(node)) {
             return;
@@ -176,8 +172,7 @@ protected:
             TWord word = ms_Dictionary.word(*node.s_Spec.s_PersonFieldName);
             TWordTypePrVecItr i = element(m_InfluencerBucketSet, word);
             if (i == m_InfluencerBucketSet.end() || i->first != word) {
-                i = m_InfluencerBucketSet.insert(
-                    i, TWordTypePr(word, factory.make(*node.s_Spec.s_PersonFieldName)));
+                i = m_InfluencerBucketSet.emplace(i, word, factory.make(node, pivot));
             }
             result.push_back(&i->second);
             return;
@@ -186,46 +181,37 @@ protected:
             TWord word = ms_Dictionary.word(*node.s_Spec.s_PersonFieldName);
             TWordTypePrVecItr i = element(m_InfluencerSet, word);
             if (i == m_InfluencerSet.end() || i->first != word) {
-                i = m_InfluencerSet.insert(
-                    i, TWordTypePr(word, factory.make(*node.s_Spec.s_PersonFieldName)));
+                i = m_InfluencerSet.emplace(i, word, factory.make(node, pivot));
             }
             result.push_back(&i->second);
             return;
         }
 
-        std::string partitionKey = distinctLeavesPerPartition
-                                       ? *node.s_Spec.s_PartitionFieldName +
-                                             *node.s_Spec.s_PartitionFieldValue
-                                       : *node.s_Spec.s_PartitionFieldName;
-
         if (this->isLeaf(node)) {
-            TWord word = ms_Dictionary.word(partitionKey, *node.s_Spec.s_PersonFieldName,
-                                            *node.s_Spec.s_FunctionName,
-                                            *node.s_Spec.s_ValueFieldName);
+            TWord word = ms_Dictionary.word(
+                *node.s_Spec.s_PartitionFieldName, *node.s_Spec.s_PersonFieldName,
+                *node.s_Spec.s_FunctionName, *node.s_Spec.s_ValueFieldName);
             TWordTypePrVecItr i = element(m_LeafSet, word);
             if (i == m_LeafSet.end() || i->first != word) {
-                i = m_LeafSet.insert(
-                    i, TWordTypePr(word, factory.make(partitionKey, *node.s_Spec.s_PersonFieldName,
-                                                      *node.s_Spec.s_FunctionName,
-                                                      *node.s_Spec.s_ValueFieldName)));
+                i = m_LeafSet.emplace(i, word, factory.make(node, pivot));
             }
             result.push_back(&i->second);
         }
         if (this->isPerson(node)) {
-            TWord word = ms_Dictionary.word(partitionKey, *node.s_Spec.s_PersonFieldName);
+            TWord word = ms_Dictionary.word(*node.s_Spec.s_PartitionFieldName,
+                                            *node.s_Spec.s_PersonFieldName);
             TWordTypePrVecItr i = element(m_PersonSet, word);
             if (i == m_PersonSet.end() || i->first != word) {
-                i = m_PersonSet.insert(
-                    i, TWordTypePr(word, factory.make(partitionKey, *node.s_Spec.s_PersonFieldName)));
+                i = m_PersonSet.emplace(i, word, factory.make(node, pivot));
             }
             result.push_back(&i->second);
         }
         if (this->isPartition(node)) {
-            TWord word = ms_Dictionary.word(partitionKey);
+            TWord word = ms_Dictionary.word(*node.s_Spec.s_PartitionFieldName);
 
             TWordTypePrVecItr i = element(m_PartitionSet, word);
             if (i == m_PartitionSet.end() || i->first != word) {
-                i = m_PartitionSet.insert(i, TWordTypePr(word, factory.make(partitionKey)));
+                i = m_PartitionSet.emplace(i, word, factory.make(node, pivot));
             }
             result.push_back(&i->second);
         }

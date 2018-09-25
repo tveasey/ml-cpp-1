@@ -611,8 +611,8 @@ void CMetricModelTest::testMultivariateSample() {
 
                 LOG_DEBUG(<< "bucket count = " << core::CContainerPrinter::print(count));
                 LOG_DEBUG(<< "current = " << core::CContainerPrinter::print(bucketLatLong)
-                          << "expected baseline = "
-                          << maths::CBasicStatistics::mean(expectedBaselineLatLong) << "actual baseline = "
+                          << ", expected baseline = "
+                          << maths::CBasicStatistics::mean(expectedBaselineLatLong) << ", actual baseline = "
                           << core::CContainerPrinter::print(baselineLatLong));
 
                 CPPUNIT_ASSERT(count);
@@ -735,7 +735,7 @@ void CMetricModelTest::testProbabilityCalculationForMetric() {
               << core::CContainerPrinter::print(minProbabilities.begin(),
                                                 minProbabilities.end()));
     CPPUNIT_ASSERT_EQUAL(anomalousBucket, minProbabilities[0].second);
-    CPPUNIT_ASSERT(minProbabilities[0].first / minProbabilities[1].first < 0.05);
+    CPPUNIT_ASSERT(minProbabilities[0].first / minProbabilities[1].first < 0.1);
 }
 
 void CMetricModelTest::testProbabilityCalculationForMedian() {
@@ -1213,7 +1213,7 @@ void CMetricModelTest::testInfluence() {
             {},
             {},
             {},
-            {core::make_triple(std::string{"i1"}, 0.6, 0.7),
+            {core::make_triple(std::string{"i1"}, 0.5, 0.6),
              core::make_triple(std::string{"i2"}, 0.9, 1.0)},
             {core::make_triple(std::string{"i1"}, 0.9, 1.0),
              core::make_triple(std::string{"i2"}, 0.9, 1.0)},
@@ -2211,8 +2211,9 @@ void CMetricModelTest::testDecayRateControl() {
                 referenceModel->baselineBucketMean(feature, 0, 0, type, NO_CORRELATES,
                                                    t + bucketLength / 2)[0]));
         }
-        LOG_DEBUG("mean = " << maths::CBasicStatistics::mean(meanPredictionError));
-        LOG_DEBUG("reference = " << maths::CBasicStatistics::mean(meanReferencePredictionError));
+        LOG_DEBUG(<< "mean = " << maths::CBasicStatistics::mean(meanPredictionError));
+        LOG_DEBUG(<< "reference = "
+                  << maths::CBasicStatistics::mean(meanReferencePredictionError));
         CPPUNIT_ASSERT_DOUBLES_EQUAL(
             maths::CBasicStatistics::mean(meanReferencePredictionError),
             maths::CBasicStatistics::mean(meanPredictionError), 0.05);

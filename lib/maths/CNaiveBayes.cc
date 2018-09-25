@@ -23,6 +23,7 @@
 #include <boost/bind.hpp>
 #include <boost/ref.hpp>
 
+#include <algorithm>
 #include <numeric>
 #include <string>
 
@@ -39,6 +40,10 @@ const std::string CONDITIONAL_DENSITY_FROM_PRIOR_TAG{"f"};
 
 CNaiveBayesFeatureDensityFromPrior::CNaiveBayesFeatureDensityFromPrior(const CPrior& prior)
     : m_Prior(prior.clone()) {
+}
+
+bool CNaiveBayesFeatureDensityFromPrior::improper() const {
+    return m_Prior->isNonInformative();
 }
 
 void CNaiveBayesFeatureDensityFromPrior::add(const TDouble1Vec& x) {
@@ -70,7 +75,7 @@ double CNaiveBayesFeatureDensityFromPrior::logValue(const TDouble1Vec& x) const 
     double result;
     if (m_Prior->jointLogMarginalLikelihood(x, maths_t::CUnitWeights::SINGLE_UNIT,
                                             result) != maths_t::E_FpNoErrors) {
-        LOG_ERROR("Bad density value at " << x << " for " << m_Prior->print());
+        LOG_ERROR(<< "Bad density value at " << x << " for " << m_Prior->print());
         return boost::numeric::bounds<double>::lowest();
     }
     return result;
@@ -81,7 +86,7 @@ double CNaiveBayesFeatureDensityFromPrior::logMaximumValue() const {
     if (m_Prior->jointLogMarginalLikelihood({m_Prior->marginalLikelihoodMode()},
                                             maths_t::CUnitWeights::SINGLE_UNIT,
                                             result) != maths_t::E_FpNoErrors) {
-        LOG_ERROR("Bad density value for " << m_Prior->print());
+        LOG_ERROR(<< "Bad density value for " << m_Prior->print());
         return boost::numeric::bounds<double>::lowest();
     }
     return result;
@@ -201,7 +206,12 @@ void CNaiveBayes::swap(CNaiveBayes& other) {
 }
 
 bool CNaiveBayes::initialized() const {
-    return m_ClassConditionalDensities.size() > 0;
+    return m_ClassConditionalDensities.size() > 0 &&
+           std::all_of(m_ClassConditionalDensities.begin(),
+                       m_ClassConditionalDensities.end(),
+                       [](const std::pair<std::size_t, CClass>& class_) {
+                           return class_.second.initialized();
+                       });
 }
 
 void CNaiveBayes::initialClassCounts(const TDoubleSizePrVec& counts) {
@@ -235,7 +245,7 @@ void CNaiveBayes::addTrainingDataPoint(std::size_t label, const TDouble1VecVec& 
     if (updateCount) {
         class_.count() += 1.0;
     } else {
-        LOG_TRACE("Ignoring empty feature vector");
+        LOG_TRACE(<< "Ignoring empty feature vector");
     }
 }
 
@@ -278,7 +288,7 @@ CNaiveBayes::TDoubleSizePrVec CNaiveBayes::classProbabilities(const TDouble1VecV
         return {};
     }
     if (m_ClassConditionalDensities.empty()) {
-        LOG_ERROR("Trying to compute class probabilities without supplying training data");
+        LOG_ERROR(<< "Trying to compute class probabilities without supplying training data");
         return {};
     }
 
@@ -365,7 +375,7 @@ bool CNaiveBayes::validate(const TDouble1VecVec& x) const {
     if (class_ != m_ClassConditionalDensities.end() &&
         class_->second.conditionalDensities().size() > 0 &&
         class_->second.conditionalDensities().size() != x.size()) {
-        LOG_ERROR("Unexpected feature vector: " << core::CContainerPrinter::print(x));
+        LOG_ERROR(<< "Unexpected feature vector: " << core::CContainerPrinter::print(x));
         return false;
     }
     return true;
@@ -408,6 +418,12 @@ void CNaiveBayes::CClass::acceptPersistInserter(core::CStatePersistInserter& ins
         }
         // Add other implementations' persist code here.
     }
+}
+
+bool CNaiveBayes::CClass::initialized() const {
+    return std::none_of(
+        m_ConditionalDensities.begin(), m_ConditionalDensities.end(),
+        [](const TFeatureDensityPtr& density) { return density->improper(); });
 }
 
 double CNaiveBayes::CClass::count() const {

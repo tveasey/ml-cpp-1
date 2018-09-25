@@ -6,6 +6,7 @@
 
 #include "CHierarchicalResultsLevelSetTest.h"
 
+#include <core/CLogger.h>
 #include <core/CStoredStringPtr.h>
 
 #include <model/CAnnotatedProbability.h>
@@ -13,45 +14,35 @@
 #include <model/CHierarchicalResultsLevelSet.h>
 #include <model/CStringStore.h>
 
-CppUnit::Test* CHierarchicalResultsLevelSetTest::suite() {
-    CppUnit::TestSuite* suiteOfTests = new CppUnit::TestSuite("CHierarchicalResultsLevelSetTest");
+#include <boost/make_unique.hpp>
 
-    suiteOfTests->addTest(new CppUnit::TestCaller<CHierarchicalResultsLevelSetTest>(
-        "CHierarchicalResultsLevelSetTest::testElementsWithPerPartitionNormalisation",
-        &CHierarchicalResultsLevelSetTest::testElementsWithPerPartitionNormalisation));
+#include <memory>
 
-    return suiteOfTests;
-}
-
-struct TestNode {
-    TestNode(const std::string& name) : s_Name(name) {}
-
+namespace {
+struct STestNode {
+    STestNode(const std::string& name) : s_Name(name) {}
+    std::string print() const { return s_Name; }
     std::string s_Name;
 };
 
-class CTestNodeFactory {
-public:
-    CTestNodeFactory() {}
-
-    TestNode make(const std::string& name1,
-                  const std::string& name2,
-                  const std::string& name3,
-                  const std::string& name4) const {
-        return make(name1 + ' ' + name2 + ' ' + name3 + ' ' + name4);
-    }
-
-    TestNode make(const std::string& name1, const std::string& name2) const {
-        return make(name1 + ' ' + name2);
-    }
-
-    TestNode make(const std::string& name) const { return TestNode(name); }
-};
-
 class CConcreteHierarchicalResultsLevelSet
-    : public ml::model::CHierarchicalResultsLevelSet<TestNode> {
+    : public ml::model::CHierarchicalResultsLevelSet<STestNode> {
 public:
-    CConcreteHierarchicalResultsLevelSet(const TestNode& root)
-        : ml::model::CHierarchicalResultsLevelSet<TestNode>(root) {}
+    class CFactory {
+    public:
+        CFactory() {}
+
+        STestNode make(const ml::model::CHierarchicalResults::TNode& node, bool) const {
+            return STestNode("\"" + *node.s_Spec.s_PartitionFieldName + " " +
+                             *node.s_Spec.s_PartitionFieldValue + " " +
+                             *node.s_Spec.s_PersonFieldName + " " +
+                             *node.s_Spec.s_PersonFieldValue + "\"");
+        }
+    };
+
+public:
+    CConcreteHierarchicalResultsLevelSet(const STestNode& root)
+        : ml::model::CHierarchicalResultsLevelSet<STestNode>(root) {}
 
     //! Visit a node.
     virtual void visit(const ml::model::CHierarchicalResults& /*results*/,
@@ -59,78 +50,92 @@ public:
                        bool /*pivot*/) {}
 
     // make public
-    using ml::model::CHierarchicalResultsLevelSet<TestNode>::elements;
+    using ml::model::CHierarchicalResultsLevelSet<STestNode>::elements;
 };
 
-void print(const TestNode* node) {
-    std::cout << "'" << node->s_Name << "'" << std::endl;
+auto makeRoot() {
+    ml::model::hierarchical_results_detail::SResultSpec spec;
+    ml::model::SAnnotatedProbability prob;
+    return CConcreteHierarchicalResultsLevelSet::TNode{spec, prob};
 }
 
-void CHierarchicalResultsLevelSetTest::testElementsWithPerPartitionNormalisation() {
-    // This is intentionally NOT an empty string from the string store, but
-    // instead a completely separate empty string, such that its pointer will be
-    // different to other empty string pointers.  (In general, if you need
-    // a pointer to an empty string call CStringStore::getEmpty() instead of
-    // doing this.)
-    ml::core::CStoredStringPtr UNSET =
-        ml::core::CStoredStringPtr::makeStoredString(std::string());
-    ml::core::CStoredStringPtr PARTITION_A = ml::model::CStringStore::names().get("pA");
-    ml::core::CStoredStringPtr PARTITION_B = ml::model::CStringStore::names().get("pB");
-    ml::core::CStoredStringPtr PARTITION_C = ml::model::CStringStore::names().get("pC");
-
-    ml::core::CStoredStringPtr PARTITION_VALUE_1 =
-        ml::model::CStringStore::names().get("v1");
-    ml::core::CStoredStringPtr PARTITION_VALUE_2 =
-        ml::model::CStringStore::names().get("v2");
-    ml::core::CStoredStringPtr PARTITION_VALUE_3 =
-        ml::model::CStringStore::names().get("v3");
-
-    TestNode root("root");
-
+auto makeNode(CConcreteHierarchicalResultsLevelSet::TNode& parent,
+              ml::core::CStoredStringPtr partitionName,
+              ml::core::CStoredStringPtr partitionValue,
+              ml::core::CStoredStringPtr personName,
+              ml::core::CStoredStringPtr personValue) {
     ml::model::hierarchical_results_detail::SResultSpec spec;
-    spec.s_PartitionFieldName = PARTITION_A;
-    spec.s_PartitionFieldValue = PARTITION_VALUE_1;
-    ml::model::SAnnotatedProbability emptyAnnotatedProb;
+    spec.s_PartitionFieldName = partitionName;
+    spec.s_PartitionFieldValue = partitionValue;
+    spec.s_PersonFieldName = personName;
+    spec.s_PersonFieldValue = personValue;
+    ml::model::SAnnotatedProbability prob;
+    auto node = boost::make_unique<CConcreteHierarchicalResultsLevelSet::TNode>(spec, prob);
+    node->s_Parent = &parent;
+    parent.s_Children.push_back(node.get());
+    return node;
+}
 
-    ml::model::hierarchical_results_detail::SResultSpec unsetSpec;
+auto makeNode(CConcreteHierarchicalResultsLevelSet::TNode& parent,
+              ml::core::CStoredStringPtr partitionName,
+              ml::core::CStoredStringPtr partitionValue) {
+    return makeNode(parent, partitionName, partitionValue,
+                    ml::model::CStringStore::names().getEmpty(),
+                    ml::model::CStringStore::names().getEmpty());
+}
+}
 
-    CConcreteHierarchicalResultsLevelSet::TNode parent(unsetSpec, emptyAnnotatedProb);
-    CConcreteHierarchicalResultsLevelSet::TNode child(spec, emptyAnnotatedProb);
-    CConcreteHierarchicalResultsLevelSet::TNode node(spec, emptyAnnotatedProb);
-    node.s_Parent = &parent;
-    node.s_Children.push_back(&child);
+CppUnit::Test* CHierarchicalResultsLevelSetTest::suite() {
+    CppUnit::TestSuite* suiteOfTests = new CppUnit::TestSuite("CHierarchicalResultsLevelSetTest");
 
-    std::vector<TestNode*> result;
+    suiteOfTests->addTest(new CppUnit::TestCaller<CHierarchicalResultsLevelSetTest>(
+        "CHierarchicalResultsLevelSetTest::testElements",
+        &CHierarchicalResultsLevelSetTest::testElements));
 
-    // without per partition normalization
-    {
-        CConcreteHierarchicalResultsLevelSet levelSet(root);
-        levelSet.elements(node, false, CTestNodeFactory(), result, false);
-        std::for_each(result.begin(), result.end(), print);
-        CPPUNIT_ASSERT_EQUAL(size_t(1), result.size());
-        CPPUNIT_ASSERT_EQUAL(std::string("pA"), result[0]->s_Name);
+    return suiteOfTests;
+}
+
+void CHierarchicalResultsLevelSetTest::testElements() {
+
+    using TNodePtr = std::unique_ptr<CConcreteHierarchicalResultsLevelSet::TNode>;
+
+    ml::core::CStoredStringPtr pa = ml::model::CStringStore::names().get("PA");
+    ml::core::CStoredStringPtr pb = ml::model::CStringStore::names().get("PB");
+    ml::core::CStoredStringPtr pa1 = ml::model::CStringStore::names().get("pa1");
+    ml::core::CStoredStringPtr pa2 = ml::model::CStringStore::names().get("pa2");
+    ml::core::CStoredStringPtr pb1 = ml::model::CStringStore::names().get("pb1");
+    ml::core::CStoredStringPtr pb2 = ml::model::CStringStore::names().get("pb2");
+
+    CConcreteHierarchicalResultsLevelSet::TNode root{makeRoot()};
+    TNodePtr partitions[]{makeNode(root, pa, pa1), makeNode(root, pa, pa2)};
+    TNodePtr leaves[]{makeNode(*partitions[0], pa, pa1, pb, pb1),
+                      makeNode(*partitions[0], pa, pa1, pb, pb2),
+                      makeNode(*partitions[1], pa, pa2, pb, pb1),
+                      makeNode(*partitions[1], pa, pa2, pb, pb2)};
+
+    CConcreteHierarchicalResultsLevelSet levelSet(STestNode("root"));
+
+    std::vector<STestNode*> result;
+
+    // We should get the same level set corresponding to "pa1" (the first
+    // partition added) for all partition level nodes.
+
+    for (const auto& partition : partitions) {
+        levelSet.elements(*partition, false,
+                          CConcreteHierarchicalResultsLevelSet::CFactory(), result);
+        LOG_DEBUG(<< "partition level = " << ml::core::CContainerPrinter::print(result));
+        CPPUNIT_ASSERT_EQUAL(std::string{"[\"PA pa1  \"]"},
+                             ml::core::CContainerPrinter::print(result));
     }
 
-    // with per partition normalization
-    {
-        CConcreteHierarchicalResultsLevelSet levelSet(root);
-        levelSet.elements(node, false, CTestNodeFactory(), result, true);
+    // We should get the same level set corresponding to ("pa1", "pb1")
+    // (the first leaf added) for all leaf level nodes.
 
-        CPPUNIT_ASSERT_EQUAL(size_t(1), result.size());
-        CPPUNIT_ASSERT_EQUAL(std::string("pAv1"), result[0]->s_Name);
-
-        ml::model::hierarchical_results_detail::SResultSpec specB;
-        specB.s_PartitionFieldName = PARTITION_B;
-        specB.s_PartitionFieldValue = PARTITION_VALUE_1;
-
-        CConcreteHierarchicalResultsLevelSet::TNode nodeB(specB, emptyAnnotatedProb);
-        nodeB.s_Parent = &parent;
-        nodeB.s_Children.push_back(&child);
-
-        levelSet.elements(nodeB, false, CTestNodeFactory(), result, true);
-
-        std::for_each(result.begin(), result.end(), print);
-        CPPUNIT_ASSERT_EQUAL(size_t(1), result.size());
-        CPPUNIT_ASSERT_EQUAL(std::string("pBv1"), result[0]->s_Name);
+    for (const auto& leaf : leaves) {
+        levelSet.elements(*leaf, false,
+                          CConcreteHierarchicalResultsLevelSet::CFactory(), result);
+        LOG_DEBUG(<< "leaf level = " << ml::core::CContainerPrinter::print(result));
+        CPPUNIT_ASSERT_EQUAL(std::string{"[\"PA pa1 PB pb1\"]"},
+                             ml::core::CContainerPrinter::print(result));
     }
 }

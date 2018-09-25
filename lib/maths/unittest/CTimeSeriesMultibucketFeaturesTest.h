@@ -4,20 +4,17 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 
-#ifndef INCLUDED_CNaiveBayesTest_h
-#define INCLUDED_CNaiveBayesTest_h
+#ifndef INCLUDED_CTimeSeriesMultibucketFeaturesTest_h
+#define INCLUDED_CTimeSeriesMultibucketFeaturesTest_h
 
 #include <cppunit/extensions/HelperMacros.h>
 
-class CNaiveBayesTest : public CppUnit::TestFixture {
+class CTimeSeriesMultibucketFeaturesTest : public CppUnit::TestFixture {
 public:
-    void testClassification();
-    void testUninitialized();
-    void testPropagationByTime();
-    void testMemoryUsage();
-    void testPersist();
+    void testUnivariateMean();
+    void testMultivariateMean();
 
     static CppUnit::Test* suite();
 };
 
-#endif // INCLUDED_CNaiveBayesTest_h
+#endif // INCLUDED_CTimeSeriesMultibucketFeaturesTest_h
