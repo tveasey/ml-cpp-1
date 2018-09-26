@@ -45,7 +45,7 @@ struct MATHS_EXPORT SChangeDescription {
     using TPriorPtr = std::shared_ptr<CPrior>;
 
     //! The types of change we can detect.
-    enum EDescription { E_LevelShift, E_LinearScale, E_TimeShift };
+    enum EDescription { E_LevelShift, E_LinearScaleAndLevelShift, E_TimeShift };
 
     SChangeDescription(EDescription decription,
                        double value,
@@ -247,7 +247,7 @@ protected:
     double expectedLogLikelihood() const;
 
     //! Update the log-likelihood with \p samples.
-    void updateLogLikelihood(const TDouble1Vec& samples, const TDoubleWeightsAry1Vec& weights);
+    void updateLogLikelihood(TDouble1Vec samples, const TDoubleWeightsAry1Vec& weights);
 
     //! Update the expected log-likelihoods.
     void updateExpectedLogLikelihood(const TDoubleWeightsAry1Vec& weights);
@@ -265,11 +265,17 @@ protected:
     const TPriorPtr& residualModelPtr() const;
 
 private:
+    using TMeanVarAccumulator = CBasicStatistics::SSampleMeanVar<double>::TAccumulator;
+
+private:
     //! The likelihood of the data under this model.
     double m_LogLikelihood;
 
     //! The expected log-likelihood of the data under this model.
     double m_ExpectedLogLikelihood;
+
+    //! The moments of the samples added so far.
+    TMeanVarAccumulator m_SampleMoments;
 
     //! A model decomposing the time series trend.
     TDecompositionPtr m_TrendModel;

@@ -2026,7 +2026,7 @@ void CTimeSeriesModelTest::testStepChangeDiscontinuities() {
 
     test::CRandomNumbers rng;
 
-    LOG_DEBUG(<< "Univariate: Piecwise Constant");
+    LOG_DEBUG(<< "Univariate: Piecewise Constant");
     {
         core_t::TTime bucketLength{600};
         maths::CTimeSeriesDecomposition trend{24.0 * DECAY_RATE, bucketLength};
@@ -2041,7 +2041,7 @@ void CTimeSeriesModelTest::testStepChangeDiscontinuities() {
         core_t::TTime time{0};
         TDoubleVec samples;
         double level{20.0};
-        for (auto dl : {10.0, 20.0, 15.0, 50.0, 30.0, 40.0, 15.0, 40.0, 25.0}) {
+        for (auto dl : {10.0, 20.0, 25.0, 50.0, 30.0, 40.0, 15.0, 40.0, 25.0}) {
             level += dl;
             rng.generateNormalSamples(
                 level, 2.0, 300 + static_cast<std::size_t>(2.0 * dl), samples);
@@ -2085,8 +2085,7 @@ void CTimeSeriesModelTest::testStepChangeDiscontinuities() {
 
         double outOfBounds{0.0};
         for (std::size_t i = 0u; i < forecast.size(); ++i) {
-            LOG_DEBUG(<< expected[i] / forecast[i][1]);
-            CPPUNIT_ASSERT_DOUBLES_EQUAL(expected[i], forecast[i][1], 0.14 * expected[i]);
+            CPPUNIT_ASSERT_DOUBLES_EQUAL(expected[i], forecast[i][1], 0.1 * expected[i]);
             outOfBounds += static_cast<double>(expected[i] < forecast[i][0] ||
                                                expected[i] > forecast[i][2]);
         }

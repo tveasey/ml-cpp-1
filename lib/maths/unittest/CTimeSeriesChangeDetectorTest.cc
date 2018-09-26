@@ -143,35 +143,45 @@ void CTimeSeriesChangeDetectorTest::testNoChange() {
 void CTimeSeriesChangeDetectorTest::testLevelShift() {
     TGeneratorVec trends{constant, ramp, smoothDaily, weekends, spikeyDaily};
     this->testChange(
-        trends, maths::SChangeDescription::E_LevelShift,
-        [](TGenerator trend, core_t::TTime time) { return trend(time) + 0.5; },
-        [](const ml::maths::SChangeDescription& change) { return change.s_Value[0]; },
-        5.0, 0.0, 16.0);
+        trends,
+        {maths::SChangeDescription::E_LinearScaleAndLevelShift,
+         maths::SChangeDescription::E_LevelShift},
+        [](TGenerator trend, core_t::TTime time) { return trend(time) + 0.7; },
+        [](const ml::maths::SChangeDescription& change) {
+            return change.s_Value[0];
+        },
+        7.0, 0.05, 19.0);
 }
 
 void CTimeSeriesChangeDetectorTest::testLinearScale() {
     TGeneratorVec trends{smoothDaily, spikeyDaily};
     this->testChange(
-        trends, maths::SChangeDescription::E_LinearScale,
+        trends, {maths::SChangeDescription::E_LinearScaleAndLevelShift},
         [](TGenerator trend, core_t::TTime time) { return 3.0 * trend(time); },
-        [](const ml::maths::SChangeDescription& change) { return change.s_Value[1]; },
-        3.0, 0.0, 15.0);
+        [](const ml::maths::SChangeDescription& change) {
+            return change.s_Value[1];
+        },
+        3.0, 0.0, 19.0);
 }
 
 void CTimeSeriesChangeDetectorTest::testTimeShift() {
     TGeneratorVec trends{smoothDaily, spikeyDaily};
-    this->testChange(trends, maths::SChangeDescription::E_TimeShift,
+    this->testChange(trends, {maths::SChangeDescription::E_TimeShift},
                      [](TGenerator trend, core_t::TTime time) {
                          return trend(time - core::constants::HOUR);
                      },
-                     [](const ml::maths::SChangeDescription& change) { return change.s_Value[0]; },
-                     -static_cast<double>(core::constants::HOUR), 0.03, 23.0);
-    this->testChange(trends, maths::SChangeDescription::E_TimeShift,
+                     [](const ml::maths::SChangeDescription& change) {
+                         return change.s_Value[0];
+                     },
+                     -static_cast<double>(core::constants::HOUR), 0.03, 25.0);
+    this->testChange(trends, {maths::SChangeDescription::E_TimeShift},
                      [](TGenerator trend, core_t::TTime time) {
                          return trend(time + core::constants::HOUR);
                      },
-                     [](const ml::maths::SChangeDescription& change) { return change.s_Value[0]; },
-                     +static_cast<double>(core::constants::HOUR), 0.03, 23.0);
+                     [](const ml::maths::SChangeDescription& change) {
+                         return change.s_Value[0];
+                     },
+                     +static_cast<double>(core::constants::HOUR), 0.03, 25.0);
 }
 
 void CTimeSeriesChangeDetectorTest::testPersist() {
@@ -255,7 +265,7 @@ CppUnit::Test* CTimeSeriesChangeDetectorTest::suite() {
 }
 
 void CTimeSeriesChangeDetectorTest::testChange(const TGeneratorVec& trends,
-                                               maths::SChangeDescription::EDescription description,
+                                               const TDescriptionVec& description,
                                                TChange applyChange,
                                                TExtractValue extractValue,
                                                double expectedChange,
@@ -297,7 +307,7 @@ void CTimeSeriesChangeDetectorTest::testChange(const TGeneratorVec& trends,
         }
 
         maths::CUnivariateTimeSeriesChangeDetector detector{
-            trendModel, residualModel, 6 * core::constants::HOUR,
+            trendModel, residualModel, 8 * core::constants::HOUR,
             24 * core::constants::HOUR, 14.0};
 
         TOptionalSize bucketsToDetect;
@@ -312,7 +322,8 @@ void CTimeSeriesChangeDetectorTest::testChange(const TGeneratorVec& trends,
                 if (!bucketsToDetect) {
                     bucketsToDetect.reset(i - 949);
                 }
-                CPPUNIT_ASSERT_EQUAL(change->s_Description, description);
+                CPPUNIT_ASSERT(std::find(description.begin(), description.end(),
+                                         change->s_Description) != description.end());
                 CPPUNIT_ASSERT_DOUBLES_EQUAL(expectedChange, extractValue(*change),
                                              0.5 * std::fabs(expectedChange));
                 break;

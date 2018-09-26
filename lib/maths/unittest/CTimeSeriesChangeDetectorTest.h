@@ -25,6 +25,7 @@ public:
 
 private:
     using TDouble2Vec = ml::core::CSmallVector<double, 2>;
+    using TDescriptionVec = std::vector<ml::maths::SChangeDescription::EDescription>;
     using TGenerator = std::function<double(ml::core_t::TTime)>;
     using TGeneratorVec = std::vector<TGenerator>;
     using TChange = std::function<double(TGenerator generator, ml::core_t::TTime)>;
@@ -32,7 +33,7 @@ private:
 
 private:
     void testChange(const TGeneratorVec& trends,
-                    ml::maths::SChangeDescription::EDescription description,
+                    const TDescriptionVec& description,
                     TChange applyChange,
                     TExtractValue extractValue,
                     double expectedChange,

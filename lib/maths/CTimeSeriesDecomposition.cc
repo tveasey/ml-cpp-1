@@ -256,7 +256,7 @@ bool CTimeSeriesDecomposition::applyChange(core_t::TTime time,
     case SChangeDescription::E_LevelShift:
         m_Components.shiftLevel(time, value, change.s_Value[0]);
         break;
-    case SChangeDescription::E_LinearScale:
+    case SChangeDescription::E_LinearScaleAndLevelShift:
         m_Components.linearScale(time, change.s_Value[1]);
         m_Components.shiftLevel(time, value, change.s_Value[0]);
         break;
