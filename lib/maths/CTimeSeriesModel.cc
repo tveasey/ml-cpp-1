@@ -696,7 +696,6 @@ CUnivariateTimeSeriesModel::addSamples(const CModelAddSamplesParams& params,
                          return samples[lhs].second < samples[rhs].second;
                      });
 
-
     // Change detection.
     EUpdateResult result{this->testAndApplyChange(params, valueorder, samples)};
 
@@ -1581,7 +1580,7 @@ void CUnivariateTimeSeriesModel::reinitializeStateGivenNewComponent(const TTimeD
     if (initialValues.size() > 0) {
         double numberInitialValues{static_cast<double>(initialValues.size())};
         maths_t::TDoubleWeightsAry1Vec weight{maths_t::countWeight(
-            std::max(this->params().learnRate(), std::min(10.0 / numberInitialValues, 1.0)))};
+            10.0 * std::max(this->params().learnRate(), 1.0) / numberInitialValues)};
         for (const auto& value : initialValues) {
             TDouble1Vec sample{m_TrendModel->detrend(value.first, value.second, 0.0)};
             m_ResidualModel->addSamples(sample, weight);
@@ -2611,7 +2610,7 @@ std::size_t CMultivariateTimeSeriesModel::memoryUsage() const {
            core::CMemory::dynamicSize(m_ResidualModel) +
            core::CMemory::dynamicSize(m_MultibucketFeature) +
            core::CMemory::dynamicSize(m_MultibucketFeatureModel) +
-      core::CMemory::dynamicSize(m_AnomalyModel);
+           core::CMemory::dynamicSize(m_AnomalyModel);
 }
 
 bool CMultivariateTimeSeriesModel::acceptRestoreTraverser(const SModelRestoreParams& params,
@@ -2768,7 +2767,8 @@ CMultivariateTimeSeriesModel::updateTrend(const TTimeDouble2VecSizeTrVec& sample
     for (auto i : timeorder) {
         for (std::size_t d = 0u; d < dimension; ++d) {
             auto trendWindow = m_TrendModel[d]->windowValues(samples[i].first);
-            window.resize(trendWindow.size(), TTimeDouble10VecPr{0, TDouble10Vec(dimension)});
+            window.resize(std::max(window.size(), trendWindow.size()),
+                          TTimeDouble10VecPr{0, TDouble10Vec(dimension)});
             for (std::size_t j = 0; j < window.size(); ++j) {
                 window[j].first = trendWindow[j].first;
                 window[j].second[d] = trendWindow[j].second;
@@ -2855,8 +2855,8 @@ void CMultivariateTimeSeriesModel::reinitializeStateGivenNewComponent(const TTim
     if (initialValues.size() > 0) {
         std::size_t dimension{this->dimension()};
         double numberInitialValues{static_cast<double>(initialValues.size())};
-        maths_t::TDouble10VecWeightsAry1Vec weight{maths_t::countWeight(TDouble10Vec(
-            dimension, std::max(this->params().learnRate(), std::min(10.0 / numberInitialValues, 1.0))))};
+        maths_t::TDouble10VecWeightsAry1Vec weight{maths_t::countWeight(
+            10.0 * std::max(this->params().learnRate(), 1.0) / numberInitialValues, dimension)};
         for (const auto& value : initialValues) {
             TDouble10Vec1Vec sample{TDouble10Vec(dimension)};
             for (std::size_t i = 0u; i < dimension; ++i) {

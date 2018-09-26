@@ -424,6 +424,7 @@ private:
     using TVectorMeanAccumulator = CBasicStatistics::SSampleMean<TVector>::TAccumulator;
 
 private:
+    //! Get the combined shift and scale corresponding to this change.
     TDoubleDoublePr shiftAndScale() const;
 
 private:
