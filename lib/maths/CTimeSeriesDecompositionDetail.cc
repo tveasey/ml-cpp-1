@@ -627,7 +627,8 @@ void CTimeSeriesDecompositionDetail::CPeriodicityTest::propagateForwards(core_t:
 }
 
 CTimeSeriesDecompositionDetail::CPeriodicityTest::TTimeDoublePrVec
-CTimeSeriesDecompositionDetail::CPeriodicityTest::windowValues(core_t::TTime time_, bool forced) const {
+CTimeSeriesDecompositionDetail::CPeriodicityTest::windowValues(core_t::TTime time_,
+                                                               bool forced) const {
     TTimeDoublePrVec result;
     for (auto i : {E_Short, E_Long}) {
         if (this->shouldTest(i, time_) || (forced && m_Windows[i])) {
