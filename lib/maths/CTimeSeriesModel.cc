@@ -2800,9 +2800,6 @@ CMultivariateTimeSeriesModel::updateTrend(const TTimeDouble2VecSizeTrVec& sample
             }
             break;
         }
-        if (window.size() > 0) {
-            break;
-        }
     }
 
     // Do the update.
