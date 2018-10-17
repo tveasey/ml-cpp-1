@@ -51,12 +51,18 @@ Increased independence of anomaly scores across partitions (See {ml-pull}182[182
 Avoid potential false positives at model start up when first detecting new components of the time
 series decomposition. (See {ml-pull}218[218].)
 
+Add a new label - multi_bucket_impact - to record level anomaly results.
+The value will be on a scale of -5 to +5 where -5 means the anomaly is purely single bucket
+and +5 means the anomaly is purely multi bucket. ({ml-pull}230[230])
+
 === Bug Fixes
 
 Fix cause of "Bad density value..." log errors whilst forecasting. ({ml-pull}207[207])
 
 Fix incorrectly missing influencers when the influence field is one of the detector's partitioning
 fields and the bucket is empty. ({pull}219[#219])
+
+Fix cause of hard_limit memory error for jobs with bucket span greater than one day. ({ml-pull}243[243])
 
 //=== Regressions
 
