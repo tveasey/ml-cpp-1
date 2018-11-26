@@ -31,6 +31,7 @@ CBlockingMessageQueueTest.cc \
 CByteSwapperTest.cc \
 CCompressedDictionaryTest.cc \
 CCompressUtilsTest.cc \
+CConcurrencyTest.cc \
 CConcurrentWrapperTest.cc \
 CContainerPrinterTest.cc \
 CContainerThroughputTest.cc \

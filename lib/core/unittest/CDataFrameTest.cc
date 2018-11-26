@@ -92,7 +92,7 @@ std::once_flag once;
 }
 
 void CDataFrameTest::setUp() {
-    std::call_once(once, core::startDefaultAsyncExecutor);
+    std::call_once(once, core::startDefaultAsyncExecutor, 0);
 }
 
 void CDataFrameTest::testInMainMemoryBasicReadWrite() {

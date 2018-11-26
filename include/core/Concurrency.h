@@ -80,6 +80,8 @@ void await(const std::vector<std::shared_ptr<task<RESULT>>>& tasks) {
 //! \param[in] end The end of the indices for which to execute \p f.
 //! \param[in,out] f The function to execute on each index. This expected to
 //! be a Callable equivalent to std::function<void(std::size_t)>.
+//! \note f must be copy constructible.
+//! \note f must be thread safe.
 template<typename FUNCTION>
 std::vector<FUNCTION> parallel_for_each(std::size_t start, std::size_t end, FUNCTION&& f) {
 
@@ -98,27 +100,31 @@ std::vector<FUNCTION> parallel_for_each(std::size_t start, std::size_t end, FUNC
 
     std::vector<FUNCTION> functions{threads, std::forward<FUNCTION>(f)};
 
-    std::vector<task<decltype(f(0))>> tasks;
-
     // Threads access the indices in the following pattern:
     //   [0, m,   2*m,   ...]
     //   [1, m+1, 2*m+1, ...]
     //   [2, m+2, 2*m+2, ...]
     //   ...
-    // for m threads. This is choosen because it is expected that the index 
+    // for m threads. This is choosen because it is expected that the index
     // will often be used to access elements in a contiguous block of memory.
     // Provided the threads are doing roughly equal work per call this should
     // ensure the best possible locality of reference for reads which occur
-    // at a similar time.
+    // at a similar time in the different threads.
+
+    std::vector<std::shared_ptr<task<decltype(f(0))>>> tasks;
 
     for (std::size_t offset = 0; offset < threads; ++offset, ++start) {
+        // Note there is one copy of g for each thread so capture by reference
+        // is thread safe provided f is thread safe.
+
         auto& g = functions[offset];
-        async(defaultAsyncExecutor(),
-              [&g, threads](std::size_t start_, std::size_t end_) { 
-                  for (std::size_t j = start_; j < end_; j += threads) {
-                      g(j);
-                  }
-              }, start, end);
+        tasks.emplace_back(async(defaultAsyncExecutor(),
+                                 [&g, threads](std::size_t start_, std::size_t end_) {
+                                     for (std::size_t i = start_; i < end_; i += threads) {
+                                         g(i);
+                                     }
+                                 },
+                                 start, end));
     }
 
     await(tasks);
@@ -135,10 +141,12 @@ std::vector<FUNCTION> parallel_for_each(std::size_t start, std::size_t end, FUNC
 //! \param[in] end The end iterator for the values on which to execute \p f.
 //! \param[in,out] f The function to execute on each value. This expected to
 //! be a Callable equivalent to std::function<void (decltype(*start))>.
+//! \note f must be copy constructible.
+//! \note f must be thread safe.
 template<typename ITR, typename FUNCTION>
 std::vector<FUNCTION> parallel_for_each(ITR start, ITR end, FUNCTION&& f) {
 
-    std::size_t size{std::distance(start, end)};
+    std::size_t size(std::distance(start, end));
     if (size == 0) {
         return {std::forward<FUNCTION>(f)};
     }
@@ -151,24 +159,29 @@ std::vector<FUNCTION> parallel_for_each(ITR start, ITR end, FUNCTION&& f) {
 
     std::vector<FUNCTION> functions{threads, std::forward<FUNCTION>(f)};
 
-    std::vector<task<decltype(f(start))>> tasks;
-
     // See above for the rationale for this access pattern.
 
+    std::vector<std::shared_ptr<task<decltype(f(start))>>> tasks;
+
     for (std::size_t offset = 0; offset < threads; ++offset, ++start) {
+        // Note there is one copy of g for each thread so capture by reference
+        // is thread safe provided f is thread safe.
+
         auto& g = functions[offset];
-        async(defaultAsyncExecutor(),
-              [&g, threads, offset, size](ITR start_) {
-                  std::size_t i{offset};
-                  auto incrementByThreads = [&i, threads, size](ITR j) {
-                      if (i < size) {
-                          std::advance(j, threads);
-                      }
-                  };
-                  for (ITR j = start_; i < size; i += threads, incrementByThreads(j)) {
-                      g(*j);
-                  }
-              }, start);
+        tasks.emplace_back(async(
+            defaultAsyncExecutor(),
+            [&g, threads, offset, size](ITR start_) {
+                std::size_t i{offset};
+                auto incrementByThreads = [&i, threads, size](ITR& j) {
+                    if (i < size) {
+                        std::advance(j, threads);
+                    }
+                };
+                for (ITR j = start_; i < size; i += threads, incrementByThreads(j)) {
+                    g(*j);
+                }
+            },
+            start));
     }
 
     await(tasks);
@@ -181,16 +194,14 @@ template<typename FUNCTION, typename BOUND_STATE>
 struct SCallableWithBoundState {
     SCallableWithBoundState(FUNCTION&& function, BOUND_STATE&& functionState)
         : s_Function{std::forward<FUNCTION>(function)},
-          s_FunctionState{std::forward<FUNCTION>(functionState)} {
-    }
+          s_FunctionState{std::forward<BOUND_STATE>(functionState)} {}
     template<typename... ARGS>
-    std::result_of_t<std::decay_t<FUNCTION>(std::decay_t<ARGS>...)>
-    operator()(ARGS&& ...args) const {
+    void operator()(ARGS&&... args) const {
         s_Function(s_FunctionState, std::forward<ARGS>(args)...);
     }
 
     FUNCTION s_Function;
-    BOUND_STATE s_FunctionState;
+    mutable BOUND_STATE s_FunctionState;
 };
 }
 
@@ -221,8 +232,8 @@ struct SCallableWithBoundState {
 //! copy constructible and movable.
 template<typename FUNCTION, typename STATE>
 auto bind_retrievable_state(FUNCTION&& function, STATE&& state) {
-    return concurrency_detail::SCallableWithBoundState<FUNCTION, STATE>(std::forward<FUNCTION>(function),
-                                                                        std::forward<STATE>(state));
+    return concurrency_detail::SCallableWithBoundState<FUNCTION, STATE>(
+        std::forward<FUNCTION>(function), std::forward<STATE>(state));
 }
 }
 }

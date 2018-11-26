@@ -11,6 +11,7 @@
 #include "CByteSwapperTest.h"
 #include "CCompressUtilsTest.h"
 #include "CCompressedDictionaryTest.h"
+#include "CConcurrencyTest.h"
 #include "CConcurrentWrapperTest.h"
 #include "CContainerPrinterTest.h"
 #include "CContainerThroughputTest.h"
@@ -85,6 +86,7 @@ int main(int argc, const char** argv) {
     runner.addTest(CByteSwapperTest::suite());
     runner.addTest(CCompressedDictionaryTest::suite());
     runner.addTest(CCompressUtilsTest::suite());
+    runner.addTest(CConcurrencyTest::suite());
     runner.addTest(CConcurrentWrapperTest::suite());
     runner.addTest(CContainerPrinterTest::suite());
     runner.addTest(CContainerThroughputTest::suite());
