@@ -39,11 +39,15 @@ void CConcurrencyTest::testParallelFor() {
 
     double expected{std::accumulate(values.begin(), values.end(), 0.0)};
 
+    LOG_DEBUG(<< "Indices");
     {
-        auto results = core::parallel_for_each(
-            values.begin(), values.end(),
-            core::bind_retrievable_state(
-                [](double& sum, int value) { sum += static_cast<double>(value); }, 0.0));
+        auto results =
+            core::parallel_for_each(0, values.size(),
+                                    core::bind_retrievable_state(
+                                        [&values](double& sum, std::size_t i) {
+                                            sum += static_cast<double>(values[i]);
+                                        },
+                                        0.0));
 
         double sum{0.0};
         for (const auto& result : results) {
@@ -56,14 +60,12 @@ void CConcurrencyTest::testParallelFor() {
         CPPUNIT_ASSERT_EQUAL(expected, sum);
     }
 
+    LOG_DEBUG(<< "Iterators");
     {
-        auto results =
-            core::parallel_for_each(0, values.size(),
-                                    core::bind_retrievable_state(
-                                        [&values](double& sum, std::size_t i) {
-                                            sum += static_cast<double>(values[i]);
-                                        },
-                                        0.0));
+        auto results = core::parallel_for_each(
+            values.begin(), values.end(),
+            core::bind_retrievable_state(
+                [](double& sum, int value) { sum += static_cast<double>(value); }, 0.0));
 
         double sum{0.0};
         for (const auto& result : results) {
