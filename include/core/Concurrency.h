@@ -162,6 +162,27 @@ std::vector<FUNCTION> parallel_for_each(ITR start, ITR end, FUNCTION&& f) {
 
     return functions;
 }
+
+namespace concurrency_detail {
+
+template<typename FUNCTION, typename BOUND_STATE>
+struct SFunctionWithBoundState {
+    template<typename... ARGS>
+    std::result_of_t<std::decay_t<FUNCTION>(std::decay_t<ARGS>...)>
+    operator()(ARGS&& ...args) const {
+        m_Function(s_FunctionState, std::forward<ARGS>(args)...);
+    }
+    FUNCTION s_Function;
+    BOUND_STATE s_FunctionState;
+};
+}
+
+//!
+template<typename FUNCTION, typename STATE>
+auto bind_retrievable_state(FUNCTION&& function, STATE&& state) {
+    return concurrency_detail::SFunctionWithBoundState<FUNCTION, STATE>(std::forward<FUNCTION>(function),
+                                                                        std::forward<STATE>(state));
+}
 }
 }
 
