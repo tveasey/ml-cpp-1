@@ -11,6 +11,7 @@
 
 class CDataFrameTest : public CppUnit::TestFixture {
 public:
+    void setUp();
     void testInMainMemoryBasicReadWrite();
     void testInMainMemoryParallelRead();
     void testOnDiskBasicReadWrite();

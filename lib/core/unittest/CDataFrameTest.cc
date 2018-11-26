@@ -9,6 +9,7 @@
 #include <core/CContainerPrinter.h>
 #include <core/CDataFrame.h>
 #include <core/CDataFrameRowSlice.h>
+#include <core/Concurrency.h>
 
 #include <test/CRandomNumbers.h>
 
@@ -85,6 +86,14 @@ private:
     bool m_Duplicates = false;
     TSizeFloatVecUMap m_Rows;
 };
+}
+
+void CDataFrameTest::setUp() {
+    static bool done{false};
+    if (done == false) {
+        core::startDefaultAsyncExecutor();
+        done = true;
+    }
 }
 
 void CDataFrameTest::testInMainMemoryBasicReadWrite() {

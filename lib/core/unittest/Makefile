@@ -83,7 +83,6 @@ CStoredStringPtrTest.cc \
 CStringSimilarityTesterTest.cc \
 CStringUtilsTest.cc \
 CThreadFarmTest.cc \
-CThreadPoolTest.cc \
 CThreadMutexConditionTest.cc \
 CTickerTest.cc \
 CTimeUtilsTest.cc \
