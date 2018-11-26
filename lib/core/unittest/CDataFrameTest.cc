@@ -87,12 +87,14 @@ private:
     bool m_Duplicates = false;
     TSizeFloatVecUMap m_Rows;
 };
-
-std::once_flag once;
 }
 
 void CDataFrameTest::setUp() {
-    std::call_once(once, core::startDefaultAsyncExecutor, 0);
+    core::startDefaultAsyncExecutor();
+}
+
+void CDataFrameTest::tearDown() {
+    core::stopDefaultAsyncExecutor();
 }
 
 void CDataFrameTest::testInMainMemoryBasicReadWrite() {

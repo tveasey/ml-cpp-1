@@ -11,9 +11,8 @@
 
 class CConcurrencyTest : public CppUnit::TestFixture {
 public:
-    void setUp();
     void testAsyncWithExecutors();
-    void testParallelFor();
+    void testParallelForEach();
 
     static CppUnit::Test* suite();
 };

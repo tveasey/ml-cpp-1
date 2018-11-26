@@ -46,6 +46,11 @@ void startDefaultAsyncExecutor(std::size_t threads) {
     THREAD_POOL = makeThreadPool(threads);
 }
 
+void stopDefaultAsyncExecutor() {
+    THREAD_POOL_SIZE = 0;
+    THREAD_POOL = boost::make_unique<transwarp::sequential>();
+}
+
 std::size_t defaultAsyncThreadPoolSize() {
     return THREAD_POOL_SIZE;
 }

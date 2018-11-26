@@ -345,7 +345,7 @@ protected:
             m_Lookup.build(std::move(points));
             core::parallel_for_each(
                 m_Lookup.begin(), m_Lookup.end(),
-                [&, neighbours = TPointVec{} ](const POINT& point) mutable {
+                [&, neighbours = TPointVec{} ](const TPoint& point) mutable {
                     m_Lookup.nearestNeighbours(k + 1, point, neighbours);
                     this->add(point, neighbours, scores);
                 });
@@ -408,11 +408,11 @@ protected:
 
             auto results = core::parallel_for_each(
                 this->lookup().begin(), this->lookup().end(),
-                core::bind_retrievable_state(
-                    [&](TMinAccumulator& min, const POINT& point) mutable {
-                        std::size_t i{point->annotation()};
+                core::bindRetrievableState(
+                    [&](TMinAccumulator& min, const TPoint& point) {
+                        std::size_t i{point.annotation()};
                         TMeanAccumulator reachability_;
-                        for (const auto& neighbour : (*m_KDistances)[i]) {
+                        for (const auto& neighbour : m_KDistances[i]) {
                             reachability_.add(
                                 std::max(kdistance(m_KDistances[index(neighbour)]),
                                          distance(neighbour)));
@@ -439,7 +439,7 @@ protected:
                     }
                 }
                 core::parallel_for_each(
-                    this->lookup().begin(), this->lookup().end(), [&](const POINT& point) {
+                    this->lookup().begin(), this->lookup().end(), [&](const TPoint& point) {
                         std::size_t i{point.annotation()};
                         TMeanAccumulator score;
                         for (const auto& neighbour : m_KDistances[i]) {

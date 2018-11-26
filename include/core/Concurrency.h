@@ -20,6 +20,53 @@ using transwarp::executor;
 using transwarp::task;
 using static_thread_pool = transwarp::detail::thread_pool;
 
+namespace concurrency_detail {
+template<typename FUNCTION, typename BOUND_STATE>
+struct SCallableWithBoundState {
+    SCallableWithBoundState(FUNCTION&& function, BOUND_STATE&& functionState)
+        : s_Function{std::forward<FUNCTION>(function)},
+          s_FunctionState{std::forward<BOUND_STATE>(functionState)} {}
+    template<typename... ARGS>
+    void operator()(ARGS&&... args) const {
+        s_Function(s_FunctionState, std::forward<ARGS>(args)...);
+    }
+
+    FUNCTION s_Function;
+    mutable BOUND_STATE s_FunctionState;
+};
+}
+
+//! This provides a utility to bind **retrievable** state by copy to an arbitary
+//! Callable.
+//!
+//! The intention of this class is to extend lambdas to be stateful with the state
+//! held by **value** and accessible from the resulting Callable type. This can be
+//! used with parallel_for_each when one wants a copy of some state for each thread
+//! which can be retrieved from the returned Callable objects. The canonical usage
+//! is as follows:
+//! \code{.cpp}
+//! std::vector<unsigned> foo;
+//! ...
+//! auto results = parallel_for_each(foo.begin(), foo.end(),
+//!                                  bindRetrievableState([](unsigned& max, unsigned value) {
+//!                                                           max = std::max(max, value); },
+//!                                                       unsigned{0}));
+//! unsigned overallMax{0};
+//! for (const auto& result : results) {
+//!     overallMax = std::max(overallMax, result.s_State);
+//! }
+//! \endcode
+//!
+//! The state can be any type and is always supplied as the first argument to the
+//! Callable it binds to. The copy acted on by the thread is accessed as a public
+//! member called s_State of the returned function object. The state object must be
+//! copy constructible and movable.
+template<typename FUNCTION, typename STATE>
+auto bindRetrievableState(FUNCTION&& function, STATE&& state) {
+    return concurrency_detail::SCallableWithBoundState<FUNCTION, STATE>(
+        std::forward<FUNCTION>(function), std::forward<STATE>(state));
+}
+
 //! Setup the global default executor for async.
 //!
 //! \note This is not thread safe as the intention is that it is invoked once at
@@ -29,9 +76,16 @@ using static_thread_pool = transwarp::detail::thread_pool;
 CORE_EXPORT
 void startDefaultAsyncExecutor(std::size_t threads = 0);
 
-//! The global default thread pool.
+//! Shutdown the thread pool and reset the executor to sequential in the same thread.
 //!
-//! This gets the default parallel executor set by startDefaultAsyncExecutor.
+//! \note This is not thread safe as the intention is that it is invoked in single
+//! threaded test code.
+CORE_EXPORT
+void stopDefaultAsyncExecutor();
+
+//! The default async executor.
+//!
+//! This gets the default parallel executor created by startDefaultAsyncExecutor.
 //! If this hasn't been started execution happens serially in the same thread.
 CORE_EXPORT
 executor& defaultAsyncExecutor();
@@ -161,7 +215,7 @@ std::vector<FUNCTION> parallel_for_each(ITR start, ITR end, FUNCTION&& f) {
 
     // See above for the rationale for this access pattern.
 
-    std::vector<std::shared_ptr<task<decltype(f(start))>>> tasks;
+    std::vector<std::shared_ptr<task<decltype(f(*start))>>> tasks;
 
     for (std::size_t offset = 0; offset < threads; ++offset, ++start) {
         // Note there is one copy of g for each thread so capture by reference
@@ -187,53 +241,6 @@ std::vector<FUNCTION> parallel_for_each(ITR start, ITR end, FUNCTION&& f) {
     await(tasks);
 
     return functions;
-}
-
-namespace concurrency_detail {
-template<typename FUNCTION, typename BOUND_STATE>
-struct SCallableWithBoundState {
-    SCallableWithBoundState(FUNCTION&& function, BOUND_STATE&& functionState)
-        : s_Function{std::forward<FUNCTION>(function)},
-          s_FunctionState{std::forward<BOUND_STATE>(functionState)} {}
-    template<typename... ARGS>
-    void operator()(ARGS&&... args) const {
-        s_Function(s_FunctionState, std::forward<ARGS>(args)...);
-    }
-
-    FUNCTION s_Function;
-    mutable BOUND_STATE s_FunctionState;
-};
-}
-
-//! This provides a utility to bind **retrievable** state by copy to an arbitary
-//! Callable.
-//!
-//! The intention of this class is to extend lambdas to be stateful with the state
-//! held by **value** and accessible from the resulting Callable type. This can be
-//! used with parallel_for_each when one wants a copy of some state for each thread
-//! which can be retrieved from the returned Callable objects. The canonical usage
-//! is as follows:
-//! \code{.cpp}
-//! std::vector<unsigned> foo;
-//! ...
-//! auto results = parallel_for_each(foo.begin(), foo.end(),
-//!                                  bind_retrievable_state([](unsigned& max, unsigned value) {
-//!                                                             max = std::max(max, value); },
-//!                                                         unsigned{0}));
-//! unsigned overallMax{0};
-//! for (const auto& result : results) {
-//!     overallMax = std::max(overallMax, result.s_State);
-//! }
-//! \endcode
-//!
-//! The state can be any type and is always supplied as the first argument to the
-//! Callable it binds to. The copy acted on by the thread is accessed as a public
-//! member called s_State of the returned function object. The state object must be
-//! copy constructible and movable.
-template<typename FUNCTION, typename STATE>
-auto bind_retrievable_state(FUNCTION&& function, STATE&& state) {
-    return concurrency_detail::SCallableWithBoundState<FUNCTION, STATE>(
-        std::forward<FUNCTION>(function), std::forward<STATE>(state));
 }
 }
 }
