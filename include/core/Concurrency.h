@@ -40,7 +40,7 @@ executor& defaultAsyncExecutor();
 CORE_EXPORT
 std::size_t defaultAsyncThreadPoolSize();
 
-//! An "overload" of async which uses a specified executor.
+//! An version of std::async which uses a specified executor.
 template<typename FUNCTION, typename... ARGS>
 std::shared_ptr<task<std::result_of_t<std::decay_t<FUNCTION>(std::decay_t<ARGS>...)>>>
 async(executor& exec, FUNCTION&& f, ARGS&&... args) {
@@ -79,7 +79,7 @@ void await(const std::vector<std::shared_ptr<task<RESULT>>>& tasks) {
 //! \param[in] start The first index for which to execute \p f.
 //! \param[in] end The end of the indices for which to execute \p f.
 //! \param[in,out] f The function to execute on each index. This expected to
-//! implement the std::function<void(std::size_t)> contract.
+//! be a Callable equivalent to std::function<void(std::size_t)>.
 template<typename FUNCTION>
 std::vector<FUNCTION> parallel_for_each(std::size_t start, std::size_t end, FUNCTION&& f) {
 
@@ -96,9 +96,20 @@ std::vector<FUNCTION> parallel_for_each(std::size_t start, std::size_t end, FUNC
         return {std::forward<FUNCTION>(f)};
     }
 
-    std::vector<FUNCTION> functions(threads, std::forward<FUNCTION>(f));
+    std::vector<FUNCTION> functions{threads, std::forward<FUNCTION>(f)};
 
-    std::vector<task<std::result_of_t<std::decay_t<FUNCTION>()>>> tasks;
+    std::vector<task<decltype(f(0))>> tasks;
+
+    // Threads access the indices in the following pattern:
+    //   [0, m,   2*m,   ...]
+    //   [1, m+1, 2*m+1, ...]
+    //   [2, m+2, 2*m+2, ...]
+    //   ...
+    // for m threads. This is choosen because it is expected that the index 
+    // will often be used to access elements in a contiguous block of memory.
+    // Provided the threads are doing roughly equal work per call this should
+    // ensure the best possible locality of reference for reads which occur
+    // at a similar time.
 
     for (std::size_t offset = 0; offset < threads; ++offset, ++start) {
         auto& g = functions[offset];
@@ -117,13 +128,13 @@ std::vector<FUNCTION> parallel_for_each(std::size_t start, std::size_t end, FUNC
 
 //! Run \p f in parallel using async.
 //!
-//! This executes \p f on each index in the range [\p start, \p end) using the
-//! default async executor.
+//! This executes \p f on each dereferenced iterator value in the range
+//! [\p start, \p end) using the default async executor.
 //!
-//! \param[in] start The first index for which to execute \p f.
-//! \param[in] end The end of the indices for which to execute \p f.
-//! \param[in,out] f The function to execute on each index. This expected to
-//! implement the std::function<void(std::size_t)> contract.
+//! \param[in] start The first iterator for the values on which to execute \p f.
+//! \param[in] end The end iterator for the values on which to execute \p f.
+//! \param[in,out] f The function to execute on each value. This expected to
+//! be a Callable equivalent to std::function<void (decltype(*start))>.
 template<typename ITR, typename FUNCTION>
 std::vector<FUNCTION> parallel_for_each(ITR start, ITR end, FUNCTION&& f) {
 
@@ -138,21 +149,23 @@ std::vector<FUNCTION> parallel_for_each(ITR start, ITR end, FUNCTION&& f) {
         return {std::for_each(start, end, std::forward<FUNCTION>(f))};
     }
 
-    std::vector<FUNCTION> functions(threads, std::forward<FUNCTION>(f));
+    std::vector<FUNCTION> functions{threads, std::forward<FUNCTION>(f)};
 
-    std::vector<task<std::result_of_t<std::decay_t<FUNCTION>()>>> tasks;
+    std::vector<task<decltype(f(start))>> tasks;
+
+    // See above for the rationale for this access pattern.
 
     for (std::size_t offset = 0; offset < threads; ++offset, ++start) {
         auto& g = functions[offset];
         async(defaultAsyncExecutor(),
               [&g, threads, offset, size](ITR start_) {
                   std::size_t i{offset};
-                  auto increment = [&](ITR j) {
+                  auto incrementByThreads = [&i, threads, size](ITR j) {
                       if (i < size) {
                           std::advance(j, threads);
                       }
                   };
-                  for (ITR j = start_; i < size; i += threads, advance(j)) {
+                  for (ITR j = start_; i < size; i += threads, incrementByThreads(j)) {
                       g(*j);
                   }
               }, start);
@@ -164,23 +177,51 @@ std::vector<FUNCTION> parallel_for_each(ITR start, ITR end, FUNCTION&& f) {
 }
 
 namespace concurrency_detail {
-
 template<typename FUNCTION, typename BOUND_STATE>
-struct SFunctionWithBoundState {
+struct SCallableWithBoundState {
+    SCallableWithBoundState(FUNCTION&& function, BOUND_STATE&& functionState)
+        : s_Function{std::forward<FUNCTION>(function)},
+          s_FunctionState{std::forward<FUNCTION>(functionState)} {
+    }
     template<typename... ARGS>
     std::result_of_t<std::decay_t<FUNCTION>(std::decay_t<ARGS>...)>
     operator()(ARGS&& ...args) const {
-        m_Function(s_FunctionState, std::forward<ARGS>(args)...);
+        s_Function(s_FunctionState, std::forward<ARGS>(args)...);
     }
+
     FUNCTION s_Function;
     BOUND_STATE s_FunctionState;
 };
 }
 
+//! This provides a utility to bind **retrievable** state by copy to an arbitary
+//! Callable.
 //!
+//! The intention of this class is to extend lambdas to be stateful with the state
+//! held by **value** and accessible from the resulting Callable type. This can be
+//! used with parallel_for_each when one wants a copy of some state for each thread
+//! which can be retrieved from the returned Callable objects. The canonical usage
+//! is as follows:
+//! \code{.cpp}
+//! std::vector<unsigned> foo;
+//! ...
+//! auto results = parallel_for_each(foo.begin(), foo.end(),
+//!                                  bind_retrievable_state([](unsigned& max, unsigned value) {
+//!                                                             max = std::max(max, value); },
+//!                                                         unsigned{0}));
+//! unsigned overallMax{0};
+//! for (const auto& result : results) {
+//!     overallMax = std::max(overallMax, result.s_State);
+//! }
+//! \endcode
+//!
+//! The state can be any type and is always supplied as the first argument to the
+//! Callable it binds to. The copy acted on by the thread is accessed as a public
+//! member called s_State of the returned function object. The state object must be
+//! copy constructible and movable.
 template<typename FUNCTION, typename STATE>
 auto bind_retrievable_state(FUNCTION&& function, STATE&& state) {
-    return concurrency_detail::SFunctionWithBoundState<FUNCTION, STATE>(std::forward<FUNCTION>(function),
+    return concurrency_detail::SCallableWithBoundState<FUNCTION, STATE>(std::forward<FUNCTION>(function),
                                                                         std::forward<STATE>(state));
 }
 }

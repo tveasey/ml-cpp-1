@@ -17,6 +17,7 @@
 #include <boost/unordered_map.hpp>
 
 #include <functional>
+#include <mutex>
 #include <vector>
 
 using namespace ml;
@@ -86,14 +87,12 @@ private:
     bool m_Duplicates = false;
     TSizeFloatVecUMap m_Rows;
 };
+
+std::once_flag once;
 }
 
 void CDataFrameTest::setUp() {
-    static bool done{false};
-    if (done == false) {
-        core::startDefaultAsyncExecutor();
-        done = true;
-    }
+    std::call_once(once, core::startDefaultAsyncExecutor);
 }
 
 void CDataFrameTest::testInMainMemoryBasicReadWrite() {

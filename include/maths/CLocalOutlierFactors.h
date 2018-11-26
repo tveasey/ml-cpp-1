@@ -347,9 +347,9 @@ protected:
             this->setup(points);
             m_Lookup.build(std::move(points));
             core::parallel_for_each(m_Lookup.begin(), m_Lookup.end(),
-                                    [&, neighbours = TPointVec{}](auto point) mutable {
-                                        m_Lookup.nearestNeighbours(k + 1, *point, neighbours);
-                                        this->add(*point, neighbours, scores);
+                                    [&, neighbours = TPointVec{}](const POINT& point) mutable {
+                                        m_Lookup.nearestNeighbours(k + 1, point, neighbours);
+                                        this->add(point, neighbours, scores);
                                     });
             this->compute(scores);
         }
@@ -365,7 +365,6 @@ protected:
 
     private:
         NEAREST_NEIGHBOURS m_Lookup;
-        TPointVec m_Neighbours;
     };
 
     //! \brief Computes the normalized version of the local outlier
@@ -407,7 +406,7 @@ protected:
             using TMinAccumulator = CBasicStatistics::SMin<double>::TAccumulator;
 
             // We bind a minimum accumulator (by value) to each lambda (since one copy
-            // is executed by each thread) and take the minimum of these at the end.
+            // is then accessed by each thread) and take the minimum of these at the end.
 
             auto results =
                 core::parallel_for_each(this->lookup().begin(), this->lookup().end(),
