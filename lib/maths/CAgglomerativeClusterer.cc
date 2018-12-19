@@ -32,7 +32,7 @@ using TDoubleSizeSizePrPr = std::pair<double, TSizeSizePr>;
 using TDoubleSizeSizePrPrVec = std::vector<TDoubleSizeSizePrPr>;
 using TSizeVec = CAgglomerativeClusterer::TSizeVec;
 using TDoubleVec = CAgglomerativeClusterer::TDoubleVec;
-using TDoubleVecVec = CAgglomerativeClusterer::TDoubleVecVec;
+using TSymmetricMatrix = CAgglomerativeClusterer::TSymmetricMatrix;
 using TNode = CAgglomerativeClusterer::CNode;
 using TNodeVec = CAgglomerativeClusterer::TNodeVec;
 using TNodePtrVec = std::vector<TNode*>;
@@ -40,19 +40,13 @@ using TNodePtrVec = std::vector<TNode*>;
 const double INF{std::numeric_limits<double>::max()};
 
 //! Get the distance between node \p i and \p j.
-inline double& distance(TDoubleVecVec& distanceMatrix, std::size_t i, std::size_t j) {
-    if (j > i) {
-        std::swap(i, j);
-    }
-    return distanceMatrix[i][j];
+inline double& distance(TSymmetricMatrix& distanceMatrix, std::size_t i, std::size_t j) {
+    return distanceMatrix(i, j);
 }
 
 //! Get the distance between node \p i and \p j.
-inline double distance(const TDoubleVecVec& distanceMatrix, std::size_t i, std::size_t j) {
-    if (j > i) {
-        std::swap(i, j);
-    }
-    return distanceMatrix[i][j];
+inline double distance(const TSymmetricMatrix& distanceMatrix, std::size_t i, std::size_t j) {
+    return distanceMatrix(i, j);
 }
 
 //! \brief Complete update distance update function.
@@ -66,7 +60,7 @@ struct SComplete {
                     std::size_t x,
                     std::size_t a,
                     std::size_t b,
-                    TDoubleVecVec& distanceMatrix) const {
+                    TSymmetricMatrix& distanceMatrix) const {
         distance(distanceMatrix, b, x) = std::max(distance(distanceMatrix, a, x),
                                                   distance(distanceMatrix, b, x));
     }
@@ -83,7 +77,7 @@ struct SAverage {
                     std::size_t x,
                     std::size_t a,
                     std::size_t b,
-                    TDoubleVecVec& distanceMatrix) const {
+                    TSymmetricMatrix& distanceMatrix) const {
         double sa{sizes[a]};
         double sb{sizes[b]};
         distance(distanceMatrix, b, x) = (sa * distance(distanceMatrix, a, x) +
@@ -98,7 +92,7 @@ struct SWeighted {
                     std::size_t x,
                     std::size_t a,
                     std::size_t b,
-                    TDoubleVecVec& distanceMatrix) const {
+                    TSymmetricMatrix& distanceMatrix) const {
         distance(distanceMatrix, b, x) =
             (distance(distanceMatrix, a, x) + distance(distanceMatrix, b, x)) / 2.0;
     }
@@ -112,7 +106,7 @@ struct SWard {
                     std::size_t x,
                     std::size_t a,
                     std::size_t b,
-                    TDoubleVecVec& distanceMatrix) const {
+                    TSymmetricMatrix& distanceMatrix) const {
         double sa{sizes[a]};
         double sb{sizes[b]};
         double sx{sizes[x]};
@@ -133,10 +127,10 @@ struct SWard {
 //!
 //! \param[in] distanceMatrix the matrices of distances between the points to cluster.
 //! \param[in] L Filled in with the unsorted dendrogram.
-void mstCluster(const TDoubleVecVec& distanceMatrix, TDoubleSizeSizePrPrVec& L) {
+void mstCluster(const TSymmetricMatrix& distanceMatrix, TDoubleSizeSizePrPrVec& L) {
 
     L.clear();
-    std::size_t N{distanceMatrix.size()};
+    std::size_t N{distanceMatrix.rows()};
 
     if (N <= 1) {
         return;
@@ -169,7 +163,7 @@ void mstCluster(const TDoubleVecVec& distanceMatrix, TDoubleSizeSizePrPrVec& L) 
             S.begin(), S.end(),
             core::bindRetrievableState(
                 [&](std::pair<std::size_t, double>& nearest, std::size_t x) {
-                    D[x] = std::min(D[x], distance(distanceMatrix, x, c));
+                    D[x] = std::min(D[x], distance(distanceMatrix, c, x));
                     if (D[x] < nearest.second) {
                         nearest.first = x;
                         nearest.second = D[x];
@@ -196,15 +190,15 @@ void mstCluster(const TDoubleVecVec& distanceMatrix, TDoubleSizeSizePrPrVec& L) 
 //!
 //! For details see http://arxiv.org/pdf/1109.2378.pdf.
 //!
-//! \param[in,out] distanceMatrix the matrices of distances between the points to
-//! cluster.
+//! \param[in,out] distanceMatrix the matrices of distances between the points
+//! to cluster.
 //! \param[in] update The distance update function which varies based on the
 //! objective function.
 //! \param[in] L Filled in with the unsorted dendrogram.
 //! \note This has worst case O(N^2) complexity.
 //! \note For maximum efficiency modifications are made in place to \p distanceMatrix.
 template<typename UPDATE>
-void nnCluster(TDoubleVecVec& distanceMatrix, UPDATE update, TDoubleSizeSizePrPrVec& L) {
+void nnCluster(TSymmetricMatrix& distanceMatrix, UPDATE update, TDoubleSizeSizePrPrVec& L) {
     // In departure from the scheme given by Mullner we make all our updates in-place
     // by using a direct address table from n -> max(a, b), where n is the new node
     // index and a and b are reciprocal nearest neighbours. It is still possible to
@@ -213,7 +207,7 @@ void nnCluster(TDoubleVecVec& distanceMatrix, UPDATE update, TDoubleSizeSizePrPr
     // the tree. See buildTree for details.
 
     L.clear();
-    std::size_t N{distanceMatrix.size()};
+    std::size_t N{distanceMatrix.rows()};
 
     if (N <= 1) {
         return;
@@ -376,21 +370,12 @@ void buildTree(TDoubleSizeSizePrPrVec& heights, TNodeVec& tree) {
 }
 }
 
-bool CAgglomerativeClusterer::initialize(TDoubleVecVec& distanceMatrix) {
-    // Check that the matrix is square.
-    std::size_t n{distanceMatrix.size()};
-    for (std::size_t i = 0; i < n; ++i) {
-        LOG_TRACE(<< "D = " << core::CContainerPrinter::print(distanceMatrix[i]));
-        if (distanceMatrix[i].size() != i + 1) {
-            LOG_ERROR(<< "Distance matrix isn't upper triangular");
-            return false;
-        }
-    }
-    m_DistanceMatrix.swap(distanceMatrix);
+bool CAgglomerativeClusterer::initialize(TSymmetricMatrix distanceMatrix) {
 
-    m_Pi.resize(n);
-    m_Lambda.resize(n, INF);
-    m_M.resize(n);
+    m_DistanceMatrix = std::move(distanceMatrix);
+    m_Pi.resize(m_DistanceMatrix.rows());
+    m_Lambda.resize(m_DistanceMatrix.rows(), INF);
+    m_M.resize(m_DistanceMatrix.rows());
 
     std::iota(m_Pi.begin(), m_Pi.end(), 0);
 
@@ -398,7 +383,7 @@ bool CAgglomerativeClusterer::initialize(TDoubleVecVec& distanceMatrix) {
 }
 
 void CAgglomerativeClusterer::run(EObjective objective, TNodeVec& tree) {
-    if (m_DistanceMatrix.empty()) {
+    if (m_DistanceMatrix.rows() == 0) {
         return;
     }
 

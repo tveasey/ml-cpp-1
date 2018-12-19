@@ -7,6 +7,7 @@
 #ifndef INCLUDED_ml_maths_CAgglomerativeClusterer_h
 #define INCLUDED_ml_maths_CAgglomerativeClusterer_h
 
+#include <maths/CLinearAlgebra.h>
 #include <maths/ImportExport.h>
 
 #include <functional>
@@ -39,7 +40,7 @@ namespace maths {
 class MATHS_EXPORT CAgglomerativeClusterer {
 public:
     using TDoubleVec = std::vector<double>;
-    using TDoubleVecVec = std::vector<TDoubleVec>;
+    using TSymmetricMatrix = CSymmetricMatrix<double>;
     using TSizeVec = std::vector<std::size_t>;
     using TSizeVecVec = std::vector<TSizeVec>;
     using TDoubleSizeVecPr = std::pair<double, TSizeVec>;
@@ -99,18 +100,17 @@ public:
     enum EObjective { E_Single, E_Complete, E_Average, E_Weighted, E_Ward };
 
 public:
-    //! Supply the distance matrix for which to compute the agglomerative clustering.
-    //!
-    //! \note This is swapped into place.
-    bool initialize(TDoubleVecVec& distanceMatrix);
+    //! Initialize with the the distance matrix for which to compute the agglomerative
+    //! clustering.
+    bool initialize(TSymmetricMatrix distanceMatrix);
 
     //! Run agglomerative clustering targeting \p objective and build the cluster
     //! tree.
     void run(EObjective objective, TNodeVec& tree);
 
 private:
-    //! The distance matrix on the points to cluster.
-    TDoubleVecVec m_DistanceMatrix;
+    //! The distance matrix for the objects to cluster.
+    TSymmetricMatrix m_DistanceMatrix;
     //! Filled in with the last object in each cluster to which i'th point connects.
     TSizeVec m_Pi;
     //! Filled in with the lowest level at which the i'th point is no longer the

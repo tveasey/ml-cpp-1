@@ -936,6 +936,7 @@ private:
 public:
     using TArray = T[N];
     using TBoostArray = boost::array<T, N>;
+    using TIterator = typename TBoostArray::iterator;
     using TConstIterator = typename TBoostArray::const_iterator;
 
 public:
@@ -1035,6 +1036,12 @@ public:
 
     //! Get an iterator to the end of the elements.
     TConstIterator end() const { return TBase::m_X.end(); }
+
+    //! Get a writable iterator over the elements.
+    TIterator begin() { return TBase::m_X.begin(); }
+
+    //! Get a writable iterator to the end of the elements.
+    TIterator end() { return TBase::m_X.end(); }
 
     //! Componentwise negation.
     CVectorNx1 operator-() const {
@@ -1234,11 +1241,12 @@ private:
 
 public:
     using TArray = std::vector<T>;
+    using TIterator = typename TArray::iterator;
     using TConstIterator = typename TArray::const_iterator;
 
 public:
     //! Set to multiple of ones vector.
-    explicit CVector(std::size_t d = 0u, T v = T(0)) {
+    explicit CVector(std::size_t d = 0, T v = T(0)) {
         if (d > 0) {
             TBase::m_X.resize(d, v);
         }
@@ -1344,6 +1352,12 @@ public:
 
     //! Get an iterator to the end of the elements.
     TConstIterator end() const { return TBase::m_X.end(); }
+
+    //! Get a writable iterator over the elements.
+    TIterator begin() { return TBase::m_X.begin(); }
+
+    //! Get a writable iterator to the end of the elements.
+    TIterator end() { return TBase::m_X.end(); }
 
     //! Componentwise negation.
     CVector operator-() const {

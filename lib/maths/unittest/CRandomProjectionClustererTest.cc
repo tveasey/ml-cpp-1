@@ -23,6 +23,7 @@ using TSizeVecVec = std::vector<TSizeVec>;
 using TVector = maths::CVector<double>;
 using TVector5 = maths::CVectorNx1<double, 5>;
 using TCovariances5 = maths::CBasicStatistics::SSampleCovariances<TVector5>;
+using TSymmetricMatrix = maths::CSymmetricMatrix<double>;
 
 struct SFirstLess {
     bool operator()(const TSizeVec& lhs, const TSizeVec& rhs) const {
@@ -35,12 +36,9 @@ class CRandomProjectionClustererForTest
     : public maths::CRandomProjectionClustererBatch<N> {
 public:
     using TVectorArrayVec = typename maths::CRandomProjectionClustererBatch<N>::TVectorArrayVec;
-    using TDoubleVecVec = typename maths::CRandomProjectionClustererBatch<N>::TDoubleVecVec;
     using TVectorNx1VecVec = typename maths::CRandomProjectionClustererBatch<N>::TVectorNx1VecVec;
     using TSvdNxNVecVec = typename maths::CRandomProjectionClustererBatch<N>::TSvdNxNVecVec;
     using TSizeUSet = typename maths::CRandomProjectionClustererBatch<N>::TSizeUSet;
-    using TMeanAccumulatorVecVec =
-        typename maths::CRandomProjectionClustererBatch<N>::TMeanAccumulatorVecVec;
 
 public:
     CRandomProjectionClustererForTest(double compression = 1.0)
@@ -64,20 +62,20 @@ public:
             clusterer, W, M, C, I);
     }
 
-    void neighbourhoods(const TSizeUSet& I, TSizeVecVec& H) const {
-        this->maths::CRandomProjectionClustererBatch<N>::neighbourhoods(I, H);
+    TSizeVecVec neighbourhoods(const TSizeUSet& I) const {
+        return this->maths::CRandomProjectionClustererBatch<N>::neighbourhoods(I);
     }
 
-    void similarities(const TDoubleVecVec& W,
-                      const TVectorNx1VecVec& M,
-                      const TSvdNxNVecVec& C,
-                      const TSizeVecVec& H,
-                      TDoubleVecVec& S) const {
-        this->maths::CRandomProjectionClustererBatch<N>::similarities(W, M, C, H, S);
+    TSymmetricMatrix similarities(const TDoubleVecVec& W,
+                                  const TVectorNx1VecVec& M,
+                                  const TSvdNxNVecVec& C,
+                                  const TSizeVecVec& H) const {
+        return this->maths::CRandomProjectionClustererBatch<N>::similarities(W, M, C, H);
     }
 
-    void clusterNeighbourhoods(TDoubleVecVec& S, const TSizeVecVec& H, TSizeVecVec& result) const {
-        this->maths::CRandomProjectionClustererBatch<N>::clusterNeighbourhoods(S, H, result);
+    TSizeVecVec clusterNeighbourhoods(TSymmetricMatrix S, const TSizeVecVec& H) const {
+        return this->maths::CRandomProjectionClustererBatch<N>::clusterNeighbourhoods(
+            std::move(S), H);
     }
 };
 }
@@ -233,9 +231,8 @@ void CRandomProjectionClustererTest::testClusterProjections() {
     CRandomProjectionClustererForTest<5>::TVectorNx1VecVec means;
     CRandomProjectionClustererForTest<5>::TSvdNxNVecVec covariances;
     CRandomProjectionClustererForTest<5>::TSizeUSet samples;
-    clusterer.clusterProjections(
-        maths::forRandomProjectionClusterer(maths::CKMeans<TVector5>(), 2, 5),
-        weights_, means, covariances, samples);
+    clusterer.clusterProjections(maths::randomProjectionKMeansClusterer<5>(2, 5),
+                                 weights_, means, covariances, samples);
 
     CPPUNIT_ASSERT_EQUAL(std::size_t(4), weights_.size());
     CPPUNIT_ASSERT_EQUAL(std::size_t(4), means.size());
@@ -302,13 +299,11 @@ void CRandomProjectionClustererTest::testNeighbourhoods() {
     CRandomProjectionClustererForTest<5>::TVectorNx1VecVec clusterMeans;
     CRandomProjectionClustererForTest<5>::TSvdNxNVecVec clusterCovariances;
     CRandomProjectionClustererForTest<5>::TSizeUSet examples;
-    clusterer.clusterProjections(
-        maths::forRandomProjectionClusterer(maths::CKMeans<TVector5>(), 3, 5),
-        weights, clusterMeans, clusterCovariances, examples);
+    clusterer.clusterProjections(maths::randomProjectionKMeansClusterer<5>(3, 5),
+                                 weights, clusterMeans, clusterCovariances, examples);
     LOG_DEBUG(<< "examples = " << core::CContainerPrinter::print(examples));
 
-    TSizeVecVec neighbourhoods(examples.size());
-    clusterer.neighbourhoods(examples, neighbourhoods);
+    TSizeVecVec neighbourhoods{clusterer.neighbourhoods(examples)};
 
     TSizeVecVec expectedNeighbourhoods(examples.size());
 
@@ -385,9 +380,8 @@ void CRandomProjectionClustererTest::testSimilarities() {
     CRandomProjectionClustererForTest<5>::TVectorNx1VecVec clusterMeans;
     CRandomProjectionClustererForTest<5>::TSvdNxNVecVec clusterCovariances;
     CRandomProjectionClustererForTest<5>::TSizeUSet examples;
-    clusterer.clusterProjections(
-        maths::forRandomProjectionClusterer(maths::CKMeans<TVector5>(), 3, 5),
-        weights, clusterMeans, clusterCovariances, examples);
+    clusterer.clusterProjections(maths::randomProjectionKMeansClusterer<5>(3, 5),
+                                 weights, clusterMeans, clusterCovariances, examples);
     LOG_DEBUG(<< "examples = " << core::CContainerPrinter::print(examples));
 
     TSizeVecVec expectedConnectivity(examples.size(), TSizeVec(examples.size()));
@@ -403,21 +397,16 @@ void CRandomProjectionClustererTest::testSimilarities() {
         LOG_DEBUG(<< "  " << core::CContainerPrinter::print(expectedConnectivity[i]));
     }
 
-    TSizeVecVec neighbourhoods(examples.size());
-    clusterer.neighbourhoods(examples, neighbourhoods);
+    TSizeVecVec neighbourhoods{clusterer.neighbourhoods(examples)};
 
-    TDoubleVecVec similarities(examples.size());
-    clusterer.similarities(weights, clusterMeans, clusterCovariances,
-                           neighbourhoods, similarities);
+    TSymmetricMatrix similarities{clusterer.similarities(
+        weights, clusterMeans, clusterCovariances, neighbourhoods)};
 
     TSizeVecVec connectivity(examples.size(), TSizeVec(examples.size()));
-    for (std::size_t i = 0u; i < similarities.size(); ++i) {
-        TDoubleVec s;
+    for (std::size_t i = 0u; i < similarities.rows(); ++i) {
         for (std::size_t j = 0u; j <= i; ++j) {
-            s.push_back(similarities[i][j]);
-            connectivity[i][j] = connectivity[j][i] = similarities[i][j] < 10.0 ? 1 : 0;
+            connectivity[i][j] = connectivity[j][i] = similarities(i, j) < 10.0 ? 1 : 0;
         }
-        LOG_DEBUG(<< core::CContainerPrinter::print(s));
     }
     LOG_DEBUG(<< "connectivity =");
     for (std::size_t i = 0u; i < connectivity.size(); ++i) {
@@ -470,17 +459,14 @@ void CRandomProjectionClustererTest::testClusterNeighbourhoods() {
     CRandomProjectionClustererForTest<5>::TVectorNx1VecVec clusterMeans;
     CRandomProjectionClustererForTest<5>::TSvdNxNVecVec clusterCovariances;
     CRandomProjectionClustererForTest<5>::TSizeUSet examples;
-    clusterer.clusterProjections(
-        maths::forRandomProjectionClusterer(maths::CKMeans<TVector5>(), 3, 5),
-        weights, clusterMeans, clusterCovariances, examples);
+    clusterer.clusterProjections(maths::randomProjectionKMeansClusterer<5>(3, 5),
+                                 weights, clusterMeans, clusterCovariances, examples);
     LOG_DEBUG(<< "examples = " << core::CContainerPrinter::print(examples));
 
-    TSizeVecVec neighbourhoods(examples.size());
-    clusterer.neighbourhoods(examples, neighbourhoods);
+    TSizeVecVec neighbourhoods{clusterer.neighbourhoods(examples)};
 
-    TDoubleVecVec similarities(examples.size());
-    clusterer.similarities(weights, clusterMeans, clusterCovariances,
-                           neighbourhoods, similarities);
+    TSymmetricMatrix similarities{clusterer.similarities(
+        weights, clusterMeans, clusterCovariances, neighbourhoods)};
 
     TSizeVecVec expectedClustering(boost::size(n));
     LOG_DEBUG(<< "expected clustering =");
@@ -491,8 +477,8 @@ void CRandomProjectionClustererTest::testClusterNeighbourhoods() {
         LOG_DEBUG(<< "  " << core::CContainerPrinter::print(expectedClustering[i]));
     }
 
-    TSizeVecVec clustering;
-    clusterer.clusterNeighbourhoods(similarities, neighbourhoods, clustering);
+    TSizeVecVec clustering{
+        clusterer.clusterNeighbourhoods(std::move(similarities), neighbourhoods)};
 
     for (std::size_t i = 0u; i < clustering.size(); ++i) {
         std::sort(clustering[i].begin(), clustering[i].end());
