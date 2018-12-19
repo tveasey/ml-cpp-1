@@ -8,6 +8,8 @@
 
 #include <core/CContainerPrinter.h>
 #include <core/CLogger.h>
+#include <core/CStopWatch.h>
+#include <core/Concurrency.h>
 
 #include <maths/CAgglomerativeClusterer.h>
 #include <maths/COrderings.h>
@@ -182,6 +184,7 @@ std::string print(maths::CAgglomerativeClusterer::EObjective o) {
 }
 
 void CAgglomerativeClustererTest::testNode() {
+
     double heights[] = {0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.5, 1.9, 4.0};
 
     maths::CAgglomerativeClusterer::CNode nodes[] = {
@@ -246,6 +249,7 @@ void CAgglomerativeClustererTest::testNode() {
 }
 
 void CAgglomerativeClustererTest::testSimplePermutations() {
+
     double x[] = {1.0, 3.2, 4.5, 7.8};
     std::size_t n = boost::size(x);
 
@@ -298,6 +302,7 @@ void CAgglomerativeClustererTest::testSimplePermutations() {
 }
 
 void CAgglomerativeClustererTest::testDegenerate() {
+
     double x[] = {1.0, 3.2, 3.2, 3.2, 4.5, 7.8};
     std::size_t n = boost::size(x);
 
@@ -368,11 +373,12 @@ void CAgglomerativeClustererTest::testDegenerate() {
 }
 
 void CAgglomerativeClustererTest::testRandom() {
+
     test::CRandomNumbers rng;
 
-    std::size_t n = 20u;
+    std::size_t n{20};
 
-    maths::CAgglomerativeClusterer::EObjective objectives[] = {
+    maths::CAgglomerativeClusterer::EObjective objectives[]{
         maths::CAgglomerativeClusterer::E_Single, maths::CAgglomerativeClusterer::E_Complete};
 
     for (std::size_t o = 0u; o < boost::size(objectives); ++o) {
@@ -383,7 +389,7 @@ void CAgglomerativeClustererTest::testRandom() {
             rng.generateUniformSamples(0.0, 100.0, n * (n - 1) / 2, dij);
 
             TDoubleVecVec distanceMatrix(n);
-            for (std::size_t i = 0u, k = 0u; i < n; ++i) {
+            for (std::size_t i = 0, k = 0; i < n; ++i) {
                 for (std::size_t j = i; j < n; ++j) {
                     distanceMatrix[j].push_back(i == j ? 0.0 : dij[k++]);
                 }
@@ -408,7 +414,7 @@ void CAgglomerativeClustererTest::testRandom() {
 
             TDoubleSizeVecPrVec expectedClusters;
             expectedClusters.reserve(expectedTree.size());
-            for (std::size_t i = 0u; i < expectedTree.size(); ++i) {
+            for (std::size_t i = 0; i < expectedTree.size(); ++i) {
                 expectedTree[i].add(expectedClusters);
             }
             std::sort(expectedClusters.begin(), expectedClusters.end());
@@ -424,7 +430,7 @@ void CAgglomerativeClustererTest::testRandom() {
 
             TDoubleSizeVecPrVec clusters;
             tree.back().clusters(clusters);
-            for (std::size_t i = 0u; i < clusters.size(); ++i) {
+            for (std::size_t i = 0; i < clusters.size(); ++i) {
                 std::sort(clusters[i].second.begin(), clusters[i].second.end());
             }
             std::sort(clusters.begin(), clusters.end());
@@ -434,6 +440,49 @@ void CAgglomerativeClustererTest::testRandom() {
             CPPUNIT_ASSERT_EQUAL(core::CContainerPrinter::print(expectedClusters),
                                  core::CContainerPrinter::print(clusters));
         }
+    }
+}
+
+void CAgglomerativeClustererTest::testLarge() {
+
+    test::CRandomNumbers rng;
+
+    std::size_t n{20000};
+
+    TDoubleVec cij;
+    rng.generateUniformSamples(0.0, 1.0, 2 * n, cij);
+
+    TDoubleVecVec x{n, TDoubleVec(2, 0.0)};
+    for (std::size_t i = 0, j = 0; i < n; ++i, j += 2) {
+        x[i][0] = cij[j];
+        x[i][1] = cij[j + 1];
+    }
+
+    TDoubleVecVec distanceMatrix(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        distanceMatrix.reserve(n - i);
+        for (std::size_t j = i; j < n; ++j) {
+            auto dx = x[i][0] - x[j][0];
+            auto dy = x[i][1] - x[j][1];
+            distanceMatrix[j].push_back(std::sqrt(dx * dx + dy * dy));
+        }
+    }
+
+    maths::CAgglomerativeClusterer::EObjective objectives[] = {
+        maths::CAgglomerativeClusterer::E_Single, maths::CAgglomerativeClusterer::E_Complete};
+
+    maths::CAgglomerativeClusterer clusterer;
+    CPPUNIT_ASSERT(clusterer.initialize(distanceMatrix));
+
+    core::startDefaultAsyncExecutor(3);
+
+    for (std::size_t o = 0; o < boost::size(objectives); ++o) {
+        LOG_DEBUG(<< "*** " << print(objectives[o]) << " ***");
+
+        core::CStopWatch timer{true};
+        maths::CAgglomerativeClusterer::TNodeVec tree;
+        clusterer.run(objectives[o], tree);
+        LOG_DEBUG(<< "Took " << timer.stop());
     }
 }
 
@@ -450,6 +499,8 @@ CppUnit::Test* CAgglomerativeClustererTest::suite() {
         &CAgglomerativeClustererTest::testDegenerate));
     suiteOfTests->addTest(new CppUnit::TestCaller<CAgglomerativeClustererTest>(
         "CAgglomerativeClustererTest::testRandom", &CAgglomerativeClustererTest::testRandom));
+    suiteOfTests->addTest(new CppUnit::TestCaller<CAgglomerativeClustererTest>(
+        "CAgglomerativeClustererTest::testLarge", &CAgglomerativeClustererTest::testLarge));
 
     return suiteOfTests;
 }

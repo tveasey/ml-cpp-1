@@ -9,30 +9,30 @@
 
 #include <maths/ImportExport.h>
 
+#include <functional>
 #include <string>
 #include <vector>
 
 namespace ml {
 namespace maths {
 
-//! \brief Implements optimum runtime agglomerative clustering for
-//! arbitrary distance matrices.
+//! \brief Implements optimum runtime agglomerative clustering for arbitrary
+//! distance matrices.
 //!
 //! DESCRIPTION:\n
-//! Agglomerative clustering builds a binary tree bottom up on a set
-//! of points. At each stage it merges the closest pair of clusters
-//! subject to a specified distance function. This implements a few
-//! choices, comprising single, complete, average, weighted link and
-//! ward, for which an optimum \f$O(N^2)\f$ algorithm is known. The
-//! single link objective defines the distance between clusters
+//! Agglomerative clustering builds a binary tree bottom up on a set of points.
+//! At each stage it merges the closest pair of clusters subject to a specified
+//! distance function. This implements a few choices - single, complete, average,
+//! weighted link and Ward - for which an optimum \f$O(N^2)\f$ algorithm is known.
+//! The single link objective defines the distance between clusters
 //! \f$A = \{x_i\}\f$ and \f$B = \{x_j\}\f$ as
 //! <pre class="fragment">
-//!   \f$\displaystyle d_s(A, B) = min_{i,j}{d(x_i, x_j)\f$
+//!   \f$\displaystyle d_s(A, B) = min_{i,j}\{d(x_i, x_j)\}\f$
 //! </pre>
 //!
 //! and the complete link objective defines it as
 //! <pre class="fragment">
-//!   \f$\displaystyle d_c(A,B) = min_{i,j}{d(x_i, x_j)\f$
+//!   \f$\displaystyle d_c(A, B) = max_{i,j}\{d(x_i, x_j)\}\f$
 //! </pre>
 //!
 //! For other styles see https://en.wikipedia.org/wiki/Hierarchical_clustering#Agglomerative_clustering_example.
@@ -62,8 +62,7 @@ public:
 
         //! Get the root of the branch containing this node.
         //!
-        //! \note This is the root of the tree unless it is
-        //! under construction.
+        //! \note This is the root of the tree unless it is under construction.
         CNode& root();
 
         //! Get the points in this node's cluster.
@@ -81,15 +80,15 @@ public:
 
     private:
         //! The parent cluster.
-        CNode* m_Parent;
+        CNode* m_Parent = nullptr;
         //! The left child cluster.
-        CNode* m_LeftChild;
+        CNode* m_LeftChild = nullptr;
         //! The right child cluster.
-        CNode* m_RightChild;
+        CNode* m_RightChild = nullptr;
         //! The unique index of this cluster.
         std::size_t m_Index;
-        //! The height of this cluster, i.e. the value of the
-        //! objective function at which the cluster forms.
+        //! The height of this cluster, i.e. the value of the objective function
+        //! at which the cluster forms.
         double m_Height;
     };
 
@@ -100,25 +99,25 @@ public:
     enum EObjective { E_Single, E_Complete, E_Average, E_Weighted, E_Ward };
 
 public:
-    //! Setup the distance matrix from which to compute the
-    //! agglomerative clustering.
+    //! Supply the distance matrix for which to compute the agglomerative clustering.
+    //!
+    //! \note This is swapped into place.
     bool initialize(TDoubleVecVec& distanceMatrix);
 
-    //! Run agglomerative clustering targeting \p objective
-    //! and build the cluster tree.
+    //! Run agglomerative clustering targeting \p objective and build the cluster
+    //! tree.
     void run(EObjective objective, TNodeVec& tree);
 
 private:
     //! The distance matrix on the points to cluster.
     TDoubleVecVec m_DistanceMatrix;
-    //! Filled in with the last object in each cluster to which
-    //! i'th point connects.
+    //! Filled in with the last object in each cluster to which i'th point connects.
     TSizeVec m_Pi;
-    //! Filled in with the lowest level at which the i'th point
-    //! is no longer the last object in its cluster.
+    //! Filled in with the lowest level at which the i'th point is no longer the
+    //! last object in its cluster.
     TDoubleVec m_Lambda;
-    //! Holds a copy of a column of the distance matrix during
-    //! update point representation.
+    //! Holds a copy of a column of the distance matrix during update point
+    //! representation.
     TDoubleVec m_M;
 };
 }

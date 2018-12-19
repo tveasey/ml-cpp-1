@@ -15,6 +15,7 @@ public:
     void testSimplePermutations();
     void testDegenerate();
     void testRandom();
+    void testLarge();
 
     static CppUnit::Test* suite();
 };
