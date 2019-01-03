@@ -39,16 +39,6 @@ using TNodePtrVec = std::vector<TNode*>;
 
 const double INF{std::numeric_limits<double>::max()};
 
-//! Get the distance between node \p i and \p j.
-inline double& distance(TSymmetricMatrix& distanceMatrix, std::size_t i, std::size_t j) {
-    return distanceMatrix(i, j);
-}
-
-//! Get the distance between node \p i and \p j.
-inline double distance(const TSymmetricMatrix& distanceMatrix, std::size_t i, std::size_t j) {
-    return distanceMatrix(i, j);
-}
-
 //! \brief Complete update distance update function.
 //!
 //! The distance between clusters is given by
@@ -56,13 +46,12 @@ inline double distance(const TSymmetricMatrix& distanceMatrix, std::size_t i, st
 //!   \f$\displaystyle \max_{a \in A, b \in B}{d[a,b]}\f$
 //! </pre>
 struct SComplete {
-    void operator()(const TDoubleVec& /*sizes*/,
+    void operator()(const TDoubleVec&,
                     std::size_t x,
                     std::size_t a,
                     std::size_t b,
                     TSymmetricMatrix& distanceMatrix) const {
-        distance(distanceMatrix, b, x) = std::max(distance(distanceMatrix, a, x),
-                                                  distance(distanceMatrix, b, x));
+        distanceMatrix(b, x) = std::max(distanceMatrix(a, x), distanceMatrix(b, x));
     }
 };
 
@@ -80,21 +69,19 @@ struct SAverage {
                     TSymmetricMatrix& distanceMatrix) const {
         double sa{sizes[a]};
         double sb{sizes[b]};
-        distance(distanceMatrix, b, x) = (sa * distance(distanceMatrix, a, x) +
-                                          sb * distance(distanceMatrix, b, x)) /
-                                         (sa + sb);
+        distanceMatrix(b, x) =
+            (sa * distanceMatrix(a, x) + sb * distanceMatrix(b, x)) / (sa + sb);
     }
 };
 
 //! \brief Weighted objective distance update function.
 struct SWeighted {
-    void operator()(const TDoubleVec /*sizes*/,
+    void operator()(const TDoubleVec&,
                     std::size_t x,
                     std::size_t a,
                     std::size_t b,
                     TSymmetricMatrix& distanceMatrix) const {
-        distance(distanceMatrix, b, x) =
-            (distance(distanceMatrix, a, x) + distance(distanceMatrix, b, x)) / 2.0;
+        distanceMatrix(b, x) = (distanceMatrix(a, x) + distanceMatrix(b, x)) / 2.0;
     }
 };
 
@@ -102,7 +89,7 @@ struct SWeighted {
 //!
 //! See https://en.wikipedia.org/wiki/Ward%27s_method.
 struct SWard {
-    void operator()(const TDoubleVec sizes,
+    void operator()(const TDoubleVec& sizes,
                     std::size_t x,
                     std::size_t a,
                     std::size_t b,
@@ -110,11 +97,10 @@ struct SWard {
         double sa{sizes[a]};
         double sb{sizes[b]};
         double sx{sizes[x]};
-        distance(distanceMatrix, b, x) =
-            std::sqrt((sa + sx) * distance(distanceMatrix, a, x) +
-                      (sb + sx) * distance(distanceMatrix, b, x) -
-                      sx * distance(distanceMatrix, a, b)) /
-            (sa + sb + sx);
+        distanceMatrix(b, x) = std::sqrt((sa + sx) * distanceMatrix(a, x) +
+                                         (sb + sx) * distanceMatrix(b, x) -
+                                         sx * distanceMatrix(a, b)) /
+                               (sa + sb + sx);
     }
 };
 
@@ -163,7 +149,7 @@ void mstCluster(const TSymmetricMatrix& distanceMatrix, TDoubleSizeSizePrPrVec& 
             S.begin(), S.end(),
             core::bindRetrievableState(
                 [&](std::pair<std::size_t, double>& nearest, std::size_t x) {
-                    D[x] = std::min(D[x], distance(distanceMatrix, c, x));
+                    D[x] = std::min(D[x], distanceMatrix(c, x));
                     if (D[x] < nearest.second) {
                         nearest.first = x;
                         nearest.second = D[x];
@@ -218,13 +204,11 @@ void nnCluster(TSymmetricMatrix& distanceMatrix, UPDATE update, TDoubleSizeSizeP
     TSizeVec S(N);
     TSizeVec chain;
     TDoubleVec size(N, 1.0);
-    TSizeVec rightmost;
+    TSizeVec rightmost(2 * N - 1, std::numeric_limits<std::size_t>::max());
 
     std::iota(S.begin(), S.end(), 0);
     chain.reserve(N);
-    rightmost.reserve(2 * N - 1);
-    rightmost.resize(N);
-    std::iota(rightmost.begin(), rightmost.end(), 0);
+    std::iota(rightmost.begin(), rightmost.begin() + N, 0);
 
     std::size_t a{0};
     std::size_t b{1};
@@ -261,7 +245,7 @@ void nnCluster(TSymmetricMatrix& distanceMatrix, UPDATE update, TDoubleSizeSizeP
             auto pos = std::lower_bound(S.begin(), S.end(), b);
             if (pos != S.end() && *pos == b) {
                 c = *pos;
-                d = distance(distanceMatrix, ra, rightmost[*pos]);
+                d = distanceMatrix(ra, rightmost[*pos]);
             }
 
             // Implements
@@ -282,7 +266,7 @@ void nnCluster(TSymmetricMatrix& distanceMatrix, UPDATE update, TDoubleSizeSizeP
                     [&](std::pair<std::size_t, double>& nearest, std::size_t x) {
                         if (a != x) {
                             std::size_t rx{rightmost[x]};
-                            double dx{distance(distanceMatrix, ra, rx)};
+                            double dx{distanceMatrix(ra, rx)};
                             if (dx < nearest.second) {
                                 nearest = std::make_pair(x, dx);
                             }
@@ -319,9 +303,9 @@ void nnCluster(TSymmetricMatrix& distanceMatrix, UPDATE update, TDoubleSizeSizeP
         // direct address table.
         std::size_t merged[]{a, b};
         CSetTools::inplace_set_difference(S, merged, merged + 2);
-        for (std::size_t x : S) {
+        core::parallel_for_each(S.begin(), S.end(), [&](std::size_t x) {
             update(size, rightmost[x], ra, rb, distanceMatrix);
-        }
+        });
         size[rb] += size[ra];
         S.push_back(++p);
         rightmost[p] = rb;

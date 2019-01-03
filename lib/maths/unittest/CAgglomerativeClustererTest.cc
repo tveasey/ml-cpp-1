@@ -377,65 +377,74 @@ void CAgglomerativeClustererTest::testRandom() {
     maths::CAgglomerativeClusterer::EObjective objectives[]{
         maths::CAgglomerativeClusterer::E_Single, maths::CAgglomerativeClusterer::E_Complete};
 
-    for (std::size_t o = 0; o < boost::size(objectives); ++o) {
-        LOG_DEBUG(<< "*** " << print(objectives[o]) << " ***");
+    core::stopDefaultAsyncExecutor();
 
-        for (std::size_t t = 0; t < 10; ++t) {
-            TDoubleVec dij;
-            rng.generateUniformSamples(0.0, 100.0, n * (n - 1) / 2, dij);
+    for (std::size_t parallel = 0; parallel < 2; ++parallel) {
 
-            TSymmetricMatrix distanceMatrix(n);
-            for (std::size_t i = 0, k = 0; i < n; ++i) {
-                for (std::size_t j = i; j < n; ++j) {
-                    distanceMatrix(i, j) = (i == j ? 0.0 : dij[k++]);
+        for (std::size_t o = 0; o < boost::size(objectives); ++o) {
+            LOG_DEBUG(<< "*** " << print(objectives[o]) << " ***");
+
+            for (std::size_t t = 0; t < 10; ++t) {
+                TDoubleVec dij;
+                rng.generateUniformSamples(0.0, 100.0, n * (n - 1) / 2, dij);
+
+                TSymmetricMatrix distanceMatrix(n);
+                for (std::size_t i = 0, k = 0; i < n; ++i) {
+                    for (std::size_t j = i; j < n; ++j) {
+                        distanceMatrix(i, j) = (i == j ? 0.0 : dij[k++]);
+                    }
                 }
+
+                TClusterVec expectedTree;
+                switch (objectives[o]) {
+                case maths::CAgglomerativeClusterer::E_Single:
+                    expectedTree = agglomerativeCluster<CSlinkObjective>(distanceMatrix);
+                    break;
+                case maths::CAgglomerativeClusterer::E_Complete:
+                    expectedTree = agglomerativeCluster<CClinkObjective>(distanceMatrix);
+                    break;
+                case maths::CAgglomerativeClusterer::E_Average:
+                case maths::CAgglomerativeClusterer::E_Weighted:
+                case maths::CAgglomerativeClusterer::E_Ward:
+                    // TODO
+                    CPPUNIT_ASSERT(false);
+                    break;
+                }
+
+                TDoubleSizeVecPrVec expectedClusters;
+                expectedClusters.reserve(expectedTree.size());
+                for (std::size_t i = 0; i < expectedTree.size(); ++i) {
+                    expectedTree[i].add(expectedClusters);
+                }
+                std::sort(expectedClusters.begin(), expectedClusters.end());
+
+                LOG_DEBUG(<< "expected clusters = "
+                          << core::CContainerPrinter::print(expectedClusters));
+
+                maths::CAgglomerativeClusterer clusterer;
+                CPPUNIT_ASSERT(clusterer.initialize(distanceMatrix));
+
+                maths::CAgglomerativeClusterer::TNodeVec tree;
+                clusterer.run(objectives[o], tree);
+
+                TDoubleSizeVecPrVec clusters;
+                tree.back().clusters(clusters);
+                for (std::size_t i = 0; i < clusters.size(); ++i) {
+                    std::sort(clusters[i].second.begin(), clusters[i].second.end());
+                }
+                std::sort(clusters.begin(), clusters.end());
+
+                LOG_DEBUG(<< "clusters          = "
+                          << core::CContainerPrinter::print(clusters));
+
+                CPPUNIT_ASSERT_EQUAL(core::CContainerPrinter::print(expectedClusters),
+                                     core::CContainerPrinter::print(clusters));
             }
-
-            TClusterVec expectedTree;
-            switch (objectives[o]) {
-            case maths::CAgglomerativeClusterer::E_Single:
-                expectedTree = agglomerativeCluster<CSlinkObjective>(distanceMatrix);
-                break;
-            case maths::CAgglomerativeClusterer::E_Complete:
-                expectedTree = agglomerativeCluster<CClinkObjective>(distanceMatrix);
-                break;
-            case maths::CAgglomerativeClusterer::E_Average:
-            case maths::CAgglomerativeClusterer::E_Weighted:
-            case maths::CAgglomerativeClusterer::E_Ward:
-                // TODO
-                CPPUNIT_ASSERT(false);
-                break;
-            }
-
-            TDoubleSizeVecPrVec expectedClusters;
-            expectedClusters.reserve(expectedTree.size());
-            for (std::size_t i = 0; i < expectedTree.size(); ++i) {
-                expectedTree[i].add(expectedClusters);
-            }
-            std::sort(expectedClusters.begin(), expectedClusters.end());
-
-            LOG_DEBUG(<< "expected clusters = "
-                      << core::CContainerPrinter::print(expectedClusters));
-
-            maths::CAgglomerativeClusterer clusterer;
-            CPPUNIT_ASSERT(clusterer.initialize(distanceMatrix));
-
-            maths::CAgglomerativeClusterer::TNodeVec tree;
-            clusterer.run(objectives[o], tree);
-
-            TDoubleSizeVecPrVec clusters;
-            tree.back().clusters(clusters);
-            for (std::size_t i = 0; i < clusters.size(); ++i) {
-                std::sort(clusters[i].second.begin(), clusters[i].second.end());
-            }
-            std::sort(clusters.begin(), clusters.end());
-
-            LOG_DEBUG(<< "clusters          = " << core::CContainerPrinter::print(clusters));
-
-            CPPUNIT_ASSERT_EQUAL(core::CContainerPrinter::print(expectedClusters),
-                                 core::CContainerPrinter::print(clusters));
         }
+        core::startDefaultAsyncExecutor();
     }
+
+    core::stopDefaultAsyncExecutor();
 }
 
 CppUnit::Test* CAgglomerativeClustererTest::suite() {
