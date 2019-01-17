@@ -49,7 +49,6 @@ CLoggerTest.cc \
 CLoopProgressTest.cc \
 CMemoryUsageJsonWriterTest.cc \
 CMemoryUsageTest.cc \
-CMessageQueueTest.cc \
 CMonotonicTimeTest.cc \
 CMapPopulationTest.cc \
 CMutexTest.cc \
@@ -57,7 +56,6 @@ CNamedPipeFactoryTest.cc \
 COsFileFuncsTest.cc \
 CPatternSetTest.cc \
 CPersistUtilsTest.cc \
-CPolymorphicStackObjectCPtrTest.cc \
 CProcessTest.cc \
 CProgNameTest.cc \
 CRapidJsonLineWriterTest.cc\
@@ -80,7 +78,6 @@ CStopWatchTest.cc \
 CStoredStringPtrTest.cc \
 CStringSimilarityTesterTest.cc \
 CStringUtilsTest.cc \
-CThreadFarmTest.cc \
 CThreadMutexConditionTest.cc \
 CTimeUtilsTest.cc \
 CTripleTest.cc \

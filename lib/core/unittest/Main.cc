@@ -30,15 +30,12 @@
 #include "CMapPopulationTest.h"
 #include "CMemoryUsageJsonWriterTest.h"
 #include "CMemoryUsageTest.h"
-#include "CMessageBufferTest.h"
-#include "CMessageQueueTest.h"
 #include "CMonotonicTimeTest.h"
 #include "CMutexTest.h"
 #include "CNamedPipeFactoryTest.h"
 #include "COsFileFuncsTest.h"
 #include "CPatternSetTest.h"
 #include "CPersistUtilsTest.h"
-#include "CPolymorphicStackObjectCPtrTest.h"
 #include "CProcessPriorityTest.h"
 #include "CProcessTest.h"
 #include "CProgNameTest.h"
@@ -62,7 +59,6 @@
 #include "CStoredStringPtrTest.h"
 #include "CStringSimilarityTesterTest.h"
 #include "CStringUtilsTest.h"
-#include "CThreadFarmTest.h"
 #include "CThreadMutexConditionTest.h"
 #include "CTimeUtilsTest.h"
 #include "CTripleTest.h"
@@ -102,15 +98,12 @@ int main(int argc, const char** argv) {
     runner.addTest(CMapPopulationTest::suite());
     runner.addTest(CMemoryUsageJsonWriterTest::suite());
     runner.addTest(CMemoryUsageTest::suite());
-    runner.addTest(CMessageBufferTest::suite());
-    runner.addTest(CMessageQueueTest::suite());
     runner.addTest(CMonotonicTimeTest::suite());
     runner.addTest(CMutexTest::suite());
     runner.addTest(CNamedPipeFactoryTest::suite());
     runner.addTest(COsFileFuncsTest::suite());
     runner.addTest(CPatternSetTest::suite());
     runner.addTest(CPersistUtilsTest::suite());
-    runner.addTest(CPolymorphicStackObjectCPtrTest::suite());
     runner.addTest(CProcessTest::suite());
     runner.addTest(CProcessPriorityTest::suite());
     runner.addTest(CProgNameTest::suite());
@@ -134,7 +127,6 @@ int main(int argc, const char** argv) {
     runner.addTest(CStoredStringPtrTest::suite());
     runner.addTest(CStringSimilarityTesterTest::suite());
     runner.addTest(CStringUtilsTest::suite());
-    runner.addTest(CThreadFarmTest::suite());
     runner.addTest(CThreadMutexConditionTest::suite());
     runner.addTest(CTimeUtilsTest::suite());
     runner.addTest(CTripleTest::suite());
