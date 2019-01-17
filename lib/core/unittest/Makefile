@@ -83,7 +83,6 @@ CStringSimilarityTesterTest.cc \
 CStringUtilsTest.cc \
 CThreadFarmTest.cc \
 CThreadMutexConditionTest.cc \
-CTickerTest.cc \
 CTimeUtilsTest.cc \
 CTripleTest.cc \
 CUnameTest.cc \

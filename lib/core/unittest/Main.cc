@@ -64,7 +64,6 @@
 #include "CStringUtilsTest.h"
 #include "CThreadFarmTest.h"
 #include "CThreadMutexConditionTest.h"
-#include "CTickerTest.h"
 #include "CTimeUtilsTest.h"
 #include "CTripleTest.h"
 #include "CUnameTest.h"
@@ -137,7 +136,6 @@ int main(int argc, const char** argv) {
     runner.addTest(CStringUtilsTest::suite());
     runner.addTest(CThreadFarmTest::suite());
     runner.addTest(CThreadMutexConditionTest::suite());
-    runner.addTest(CTickerTest::suite());
     runner.addTest(CTimeUtilsTest::suite());
     runner.addTest(CTripleTest::suite());
     runner.addTest(CUnameTest::suite());
