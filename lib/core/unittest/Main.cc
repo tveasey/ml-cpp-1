@@ -20,7 +20,6 @@
 #include "CFlatPrefixTreeTest.h"
 #include "CFunctionalTest.h"
 #include "CHashingTest.h"
-#include "CHexUtilsTest.h"
 #include "CIEEE754Test.h"
 #include "CJsonLogLayoutTest.h"
 #include "CJsonOutputStreamWrapperTest.h"
@@ -94,7 +93,6 @@ int main(int argc, const char** argv) {
     runner.addTest(CFlatPrefixTreeTest::suite());
     runner.addTest(CFunctionalTest::suite());
     runner.addTest(CHashingTest::suite());
-    runner.addTest(CHexUtilsTest::suite());
     runner.addTest(CIEEE754Test::suite());
     runner.addTest(CJsonLogLayoutTest::suite());
     runner.addTest(CJsonOutputStreamWrapperTest::suite());

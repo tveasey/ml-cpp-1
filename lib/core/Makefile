@@ -77,7 +77,6 @@ CDataSearcher.cc \
 CDualThreadStreamBuf.cc \
 CFlatPrefixTree.cc \
 CHashing.cc \
-CHexUtils.cc \
 CIEEE754.cc \
 CJsonLogLayout.cc \
 CJsonOutputStreamWrapper.cc \

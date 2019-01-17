@@ -40,7 +40,6 @@ CDualThreadStreamBufTest.cc \
 CFlatPrefixTreeTest.cc \
 CFunctionalTest.cc \
 CHashingTest.cc \
-CHexUtilsTest.cc \
 CIEEE754Test.cc \
 CJsonLogLayoutTest.cc \
 CJsonOutputStreamWrapperTest.cc \
