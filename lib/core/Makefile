@@ -60,7 +60,6 @@ CThread.cc \
 CTimeGm.cc \
 CTimezone.cc \
 CUname.cc \
-CUnSetEnv.cc \
 CWindowsError.cc \
 
 SRCS= \

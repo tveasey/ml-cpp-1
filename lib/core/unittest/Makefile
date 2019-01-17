@@ -49,7 +49,6 @@ CLoggerTest.cc \
 CLoopProgressTest.cc \
 CMemoryUsageJsonWriterTest.cc \
 CMemoryUsageTest.cc \
-CMessageBufferTest.cc \
 CMessageQueueTest.cc \
 CMonotonicTimeTest.cc \
 CMapPopulationTest.cc \
