@@ -39,7 +39,6 @@ CCTimeR.cc \
 CDetachedProcessSpawner.cc \
 CFastMutex.cc \
 CGmTimeR.cc \
-CIEEE754.cc \
 CMonotonicTime.cc \
 CMutex.cc \
 CNamedPipeFactory.cc \
@@ -75,12 +74,12 @@ CDataAdder.cc \
 CDataFrame.cc \
 CDataFrameRowSlice.cc \
 CDataSearcher.cc \
-CDelimiter.cc \
 CDualThreadStreamBuf.cc \
 CFileDeleter.cc \
 CFlatPrefixTree.cc \
 CHashing.cc \
 CHexUtils.cc \
+CIEEE754.cc \
 CJsonLogLayout.cc \
 CJsonOutputStreamWrapper.cc \
 CJsonStatePersistInserter.cc \

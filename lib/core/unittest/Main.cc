@@ -15,7 +15,6 @@
 #include "CContainerPrinterTest.h"
 #include "CContainerThroughputTest.h"
 #include "CDataFrameTest.h"
-#include "CDelimiterTest.h"
 #include "CDetachedProcessSpawnerTest.h"
 #include "CDualThreadStreamBufTest.h"
 #include "CFileDeleterTest.h"
@@ -91,7 +90,6 @@ int main(int argc, const char** argv) {
     runner.addTest(CContainerPrinterTest::suite());
     runner.addTest(CContainerThroughputTest::suite());
     runner.addTest(CDataFrameTest::suite());
-    runner.addTest(CDelimiterTest::suite());
     runner.addTest(CDetachedProcessSpawnerTest::suite());
     runner.addTest(CDualThreadStreamBufTest::suite());
     runner.addTest(CFileDeleterTest::suite());
