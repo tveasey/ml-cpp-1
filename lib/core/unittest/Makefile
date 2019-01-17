@@ -28,7 +28,6 @@ Main.cc \
 CAllocationStrategyTest.cc \
 CBase64FilterTest.cc \
 CBlockingMessageQueueTest.cc \
-CByteSwapperTest.cc \
 CCompressedDictionaryTest.cc \
 CCompressUtilsTest.cc \
 CConcurrencyTest.cc \

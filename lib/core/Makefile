@@ -68,7 +68,6 @@ CWindowsError.cc \
 SRCS= \
 $(OS_SRCS) \
 CBase64Filter.cc \
-CBufferFlushTimer.cc \
 CCompressedDictionary.cc \
 CCompressOStream.cc \
 CContainerPrinter.cc \
