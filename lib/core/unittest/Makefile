@@ -27,7 +27,6 @@ $(OS_SRCS) \
 Main.cc \
 CAllocationStrategyTest.cc \
 CBase64FilterTest.cc \
-CBlockingMessageQueueTest.cc \
 CCompressedDictionaryTest.cc \
 CCompressUtilsTest.cc \
 CConcurrencyTest.cc \

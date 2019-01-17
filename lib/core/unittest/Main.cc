@@ -7,7 +7,6 @@
 
 #include "CAllocationStrategyTest.h"
 #include "CBase64FilterTest.h"
-#include "CBlockingMessageQueueTest.h"
 #include "CCompressUtilsTest.h"
 #include "CCompressedDictionaryTest.h"
 #include "CConcurrencyTest.h"
@@ -75,7 +74,6 @@ int main(int argc, const char** argv) {
 
     runner.addTest(CAllocationStrategyTest::suite());
     runner.addTest(CBase64FilterTest::suite());
-    runner.addTest(CBlockingMessageQueueTest::suite());
     runner.addTest(CCompressedDictionaryTest::suite());
     runner.addTest(CCompressUtilsTest::suite());
     runner.addTest(CConcurrencyTest::suite());
