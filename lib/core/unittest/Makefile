@@ -37,7 +37,6 @@ CContainerThroughputTest.cc \
 CDataFrameTest.cc \
 CDetachedProcessSpawnerTest.cc \
 CDualThreadStreamBufTest.cc \
-CFileDeleterTest.cc \
 CFlatPrefixTreeTest.cc \
 CFunctionalTest.cc \
 CHashingTest.cc \

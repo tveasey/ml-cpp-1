@@ -17,7 +17,6 @@
 #include "CDataFrameTest.h"
 #include "CDetachedProcessSpawnerTest.h"
 #include "CDualThreadStreamBufTest.h"
-#include "CFileDeleterTest.h"
 #include "CFlatPrefixTreeTest.h"
 #include "CFunctionalTest.h"
 #include "CHashingTest.h"
@@ -92,7 +91,6 @@ int main(int argc, const char** argv) {
     runner.addTest(CDataFrameTest::suite());
     runner.addTest(CDetachedProcessSpawnerTest::suite());
     runner.addTest(CDualThreadStreamBufTest::suite());
-    runner.addTest(CFileDeleterTest::suite());
     runner.addTest(CFlatPrefixTreeTest::suite());
     runner.addTest(CFunctionalTest::suite());
     runner.addTest(CHashingTest::suite());

@@ -75,7 +75,6 @@ CDataFrame.cc \
 CDataFrameRowSlice.cc \
 CDataSearcher.cc \
 CDualThreadStreamBuf.cc \
-CFileDeleter.cc \
 CFlatPrefixTree.cc \
 CHashing.cc \
 CHexUtils.cc \
