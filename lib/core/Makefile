@@ -43,7 +43,6 @@ CMonotonicTime.cc \
 CMutex.cc \
 CNamedPipeFactory.cc \
 COsFileFuncs.cc \
-CPOpen.cc \
 CProcess.cc \
 CProcessPriority.cc \
 CProgName.cc \

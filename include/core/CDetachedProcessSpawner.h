@@ -24,9 +24,7 @@ class CTrackerThread;
 //!
 //! DESCRIPTION:\n
 //! Spawns processes that do not need to communicate with the parent
-//! process once they're running.  (If you need to spawn processes
-//! that communicate with the parent process, look at the core::CPOpen
-//! class.)
+//! process once they're running.
 //!
 //! A list of permitted processes must be supplied to the constructor.
 //! Requests to start processes not on this list will fail.
