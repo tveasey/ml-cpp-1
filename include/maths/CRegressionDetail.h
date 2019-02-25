@@ -235,59 +235,6 @@ bool CRegression::CLeastSquaresOnline<N, T>::covariances(std::size_t n,
 
     return true;
 }
-
-template<std::size_t N, typename T>
-bool CRegression::CLeastSquaresOnlineParameterProcess<N, T>::acceptRestoreTraverser(
-    core::CStateRestoreTraverser& traverser) {
-    do {
-        const std::string& name = traverser.name();
-        RESTORE(UNIT_TIME_COVARIANCES_TAG,
-                m_UnitTimeCovariances.fromDelimited(traverser.value()))
-    } while (traverser.next());
-    return true;
-}
-
-template<std::size_t N, typename T>
-void CRegression::CLeastSquaresOnlineParameterProcess<N, T>::acceptPersistInserter(
-    core::CStatePersistInserter& inserter) const {
-    inserter.insertValue(UNIT_TIME_COVARIANCES_TAG, m_UnitTimeCovariances.toDelimited());
-}
-
-template<std::size_t N, typename T>
-double CRegression::CLeastSquaresOnlineParameterProcess<N, T>::predictionVariance(double time) const {
-    if (time <= 0.0) {
-        return 0.0;
-    }
-
-    TVector dT;
-    T dt = static_cast<T>(std::sqrt(time));
-    T dTi = dt;
-    for (std::size_t i = 0u; i < N; ++i, dTi *= dt) {
-        dT(i) = dTi;
-    }
-
-    TMatrix covariance = CBasicStatistics::covariances(m_UnitTimeCovariances);
-
-    return dT.inner(covariance * dT);
-}
-
-template<std::size_t N, typename T>
-typename CRegression::CLeastSquaresOnlineParameterProcess<N, T>::TMatrix
-CRegression::CLeastSquaresOnlineParameterProcess<N, T>::covariance() const {
-    return CBasicStatistics::covariances(m_UnitTimeCovariances);
-}
-
-template<std::size_t N, typename T>
-uint64_t CRegression::CLeastSquaresOnlineParameterProcess<N, T>::checksum() const {
-    return m_UnitTimeCovariances.checksum();
-}
-
-template<std::size_t N, typename T>
-std::string CRegression::CLeastSquaresOnlineParameterProcess<N, T>::print() const {
-    std::ostringstream result;
-    result << CBasicStatistics::covariances(m_UnitTimeCovariances);
-    return result.str();
-}
 }
 }
 

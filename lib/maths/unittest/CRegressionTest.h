@@ -26,7 +26,6 @@ public:
     void testCovariances();
     void testParameters();
     void testPersist();
-    void testParameterProcess();
 
     static CppUnit::Test* suite();
 };

@@ -412,74 +412,6 @@ public:
         }
         return result;
     }
-
-    //! \brief A Wiener process model of the evolution of the parameters
-    //! of our online least squares regression model.
-    template<std::size_t N, typename T>
-    class CLeastSquaresOnlineParameterProcess {
-    public:
-        using TVector = CVectorNx1<T, N>;
-        using TMatrix = CSymmetricMatrixNxN<T, N>;
-
-    public:
-        static const std::string UNIT_TIME_COVARIANCES_TAG;
-
-    public:
-        CLeastSquaresOnlineParameterProcess() : m_UnitTimeCovariances(N) {}
-
-        //! Restore by traversing a state document.
-        bool acceptRestoreTraverser(core::CStateRestoreTraverser& traverser);
-
-        //! Persist by passing information to \p inserter.
-        void acceptPersistInserter(core::CStatePersistInserter& inserter) const;
-
-        //! Add a new sample of the regression parameters drift over
-        //! \p time.
-        void add(double time, const TVector& sample, const TVector& weight = TVector(1)) {
-            // For the Wiener process:
-            //
-            //   P(t(i+1)) - P(t(i)) ~ N(0, (t(i+1) - t(i)) * C)
-            //
-            // Defining dt(i) = t(i+1) - t(i) and assuming t(i) are
-            // monotonic increasing it follows that
-            //
-            //   {D(t(i+1)) = (1 / dt(i))^(1/2) * P(t(i+1)) - P(t(i))}
-            //
-            // are N(0, C) IID. Therefore, the ML estimate of the
-            // distribution of the parameters at time T after the last
-            // measurement is N(0, T * C) where C is the empirical
-            // covariance matrix of the samples D(t(0)),..., D(t(n)).
-
-            if (time > 0.0) {
-                TVector sample_ = static_cast<T>(std::sqrt(1.0 / time)) * sample;
-                m_UnitTimeCovariances.add(sample_, weight);
-            }
-        }
-
-        //! Age the covariances.
-        void age(T factor) { m_UnitTimeCovariances.age(factor); }
-
-        //! Get the process covariance matrix.
-        TMatrix covariance() const;
-
-        //! Compute the variance of the mean zero normal distribution
-        //! due to the drift in the regression parameters over \p time.
-        double predictionVariance(double time) const;
-
-        //! Get a checksum for this object.
-        uint64_t checksum() const;
-
-        //! Print this process out for debug.
-        std::string print() const;
-
-    private:
-        using TCovarianceAccumulator = CBasicStatistics::SSampleCovariances<TVector>;
-
-    private:
-        //! The estimator of the Wiener process's unit time
-        //! covariance matrix.
-        TCovarianceAccumulator m_UnitTimeCovariances;
-    };
 };
 
 template<std::size_t N, typename T>
@@ -491,9 +423,6 @@ double CRegression::CLeastSquaresOnline<N, T>::predict(double x, double maxCondi
 
 template<std::size_t N_, typename T>
 const std::string CRegression::CLeastSquaresOnline<N_, T>::STATISTIC_TAG("a");
-template<std::size_t N, typename T>
-const std::string
-    CRegression::CLeastSquaresOnlineParameterProcess<N, T>::UNIT_TIME_COVARIANCES_TAG("a");
 }
 }
 

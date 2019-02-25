@@ -962,109 +962,6 @@ void CRegressionTest::testPersist() {
     CPPUNIT_ASSERT_EQUAL(origXml, restoredXml);
 }
 
-void CRegressionTest::testParameterProcess() {
-    // Approximately test the variance predicted by the regression
-    // parameter process is an unbiased estimator. This is done by
-    // simulating an approximation of the process d^2X(t)/dt^2 = W(t),
-    // fitting our regression model to it and fitting the parameter
-    // process to the changes in its coefficients over time. We then
-    // check for agreement in the mean predicted variance versus a
-    // Monte Carlo simulation of underlying process, i.e. we check
-    // that the parameter process gives us an unbiased estimate of
-    // evolution of the process position uncertainty.
-
-    using TMeanVarAccumulator = maths::CBasicStatistics::SSampleMeanVar<double>::TAccumulator;
-    using TVector = maths::CVectorNx1<double, 4>;
-
-    test::CRandomNumbers rng;
-
-    double variances[] = {1.0, 0.5, 0.1, 5.0, 10.0};
-    double intervals[] = {0.4, 0.4, 0.8, 0.6, 0.7, 0.5, 0.6, 1.3, 0.3, 1.7,
-                          0.3, 0.5, 1.0, 0.2, 0.3, 0.1, 0.5, 1.4, 0.7, 0.9,
-                          0.1, 0.4, 0.8, 1.0, 0.6, 0.5, 0.8, 1.3, 0.3, 1.7,
-                          0.3, 1.2, 0.3, 1.2, 0.3, 0.1, 0.5, 0.4, 0.7, 0.9,
-                          0.8, 0.6, 0.8, 1.1, 0.6, 0.5, 0.5, 1.3, 0.3, 0.7};
-
-    TMeanAccumulator error;
-
-    for (std::size_t test = 0u; test < boost::size(variances); ++test) {
-        LOG_DEBUG(<< "variance = " << variances[test]);
-
-        TMeanAccumulator actual;
-        TMeanAccumulator estimate;
-
-        for (std::size_t run = 0u; run < 25; ++run) {
-            maths::CRegression::CLeastSquaresOnline<3, double> regression;
-            maths::CRegression::CLeastSquaresOnlineParameterProcess<4, double> parameterProcess;
-
-            double t = 0.0;
-            double x = 0.0;
-            double v = 5.0;
-            double a = 1.0;
-            for (std::size_t i = 0u; i < boost::size(intervals); t += intervals[i], ++i) {
-                double dt = intervals[i];
-                TDoubleVec da;
-                rng.generateNormalSamples(0.0, variances[test],
-                                          static_cast<std::size_t>(dt / 0.05), da);
-                for (auto da_ : da) {
-                    x += (v + 0.5 * a * 0.05) * 0.05;
-                    v += a * 0.05;
-                    a += da_;
-                }
-
-                bool sufficientHistoryBeforeUpdate = regression.range() >= 1.0;
-                TVector paramsDrift(regression.parameters(t + dt));
-                regression.add(t + dt, x);
-                paramsDrift -= TVector(regression.parameters(t + dt));
-                if (sufficientHistoryBeforeUpdate && regression.range() >= 1.0) {
-                    parameterProcess.add(t + dt, paramsDrift, TVector(dt));
-                }
-                parameterProcess.age(std::exp(-0.05 * intervals[i]));
-            }
-
-            TMeanVarAccumulator moments;
-            for (std::size_t trial = 0u; trial < 500; ++trial) {
-                double xt = 0.0;
-                double vt = 0.0;
-                double at = 0.0;
-                for (std::size_t i = 0u; i < 5; ++i) {
-                    double dt = intervals[i];
-                    TDoubleVec da;
-                    rng.generateNormalSamples(0.0, variances[test],
-                                              static_cast<std::size_t>(dt / 0.05), da);
-                    for (auto da_ : da) {
-                        xt += (vt + 0.5 * at * 0.05) * 0.05;
-                        vt += at * 0.05;
-                        at += da_;
-                    }
-                }
-                moments.add(xt);
-            }
-
-            double interval = std::accumulate(intervals, intervals + 5, 0.0);
-            if (run % 5 == 0) {
-                LOG_DEBUG(<< "  " << maths::CBasicStatistics::variance(moments) << " vs "
-                          << parameterProcess.predictionVariance(interval));
-            }
-            actual.add(maths::CBasicStatistics::variance(moments));
-            estimate.add(parameterProcess.predictionVariance(interval));
-        }
-
-        LOG_DEBUG(<< "actual   = " << maths::CBasicStatistics::mean(actual));
-        LOG_DEBUG(<< "estimate = " << maths::CBasicStatistics::mean(estimate));
-        CPPUNIT_ASSERT_DOUBLES_EQUAL(maths::CBasicStatistics::mean(actual),
-                                     maths::CBasicStatistics::mean(estimate),
-                                     0.25 * maths::CBasicStatistics::mean(actual));
-
-        error.add((maths::CBasicStatistics::mean(actual) -
-                   maths::CBasicStatistics::mean(estimate)) /
-                  maths::CBasicStatistics::mean(actual));
-    }
-
-    LOG_DEBUG(<< "error = " << maths::CBasicStatistics::mean(error));
-    CPPUNIT_ASSERT(std::fabs(maths::CBasicStatistics::mean(error)) < 0.08);
-}
-
 CppUnit::Test* CRegressionTest::suite() {
     CppUnit::TestSuite* suiteOfTests = new CppUnit::TestSuite("CRegressionTest");
 
@@ -1098,8 +995,6 @@ CppUnit::Test* CRegressionTest::suite() {
         "CRegressionTest::testParameters", &CRegressionTest::testParameters));
     suiteOfTests->addTest(new CppUnit::TestCaller<CRegressionTest>(
         "CRegressionTest::testPersist", &CRegressionTest::testPersist));
-    suiteOfTests->addTest(new CppUnit::TestCaller<CRegressionTest>(
-        "CRegressionTest::testParameterProcess", &CRegressionTest::testParameterProcess));
 
     return suiteOfTests;
 }
