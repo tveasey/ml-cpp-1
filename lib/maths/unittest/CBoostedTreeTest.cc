@@ -9,6 +9,7 @@
 #include <core/CDataFrame.h>
 
 #include <maths/CBoostedTree.h>
+#include <maths/CTools.h>
 
 #include <boost/filesystem.hpp>
 
@@ -25,12 +26,14 @@ using TDoubleVecVec = std::vector<TDoubleVec>;
 using TFactoryFunc = std::function<std::unique_ptr<core::CDataFrame>()>;
 using TRowRef = core::CDataFrame::TRowRef;
 using TRowItr = core::CDataFrame::TRowItr;
+using TMeanAccumulator = maths::CBasicStatistics::SSampleMean<double>::TAccumulator;
+using TMeanVarAccumulator = maths::CBasicStatistics::SSampleMeanVar<double>::TAccumulator;
 
 void CBoostedTreeTest::testPiecewiseConstant() {
 
     test::CRandomNumbers rng;
 
-    std::size_t rows{500};
+    std::size_t rows{1000};
     std::size_t cols{6};
     std::size_t capacity{500};
 
@@ -42,7 +45,14 @@ void CBoostedTreeTest::testPiecewiseConstant() {
     TFactoryFunc makeMainMemory{
         [=] { return core::makeMainStorageDataFrame(cols, capacity).first; }};
 
-    for (std::size_t test = 0; test < 1; ++test) {
+    TFactoryFunc factories[]{makeOnDisk, makeMainMemory};
+    std::size_t numbersThreads[]{1, 3};
+
+    core::startDefaultAsyncExecutor(3);
+
+    for (std::size_t test = 0; test < 10; ++test) {
+        LOG_DEBUG(<< "test " << test + 1);
+
         TDoubleVec p;
         TDoubleVec v;
         rng.generateUniformSamples(0.0, 10.0, 2 * cols - 2, p);
@@ -69,14 +79,14 @@ void CBoostedTreeTest::testPiecewiseConstant() {
         TDoubleVec noise;
         rng.generateUniformSamples(-0.2, 0.2, rows, noise);
 
-        for (const auto& factory : {makeOnDisk, makeMainMemory}) {
+        for (std::size_t i = 0; i < 2; ++i) {
 
-            auto frame = factory();
+            auto frame = factories[i]();
 
-            for (std::size_t i = 0; i < rows; ++i) {
+            for (std::size_t j = 0; j < rows; ++j) {
                 frame->writeRow([&](core::CDataFrame::TFloatVecItr column, std::int32_t&) {
-                    for (std::size_t j = 0; j < cols - 1; ++j, ++column) {
-                        *column = x[j][i];
+                    for (std::size_t k = 0; k < cols - 1; ++k, ++column) {
+                        *column = x[k][j];
                     }
                 });
             }
@@ -87,12 +97,37 @@ void CBoostedTreeTest::testPiecewiseConstant() {
                 }
             });
 
-            maths::CBoostedTree regression{
-                1, cols - 1, std::make_unique<maths::boosted_tree::CMse>()};
+            TMeanVarAccumulator baselineMse;
+            frame->readRows(1, [&](TRowItr beginRows, TRowItr endRows) {
+                for (auto row = beginRows; row != endRows; ++row) {
+                    baselineMse.add((*row)[cols - 1]);
+                }
+            });
+
+            std::size_t numberThreads{numbersThreads[(test + i) % 2]};
+            maths::CBoostedTree regression{numberThreads, cols - 1,
+                                           std::make_unique<maths::boosted_tree::CMse>()};
 
             regression.train(*frame);
+
+            TMeanAccumulator mse;
+            frame->readRows(1, [&](TRowItr beginRows, TRowItr endRows) {
+                for (auto row = beginRows; row != endRows; ++row) {
+                    mse.add(maths::CTools::pow2((*row)[cols - 1] - (*row)[cols]));
+                }
+            });
+
+            LOG_DEBUG(<< "  forest rmse   = "
+                      << std::sqrt(maths::CBasicStatistics::mean(mse)));
+
+            double rmseImprovement{
+                1.0 - std::sqrt(maths::CBasicStatistics::mean(mse) /
+                                maths::CBasicStatistics::maximumLikelihoodVariance(baselineMse))};
+            CPPUNIT_ASSERT(rmseImprovement > 0.4);
         }
     }
+
+    core::stopDefaultAsyncExecutor();
 }
 
 void CBoostedTreeTest::testLinear() {
