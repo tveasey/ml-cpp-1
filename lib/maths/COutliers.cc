@@ -264,7 +264,7 @@ private:
         //      parameter when it's large, but the nearest neighbour search
         //      becomes much more expensive.
         double target{NEIGHBOURHOOD_FRACTION * static_cast<double>(sampleSize)};
-        return static_cast<std::size_t>(std::min(std::max(target, 5.0), 100.0) + 0.5);
+        return static_cast<std::size_t>(std::min(std::max(target, 5.0), 50.0) + 0.5);
     }
 
     static std::size_t computeProjectionDimension(std::size_t numberPoints,

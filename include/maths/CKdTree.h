@@ -85,9 +85,9 @@ public:
     //! A node of the k-d tree.
     struct SNode : public NODE_DATA {
         //! Copy \p point into place.
-        SNode(SNode* parent, const POINT& point)
+        SNode(SNode* parent, std::size_t splitCoordinate, const POINT& point)
             : s_Parent(parent), s_LeftChild(nullptr), s_RightChild(nullptr),
-              s_Point(point) {}
+              s_SplitCoordinate(splitCoordinate), s_Point(point) {}
 
         //! Move \p point into place.
         //!
@@ -97,29 +97,30 @@ public:
         //! explicitly define a constructor taking an rvalue reference
         //! since not all our vector types can be moved and calling the
         //! other constructor saves us a redundant copy in these cases.
-        SNode(SNode* parent, POINT&& point)
+        SNode(SNode* parent, std::size_t splitCoordinate, POINT&& point)
             : s_Parent(parent), s_LeftChild(nullptr), s_RightChild(nullptr),
+              s_SplitCoordinate(splitCoordinate),
               s_Point(std::forward<POINT>(point)) {}
 
         //! Check node invariants.
-        bool checkInvariants(std::size_t dimension) const {
+        bool checkInvariants() const {
             if (s_Parent) {
                 if (s_Parent->s_LeftChild != this && s_Parent->s_RightChild != this) {
                     LOG_ERROR(<< "Not parent's child");
                     return false;
                 }
             }
-
-            std::size_t coordinate{this->depth() % dimension};
-            CCoordinateLess less(coordinate);
+            CCoordinateLess less(s_SplitCoordinate);
             if (s_LeftChild && less(s_Point, s_LeftChild->s_Point)) {
-                LOG_ERROR(<< "parent = " << s_Point << ", left child = "
-                          << s_LeftChild->s_Point << ", coordinate = " << coordinate);
+                LOG_ERROR(<< "parent = " << s_Point
+                          << ", left child = " << s_LeftChild->s_Point
+                          << ", coordinate = " << s_SplitCoordinate);
                 return false;
             }
             if (s_RightChild && less(s_RightChild->s_Point, s_Point)) {
-                LOG_ERROR(<< "parent = " << s_Point << ", right child = "
-                          << s_RightChild->s_Point << ", coordinate = " << coordinate);
+                LOG_ERROR(<< "parent = " << s_Point
+                          << ", right child = " << s_RightChild->s_Point
+                          << ", coordinate = " << s_SplitCoordinate);
                 return false;
             }
             return true;
@@ -139,9 +140,9 @@ public:
             return core::CMemory::dynamicSize(s_Point);
         }
 
-        //! Estimate the amount of memory this node will use.
+        //! Estimate the amount of memory this object will use.
         static std::size_t estimateMemoryUsage(std::size_t dimension) {
-            return sizeof(SNode) + las::estimateMemoryUsage<POINT>(dimension);
+            return las::estimateMemoryUsage<POINT>(dimension);
         }
 
         //! The parent.
@@ -150,6 +151,8 @@ public:
         SNode* s_LeftChild;
         //! The right child if one exists.
         SNode* s_RightChild;
+        //! The point coordinate along which to split.
+        std::size_t s_SplitCoordinate;
         //! The point at this node.
         POINT s_Point;
     };
@@ -227,9 +230,7 @@ public:
         m_Dimension = las::dimension(*begin);
         m_Nodes.clear();
         m_Nodes.reserve(std::distance(begin, end));
-        this->buildRecursively(nullptr, // Parent pointer
-                               0,       // Split coordinate
-                               begin, end, move);
+        this->buildRecursively(nullptr /*Parent pointer*/, begin, end, move);
     }
 
     //! Get the number of points in the tree.
@@ -241,8 +242,8 @@ public:
         if (m_Nodes.size() > 0) {
             auto inf = std::numeric_limits<TCoordinatePrecise>::max();
             POINT distancesToHyperplanes{las::zero(point)};
-            return this->nearestNeighbour(point, m_Nodes[0], distancesToHyperplanes,
-                                          0 /*split coordinate*/, nearest, inf);
+            return this->nearestNeighbour(point, m_Nodes[0],
+                                          distancesToHyperplanes, nearest, inf);
         }
         return nearest;
     }
@@ -263,8 +264,7 @@ public:
             POINT distancesToHyperplanes{las::zero(point)};
             TCoordinatePrecisePointCRefPrVec neighbours(
                 n, {inf, boost::cref(m_Nodes[0].s_Point)});
-            this->nearestNeighbours(point, less, m_Nodes[0], distancesToHyperplanes,
-                                    0 /*split coordinate*/, neighbours);
+            this->nearestNeighbours(point, less, m_Nodes[0], distancesToHyperplanes, neighbours);
 
             result.reserve(n);
             std::sort_heap(neighbours.begin(), neighbours.end(), less);
@@ -317,7 +317,7 @@ public:
     //! Check the tree invariants.
     bool checkInvariants() const {
         for (const auto& node : m_Nodes) {
-            if (node.checkInvariants(m_Dimension) == false) {
+            if (node.checkInvariants() == false) {
                 return false;
             }
         }
@@ -334,36 +334,35 @@ public:
     //! \param[in] numberPoints The number of points it will hold.
     //! \param[in] dimension The dimension of points it will hold.
     static std::size_t estimateMemoryUsage(std::size_t numberPoints, std::size_t dimension) {
-        return numberPoints * SNode::estimateMemoryUsage(dimension);
+        return numberPoints * (sizeof(SNode) + SNode::estimateMemoryUsage(dimension));
     }
 
 private:
     //! Append a node moving \p point into place.
-    void append(std::true_type, SNode* parent, POINT& point) {
-        m_Nodes.emplace_back(parent, std::move(point));
+    void append(std::true_type, SNode* parent, std::size_t coordinate, POINT& point) {
+        m_Nodes.emplace_back(parent, coordinate, std::move(point));
     }
 
     //! Append a node copying \p point into place.
-    void append(std::false_type, SNode* parent, const POINT& point) {
-        m_Nodes.emplace_back(parent, point);
+    void append(std::false_type, SNode* parent, std::size_t coordinate, const POINT& point) {
+        m_Nodes.emplace_back(parent, coordinate, point);
     }
 
     //! Recursively build the k-d tree.
     template<typename ITR, typename MOVE>
-    SNode* buildRecursively(SNode* parent, std::size_t coordinate, ITR begin, ITR end, MOVE move) {
+    SNode* buildRecursively(SNode* parent, ITR begin, ITR end, MOVE move) {
+        std::size_t coordinate{this->computeSplitCoordinate(begin, end)};
         std::size_t n{static_cast<std::size_t>(end - begin) / 2};
         ITR median{begin + n};
         std::nth_element(begin, median, end, CCoordinateLess(coordinate));
-        this->append(move, parent, *median);
+        this->append(move, parent, coordinate, *median);
         SNode* node{&m_Nodes.back()};
         if (median - begin > 0) {
-            std::size_t next{this->nextCoordinate(coordinate)};
-            SNode* leftChild{this->buildRecursively(node, next, begin, median, move)};
+            SNode* leftChild{this->buildRecursively(node, begin, median, move)};
             node->s_LeftChild = leftChild;
         }
         if (end - median > 1) {
-            std::size_t next{this->nextCoordinate(coordinate)};
-            SNode* rightChild{this->buildRecursively(node, next, median + 1, end, move)};
+            SNode* rightChild{this->buildRecursively(node, median + 1, end, move)};
             node->s_RightChild = rightChild;
         }
         return node;
@@ -373,7 +372,6 @@ private:
     const POINT* nearestNeighbour(const POINT& point,
                                   const SNode& node,
                                   POINT& distancesToHyperplanes,
-                                  std::size_t coordinate,
                                   const POINT* nearest,
                                   TCoordinatePrecise& distanceToNearest) const {
 
@@ -389,7 +387,8 @@ private:
         const SNode* secondary{node.s_RightChild};
 
         if (primary != nullptr && secondary != nullptr) {
-            TCoordinate distanceToHyperplane{point(coordinate) - node.s_Point(coordinate)};
+            TCoordinate distanceToHyperplane{point(node.s_SplitCoordinate) -
+                                             node.s_Point(node.s_SplitCoordinate)};
 
             if (distanceToHyperplane > 0) {
                 std::swap(primary, secondary);
@@ -397,24 +396,20 @@ private:
                 distanceToHyperplane = std::fabs(distanceToHyperplane);
             }
 
-            std::size_t nextCoordinate{this->nextCoordinate(coordinate)};
             nearest = this->nearestNeighbour(point, *primary, distancesToHyperplanes,
-                                             nextCoordinate, nearest, distanceToNearest);
-            std::swap(distancesToHyperplanes(coordinate), distanceToHyperplane);
+                                             nearest, distanceToNearest);
+            std::swap(distancesToHyperplanes(node.s_SplitCoordinate), distanceToHyperplane);
             if (las::norm(distancesToHyperplanes) < distanceToNearest) {
-                nearest = this->nearestNeighbour(point, *secondary,
-                                                 distancesToHyperplanes, nextCoordinate,
+                nearest = this->nearestNeighbour(point, *secondary, distancesToHyperplanes,
                                                  nearest, distanceToNearest);
             }
-            std::swap(distancesToHyperplanes(coordinate), distanceToHyperplane);
+            std::swap(distancesToHyperplanes(node.s_SplitCoordinate), distanceToHyperplane);
         } else if (primary != nullptr) {
-            std::size_t nextCoordinate{this->nextCoordinate(coordinate)};
             nearest = this->nearestNeighbour(point, *primary, distancesToHyperplanes,
-                                             nextCoordinate, nearest, distanceToNearest);
+                                             nearest, distanceToNearest);
         } else if (secondary != nullptr) {
-            std::size_t nextCoordinate{this->nextCoordinate(coordinate)};
             nearest = this->nearestNeighbour(point, *secondary, distancesToHyperplanes,
-                                             nextCoordinate, nearest, distanceToNearest);
+                                             nearest, distanceToNearest);
         }
 
         return nearest;
@@ -425,7 +420,6 @@ private:
                            const COrderings::SLess& less,
                            const SNode& node,
                            POINT& distancesToHyperplanes,
-                           std::size_t coordinate,
                            TCoordinatePrecisePointCRefPrVec& nearest) const {
 
         TCoordinatePrecise distance{las::distance(point, node.s_Point)};
@@ -442,7 +436,8 @@ private:
         const SNode* secondary{node.s_RightChild};
 
         if (primary != nullptr && secondary != nullptr) {
-            TCoordinate distanceToHyperplane{point(coordinate) - node.s_Point(coordinate)};
+            TCoordinate distanceToHyperplane{point(node.s_SplitCoordinate) -
+                                             node.s_Point(node.s_SplitCoordinate)};
 
             if (distanceToHyperplane > 0) {
                 std::swap(primary, secondary);
@@ -450,23 +445,17 @@ private:
                 distanceToHyperplane = std::fabs(distanceToHyperplane);
             }
 
-            std::size_t nextCoordinate{this->nextCoordinate(coordinate)};
-            this->nearestNeighbours(point, less, *primary, distancesToHyperplanes,
-                                    nextCoordinate, nearest);
-            std::swap(distancesToHyperplanes(coordinate), distanceToHyperplane);
+            this->nearestNeighbours(point, less, *primary, distancesToHyperplanes, nearest);
+            std::swap(distancesToHyperplanes(node.s_SplitCoordinate), distanceToHyperplane);
             if (las::norm(distancesToHyperplanes) < nearest.front().first) {
-                this->nearestNeighbours(point, less, *secondary, distancesToHyperplanes,
-                                        nextCoordinate, nearest);
+                this->nearestNeighbours(point, less, *secondary,
+                                        distancesToHyperplanes, nearest);
             }
-            std::swap(distancesToHyperplanes(coordinate), distanceToHyperplane);
+            std::swap(distancesToHyperplanes(node.s_SplitCoordinate), distanceToHyperplane);
         } else if (primary != nullptr) {
-            std::size_t nextCoordinate{this->nextCoordinate(coordinate)};
-            this->nearestNeighbours(point, less, *primary, distancesToHyperplanes,
-                                    nextCoordinate, nearest);
+            this->nearestNeighbours(point, less, *primary, distancesToHyperplanes, nearest);
         } else if (secondary != nullptr) {
-            std::size_t nextCoordinate{this->nextCoordinate(coordinate)};
-            this->nearestNeighbours(point, less, *secondary, distancesToHyperplanes,
-                                    nextCoordinate, nearest);
+            this->nearestNeighbours(point, less, *secondary, distancesToHyperplanes, nearest);
         }
     }
 
@@ -495,11 +484,26 @@ private:
         f(node);
     }
 
-    //! Get the next coordinate.
-    inline std::size_t nextCoordinate(std::size_t coordinate) const {
-        ++coordinate;
-        // This branch works out significantly faster than modulo.
-        return coordinate == m_Dimension ? 0 : coordinate;
+    //! Get the coordinate with the greatest variation in [\p begin, \p end).
+    template<typename ITR>
+    inline std::size_t computeSplitCoordinate(ITR begin, ITR end) const {
+        using TMeanVarAccumulator = typename CBasicStatistics::SSampleMeanVar<double>::TAccumulator;
+
+        std::vector<TMeanVarAccumulator> moments(m_Dimension);
+        for (auto point = begin; point != end; ++point) {
+            for (std::size_t j = 0; j < m_Dimension; ++j) {
+                moments[j].add(static_cast<double>((*point)(j)));
+            }
+        }
+
+        std::size_t result{0};
+        double variance{CBasicStatistics::variance(moments[0])};
+        for (std::size_t i = 1; i < moments.size(); ++i) {
+            std::tie(variance, result) =
+                std::max(std::make_pair(variance, result),
+                         std::make_pair(CBasicStatistics::variance(moments[i]), i));
+        }
+        return result;
     }
 
 private:
