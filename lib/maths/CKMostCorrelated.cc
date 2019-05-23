@@ -29,6 +29,7 @@
 
 #include <cmath>
 #include <functional>
+#include <numeric>
 
 namespace bg = boost::geometry;
 namespace bgi = boost::geometry::index;
@@ -70,7 +71,7 @@ public:
 
     bool operator()(const TPointSizePr& y) const {
         std::size_t Y = y.second;
-        return m_Lookup->count(std::make_pair(std::min(m_X, Y), std::max(m_X, Y))) == 0;
+        return m_Lookup->count({std::min(m_X, Y), std::max(m_X, Y)}) == 0;
     }
 
 private:
@@ -214,13 +215,12 @@ void CKMostCorrelated::addVariables(std::size_t n) {
 
 void CKMostCorrelated::removeVariables(const TSizeVec& remove) {
     LOG_TRACE(<< "removing = " << core::CContainerPrinter::print(remove));
-    for (std::size_t i = 0u; i < remove.size(); ++i) {
-        if (remove[i] < m_Moments.size()) {
-            m_Moments[remove[i]] = TMeanVarAccumulator();
-            m_Projected.erase(remove[i]);
+    for (auto i : remove) {
+        if (i < m_Moments.size()) {
+            m_Moments[i] = TMeanVarAccumulator();
+            m_Projected.erase(i);
             m_MostCorrelated.erase(std::remove_if(m_MostCorrelated.begin(),
-                                                  m_MostCorrelated.end(),
-                                                  CMatches(remove[i])),
+                                                  m_MostCorrelated.end(), CMatches(i)),
                                    m_MostCorrelated.end());
         }
     }
@@ -252,10 +252,9 @@ void CKMostCorrelated::add(std::size_t X, double x) {
 void CKMostCorrelated::capture() {
     m_MaximumCount += 1.0;
 
-    for (TSizeVectorUMapCItr i = m_CurrentProjected.begin();
-         i != m_CurrentProjected.end(); ++i) {
-        std::size_t X = i->first;
-        TSizeVectorPackedBitVectorPrUMapItr j = m_Projected.find(X);
+    for (const auto& p : m_CurrentProjected) {
+        std::size_t X = p.first;
+        auto j = m_Projected.find(X);
         if (j == m_Projected.end()) {
             TVector zero(0.0);
             core::CPackedBitVector indicator(
@@ -265,11 +264,10 @@ void CKMostCorrelated::capture() {
                              boost::make_tuple(X), boost::make_tuple(zero, indicator))
                     .first;
         }
-        j->second.first += i->second;
+        j->second.first += p.second;
     }
-    for (TSizeVectorPackedBitVectorPrUMapItr i = m_Projected.begin();
-         i != m_Projected.end(); ++i) {
-        i->second.second.extend(m_CurrentProjected.count(i->first) > 0);
+    for (auto& p : m_Projected) {
+        p.second.second.extend(m_CurrentProjected.count(p.first) > 0);
     }
 
     m_Projections.pop_back();
@@ -278,17 +276,15 @@ void CKMostCorrelated::capture() {
     if (m_Projections.empty()) {
         LOG_TRACE(<< "# projections = " << m_Projected.size());
 
-        // For existing indices in the "most correlated" collection
-        // compute the updated statistics.
-        for (std::size_t i = 0u; i < m_MostCorrelated.size(); ++i) {
-            m_MostCorrelated[i].update(m_Projected);
+        // For existing indices in the "most correlated" collection compute
+        // the updated statistics.
+        for (auto& correlation : m_MostCorrelated) {
+            correlation.update(m_Projected);
         }
         std::stable_sort(m_MostCorrelated.begin(), m_MostCorrelated.end());
 
         // Remove any variables for which the correlation will necessarily be zero.
-        for (TSizeVectorPackedBitVectorPrUMapItr i = m_Projected.begin();
-             i != m_Projected.end();
-             /**/) {
+        for (auto i = m_Projected.begin(); i != m_Projected.end(); /**/) {
             const core::CPackedBitVector& indicator = i->second.second;
             if (indicator.manhattan() <=
                 MINIMUM_FREQUENCY * static_cast<double>(indicator.dimension())) {
@@ -299,8 +295,7 @@ void CKMostCorrelated::capture() {
         }
         LOG_TRACE(<< "# projections = " << m_Projected.size());
 
-        // Find the "most correlated" collection for the current
-        // projections.
+        // Find the "most correlated" collection for the current projections.
         TCorrelationVec add;
         this->mostCorrelated(add);
 
@@ -332,14 +327,8 @@ void CKMostCorrelated::capture() {
                 Z += oneMinusCorrelation;
             }
             if (Z > 0.0) {
-                for (std::size_t i = 0u; i < p.size(); ++i) {
-                    p[i] /= Z;
-                }
-                LOG_TRACE(<< "p = " << core::CContainerPrinter::print(p));
-
                 TSizeVec replace;
                 CSampling::categoricalSampleWithoutReplacement(m_Rng, p, n - added, replace);
-
                 for (std::size_t i = 1u; i <= n - added; ++i) {
                     m_MostCorrelated[vunerable + replace[i - 1]] = add[n - added - i];
                 }
@@ -399,7 +388,7 @@ void CKMostCorrelated::mostCorrelated(TCorrelationVec& result) const {
     for (std::size_t i = 0u; i < m_MostCorrelated.size(); ++i) {
         std::size_t X = m_MostCorrelated[i].s_X;
         std::size_t Y = m_MostCorrelated[i].s_Y;
-        lookup.insert(std::make_pair(std::min(X, Y), std::max(X, Y)));
+        lookup.insert({std::min(X, Y), std::max(X, Y)});
     }
 
     std::size_t replace = std::max(
@@ -412,13 +401,12 @@ void CKMostCorrelated::mostCorrelated(TCorrelationVec& result) const {
     if (10 * replace > V * (V - 1)) {
         LOG_TRACE(<< "Exhaustive search");
 
-        for (TSizeVectorPackedBitVectorPrUMapCItr x = m_Projected.begin();
-             x != m_Projected.end(); ++x) {
+        for (auto x = m_Projected.begin(); x != m_Projected.end(); ++x) {
             std::size_t X = x->first;
-            TSizeVectorPackedBitVectorPrUMapCItr y = x;
+            auto y = x;
             while (++y != m_Projected.end()) {
                 std::size_t Y = y->first;
-                if (lookup.count(std::make_pair(std::min(X, Y), std::max(X, Y))) == 0) {
+                if (lookup.count({std::min(X, Y), std::max(X, Y)}) == 0) {
                     SCorrelation cxy(X, x->second.first, x->second.second, Y,
                                      y->second.first, y->second.second);
                     mostCorrelated.add(cxy);
@@ -440,9 +428,8 @@ void CKMostCorrelated::mostCorrelated(TCorrelationVec& result) const {
         // Bound the correlation based on the sparsity of the metric.
         TMaxDoubleAccumulator fmax;
         double dimension = 0.0;
-        for (TSizeVectorPackedBitVectorPrUMapCItr i = m_Projected.begin();
-             i != m_Projected.end(); ++i) {
-            const core::CPackedBitVector& ix = i->second.second;
+        for (const auto& x : m_Projected) {
+            const core::CPackedBitVector& ix = x.second.second;
             dimension = static_cast<double>(ix.dimension());
             fmax.add(ix.manhattan() / dimension);
         }
@@ -454,9 +441,8 @@ void CKMostCorrelated::mostCorrelated(TCorrelationVec& result) const {
 
         TPointSizePrVec points;
         points.reserve(m_Projected.size());
-        for (TSizeVectorPackedBitVectorPrUMapCItr i = m_Projected.begin();
-             i != m_Projected.end(); ++i) {
-            points.emplace_back(i->second.first.to<double>().toBoostArray(), i->first);
+        for (const auto& x : m_Projected) {
+            points.emplace_back(x.second.first.to<double>().toBoostArray(), x.first);
         }
         LOG_TRACE(<< "# points = " << points.size());
 
@@ -473,9 +459,8 @@ void CKMostCorrelated::mostCorrelated(TCorrelationVec& result) const {
             std::sort(seeds.begin(), seeds.end());
             seeds.erase(std::unique(seeds.begin(), seeds.end()), seeds.end());
         } else {
-            seeds.reserve(V);
-            seeds.assign(boost::counting_iterator<std::size_t>(0),
-                         boost::counting_iterator<std::size_t>(V));
+            seeds.resize(V);
+            std::iota(seeds.begin(), seeds.end(), 0);
         }
 
         try {
@@ -497,33 +482,30 @@ void CKMostCorrelated::mostCorrelated(TCorrelationVec& result) const {
                                bgi::nearest((-px.first.to<double>()).toBoostArray(), k),
                            std::back_inserter(nearest));
 
-                for (std::size_t j = 0u; j < nearest.size(); ++j) {
+                for (const auto& neighbour : nearest) {
                     std::size_t n = mostCorrelated.count();
                     std::size_t S = n == desired ? mostCorrelated.biggest().s_X : 0;
                     std::size_t T = n == desired ? mostCorrelated.biggest().s_Y : 0;
-                    std::size_t Y = nearest[j].second;
+                    std::size_t Y = neighbour.second;
                     const TVectorPackedBitVectorPr& py = m_Projected.at(Y);
                     SCorrelation cxy(X, px.first, px.second, Y, py.first, py.second);
-                    if (lookup.count(std::make_pair(cxy.s_X, cxy.s_Y)) > 0) {
-                        continue;
-                    }
-                    if (mostCorrelated.add(cxy)) {
+                    if (lookup.count({cxy.s_X, cxy.s_Y}) == 0 && mostCorrelated.add(cxy)) {
                         if (n == desired) {
-                            lookup.erase(std::make_pair(S, T));
+                            lookup.erase({S, T});
                         }
-                        lookup.insert(std::make_pair(cxy.s_X, cxy.s_Y));
+                        lookup.insert({cxy.s_X, cxy.s_Y});
                     }
                 }
             }
             LOG_TRACE(<< "# seeds = " << mostCorrelated.count());
             LOG_TRACE(<< "seed most correlated = " << mostCorrelated);
 
-            for (std::size_t i = 0u; i < points.size(); ++i) {
+            for (const auto& point : points) {
                 const SCorrelation& biggest = mostCorrelated.biggest();
                 double threshold = biggest.distance(amax);
                 LOG_TRACE(<< "threshold = " << threshold);
 
-                std::size_t X = points[i].second;
+                std::size_t X = point.second;
                 const TVectorPackedBitVectorPr& px = m_Projected.at(X);
 
                 TVector width(std::sqrt(threshold));
@@ -550,21 +532,18 @@ void CKMostCorrelated::mostCorrelated(TCorrelationVec& result) const {
                 }
                 LOG_TRACE(<< "# candidates = " << nearest.size());
 
-                for (std::size_t j = 0u; j < nearest.size(); ++j) {
+                for (const auto& neighbour : nearest) {
                     std::size_t n = mostCorrelated.count();
                     std::size_t S = n == desired ? mostCorrelated.biggest().s_X : 0;
                     std::size_t T = n == desired ? mostCorrelated.biggest().s_Y : 0;
-                    std::size_t Y = nearest[j].second;
+                    std::size_t Y = neighbour.second;
                     const TVectorPackedBitVectorPr& py = m_Projected.at(Y);
                     SCorrelation cxy(X, px.first, px.second, Y, py.first, py.second);
-                    if (lookup.count(std::make_pair(cxy.s_X, cxy.s_Y)) > 0) {
-                        continue;
-                    }
-                    if (mostCorrelated.add(cxy)) {
+                    if (lookup.count({cxy.s_X, cxy.s_Y}) == 0 && mostCorrelated.add(cxy)) {
                         if (n == desired) {
-                            lookup.erase(std::make_pair(S, T));
+                            lookup.erase({S, T});
                         }
-                        lookup.insert(std::make_pair(cxy.s_X, cxy.s_Y));
+                        lookup.insert({cxy.s_X, cxy.s_Y});
                     }
                 }
             }
@@ -595,11 +574,11 @@ void CKMostCorrelated::nextProjection() {
 
     double factor = std::exp(-m_DecayRate);
     m_MaximumCount *= factor;
-    for (std::size_t i = 0u; i < m_Moments.size(); ++i) {
-        m_Moments[i].age(factor);
+    for (auto& moments : m_Moments) {
+        moments.age(factor);
     }
-    for (std::size_t i = 0u; i < m_MostCorrelated.size(); ++i) {
-        m_MostCorrelated[i].s_Correlation.age(factor);
+    for (auto& correlation : m_MostCorrelated) {
+        correlation.s_Correlation.age(factor);
     }
 }
 
@@ -673,8 +652,8 @@ bool CKMostCorrelated::SCorrelation::operator<(const SCorrelation& rhs) const {
 }
 
 void CKMostCorrelated::SCorrelation::update(const TSizeVectorPackedBitVectorPrUMap& projected) {
-    TSizeVectorPackedBitVectorPrUMapCItr x = projected.find(s_X);
-    TSizeVectorPackedBitVectorPrUMapCItr y = projected.find(s_Y);
+    auto x = projected.find(s_X);
+    auto y = projected.find(s_Y);
     if (x != projected.end() && y != projected.end()) {
         const TVector& px = x->second.first;
         const TVector& py = y->second.first;
