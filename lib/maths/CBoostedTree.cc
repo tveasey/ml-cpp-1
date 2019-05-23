@@ -580,6 +580,13 @@ public:
         // TODO
     }
 
+    //! Estimate the amount of memory that will be used for train.
+    std::size_t estimateMemoryUsedByTrain(std::size_t totalTrainingDataSize,
+                                          std::size_t dimension) const {
+        // TODO
+        return 0;
+    }
+
 private:
     using TDoubleDoublePrVec = std::vector<std::pair<double, double>>;
     using TOptionalDouble = boost::optional<double>;
@@ -1317,6 +1324,11 @@ void CBoostedTree::predict(core::CDataFrame& frame, TProgressCallback recordProg
 
 void CBoostedTree::write(core::CRapidJsonConcurrentLineWriter& writer) const {
     m_Impl->write(writer);
+}
+
+std::size_t CBoostedTree::estimateMemoryUsedByTrain(std::size_t totalTrainingDataSize,
+                                                    std::size_t dimension) const {
+    return m_Impl->estimateMemoryUsedByTrain(totalTrainingDataSize, dimension);
 }
 
 std::size_t CBoostedTree::numberExtraColumnsForTrain() const {

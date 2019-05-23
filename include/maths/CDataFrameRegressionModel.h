@@ -40,6 +40,13 @@ public:
     //! Write this model to \p writer.
     virtual void write(core::CRapidJsonConcurrentLineWriter& writer) const = 0;
 
+    //! Estimate the amount of memory that will be used for train.
+    //!
+    //! \param[in] totalTrainingDataSize The total number of training data points.
+    //! \param[in] dimension The dimension of the training data points.
+    virtual std::size_t estimateMemoryUsedByTrain(std::size_t totalTrainingDataSize,
+                                                  std::size_t dimension) const = 0;
+
     //! Get the number of columns training the model will add to the data frame.
     virtual std::size_t numberExtraColumnsForTrain() const = 0;
 
