@@ -45,7 +45,7 @@ bool CDataFrameUtils::standardizeColumns(std::size_t numberThreads, core::CDataF
                 }
             }
         },
-        TMeanVarAccumulatorVec{frame.numberColumns()});
+        TMeanVarAccumulatorVec(frame.numberColumns()));
 
     auto results = frame.readRows(numberThreads, computeColumnMoments);
     if (results.second == false) {
@@ -53,7 +53,7 @@ bool CDataFrameUtils::standardizeColumns(std::size_t numberThreads, core::CDataF
         return false;
     }
 
-    TMeanVarAccumulatorVec moments{frame.numberColumns()};
+    TMeanVarAccumulatorVec moments(frame.numberColumns());
     for (const auto& result : results.first) {
         for (std::size_t i = 0; i < moments.size(); ++i) {
             moments[i] += result.s_FunctionState[i];
@@ -80,6 +80,59 @@ bool CDataFrameUtils::standardizeColumns(std::size_t numberThreads, core::CDataF
     };
 
     return frame.writeColumns(numberThreads, standardiseColumns).second;
+}
+
+CDataFrameUtils::TDoubleVecVec
+CDataFrameUtils::categoryFrequencies(std::size_t numberThreads, const core::CDataFrame& frame) {
+
+    TDoubleVecVec result(frame.numberColumns());
+
+    if (frame.numberRows() == 0 || frame.numberColumns() == 0) {
+        return result;
+    }
+
+    const auto& columnIsCategorical = frame.columnIsCategorical();
+    if (columnIsCategorical.empty()) {
+        return result;
+    }
+
+    auto computeColumnMoments = core::bindRetrievableState(
+        [&](TDoubleVecVec& counts, TRowItr beginRows, TRowItr endRows) {
+            for (auto row = beginRows; row != endRows; ++row) {
+                for (std::size_t i = 0; i < row->numberColumns(); ++i) {
+                    if (columnIsCategorical[i]) {
+                        std::size_t id{static_cast<std::size_t>((*row)[i])};
+                        counts[i].resize(std::max(counts[i].size(), id + 1), 0.0);
+                        counts[i][id] += 1.0;
+                    }
+                }
+            }
+        },
+        TDoubleVecVec(frame.numberColumns()));
+
+    auto results = frame.readRows(numberThreads, computeColumnMoments);
+    if (results.second == false) {
+        HANDLE_FATAL(<< "Internal error: failed to calculate category frequencies."
+                     << " Please report this problem.");
+        return result;
+    }
+
+    for (const auto& counts_ : results.first) {
+        const TDoubleVecVec& counts{counts_.s_FunctionState};
+        for (std::size_t i = 0; i < counts.size(); ++i) {
+            result[i].resize(counts[i].size());
+        }
+    }
+    for (const auto& counts_ : results.first) {
+        const TDoubleVecVec& counts{counts_.s_FunctionState};
+        for (std::size_t i = 0; i < counts.size(); ++i) {
+            for (std::size_t j = 0; j < counts[i].size(); ++j) {
+                result[i][j] += counts[i][j] / static_cast<double>(frame.numberRows());
+            }
+        }
+    }
+
+    return result;
 }
 
 bool CDataFrameUtils::columnQuantiles(std::size_t numberThreads,

@@ -54,6 +54,7 @@ struct SRowTo<CDenseVector<T>> {
 class MATHS_EXPORT CDataFrameUtils : private core::CNonInstantiatable {
 public:
     using TDoubleVec = std::vector<double>;
+    using TDoubleVecVec = std::vector<TDoubleVec>;
     using TSizeVec = std::vector<std::size_t>;
     using TRowRef = core::CDataFrame::TRowRef;
     using TWeightFunction = std::function<double(TRowRef)>;
@@ -70,8 +71,17 @@ public:
     //! Subtract the mean and divide each column value by its standard deviation.
     //!
     //! \param[in] numberThreads The number of threads available.
-    //! \param[in] frame The data frame whose columns are to be standardized.
+    //! \param[in,out] frame The data frame whose columns are to be standardized.
     static bool standardizeColumns(std::size_t numberThreads, core::CDataFrame& frame);
+
+    //! Get the relative frequency of each category in \p frame.
+    //!
+    //! \param[in] numberThreads The number of threads available.
+    //! \param[in] frame The data frame for which to compute category frequencies.
+    //! \return The frequencies of each category indexed by column and then stored
+    //! category identifier.
+    static TDoubleVecVec categoryFrequencies(std::size_t numberThreads,
+                                             const core::CDataFrame& frame);
 
     //! Get a quantile sketch of each column's values.
     //!
