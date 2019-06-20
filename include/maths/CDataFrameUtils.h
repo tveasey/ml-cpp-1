@@ -74,15 +74,6 @@ public:
     //! \param[in,out] frame The data frame whose columns are to be standardized.
     static bool standardizeColumns(std::size_t numberThreads, core::CDataFrame& frame);
 
-    //! Get the relative frequency of each category in \p frame.
-    //!
-    //! \param[in] numberThreads The number of threads available.
-    //! \param[in] frame The data frame for which to compute category frequencies.
-    //! \return The frequencies of each category indexed by column and then stored
-    //! category identifier.
-    static TDoubleVecVec categoryFrequencies(std::size_t numberThreads,
-                                             const core::CDataFrame& frame);
-
     //! Get a quantile sketch of each column's values.
     //!
     //! \param[in] numberThreads The number of threads available.
@@ -105,13 +96,38 @@ public:
     //! by computing the maximum information coefficient (MIC).
     //!
     //! \param[in] frame The data frame for which to compute the column MICs.
-    //! \param[in] columnMask A mask of the columns for which to compute MIC.
+    //! \param[in] columnMask A mask of the columns to include.
     //! \param[in] targetColumn The column with which to compute MIC.
     //! \return A collection containing the MIC of each column with \p targetColumn
     //! indexed by column index.
     static TDoubleVec micWithColumn(const core::CDataFrame& frame,
                                     const TSizeVec& columnMask,
                                     std::size_t targetColumn);
+
+    //! Get the relative frequency of each category in \p frame.
+    //!
+    //! \param[in] numberThreads The number of threads available.
+    //! \param[in] frame The data frame for which to compute category frequencies.
+    //! \param[in] columnMask A mask of the columns to include.
+    //! \return The frequencies of each category indexed by column and then stored
+    //! category identifier.
+    static TDoubleVecVec categoryFrequencies(std::size_t numberThreads,
+                                             const core::CDataFrame& frame,
+                                             const TSizeVec& columnMask);
+
+    //! Compute the mean value of \p targetColumn on the restriction to the rows
+    //! labelled by each distinct category of the categorical columns.
+    //!
+    //! \param[in] numberThreads The number of threads available.
+    //! \param[in] frame The data frame for which to compute mean values.
+    //! \param[in] columnMask A mask of the columns to include.
+    //! \param[in] targetColumn The column whose mean values are computed.
+    //! \return The mean values of \p targetColumn indexed by column and then stored
+    //! category identifier.
+    static TDoubleVecVec meanValueOfTargetForCategories(std::size_t numberThreads,
+                                                        const core::CDataFrame& frame,
+                                                        const TSizeVec& columnMask,
+                                                        std::size_t targetColumn);
 
     //! Check if a data frame value is missing.
     static bool isMissing(double value);

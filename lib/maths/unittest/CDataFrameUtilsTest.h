@@ -12,9 +12,10 @@
 class CDataFrameUtilsTest : public CppUnit::TestFixture {
 public:
     void testStandardizeColumns();
-    void testCategoryFrequencies();
     void testColumnQuantiles();
     void testMicWithColumn();
+    void testCategoryFrequencies();
+    void testMeanValueOfTargetForCategories();
 
     static CppUnit::Test* suite();
 };

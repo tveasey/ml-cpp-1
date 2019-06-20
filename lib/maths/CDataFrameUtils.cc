@@ -28,6 +28,7 @@ const std::size_t NUMBER_SAMPLES_TO_COMPUTE_MIC{10000};
 }
 
 bool CDataFrameUtils::standardizeColumns(std::size_t numberThreads, core::CDataFrame& frame) {
+
     using TMeanVarAccumulatorVec =
         std::vector<CBasicStatistics::SSampleMeanVar<double>::TAccumulator>;
 
@@ -82,59 +83,6 @@ bool CDataFrameUtils::standardizeColumns(std::size_t numberThreads, core::CDataF
     return frame.writeColumns(numberThreads, standardiseColumns).second;
 }
 
-CDataFrameUtils::TDoubleVecVec
-CDataFrameUtils::categoryFrequencies(std::size_t numberThreads, const core::CDataFrame& frame) {
-
-    TDoubleVecVec result(frame.numberColumns());
-
-    if (frame.numberRows() == 0 || frame.numberColumns() == 0) {
-        return result;
-    }
-
-    const auto& columnIsCategorical = frame.columnIsCategorical();
-    if (columnIsCategorical.empty()) {
-        return result;
-    }
-
-    auto computeColumnMoments = core::bindRetrievableState(
-        [&](TDoubleVecVec& counts, TRowItr beginRows, TRowItr endRows) {
-            for (auto row = beginRows; row != endRows; ++row) {
-                for (std::size_t i = 0; i < row->numberColumns(); ++i) {
-                    if (columnIsCategorical[i]) {
-                        std::size_t id{static_cast<std::size_t>((*row)[i])};
-                        counts[i].resize(std::max(counts[i].size(), id + 1), 0.0);
-                        counts[i][id] += 1.0;
-                    }
-                }
-            }
-        },
-        TDoubleVecVec(frame.numberColumns()));
-
-    auto results = frame.readRows(numberThreads, computeColumnMoments);
-    if (results.second == false) {
-        HANDLE_FATAL(<< "Internal error: failed to calculate category frequencies."
-                     << " Please report this problem.");
-        return result;
-    }
-
-    for (const auto& counts_ : results.first) {
-        const TDoubleVecVec& counts{counts_.s_FunctionState};
-        for (std::size_t i = 0; i < counts.size(); ++i) {
-            result[i].resize(counts[i].size());
-        }
-    }
-    for (const auto& counts_ : results.first) {
-        const TDoubleVecVec& counts{counts_.s_FunctionState};
-        for (std::size_t i = 0; i < counts.size(); ++i) {
-            for (std::size_t j = 0; j < counts[i].size(); ++j) {
-                result[i][j] += counts[i][j] / static_cast<double>(frame.numberRows());
-            }
-        }
-    }
-
-    return result;
-}
-
 bool CDataFrameUtils::columnQuantiles(std::size_t numberThreads,
                                       const core::CDataFrame& frame,
                                       const core::CPackedBitVector& rowMask,
@@ -183,7 +131,14 @@ CDataFrameUtils::TDoubleVec CDataFrameUtils::micWithColumn(const core::CDataFram
     using TFloatVecVec = std::vector<TFloatVec>;
     using TRowSampler = CSampling::CRandomStreamSampler<TRowRef>;
 
-    TDoubleVec mics(frame.numberColumns());
+    TDoubleVec mics(frame.numberColumns(), 0.0);
+
+    if (targetColumn >= frame.numberColumns()) {
+        HANDLE_FATAL(<< "Internal error: target column out of bounds '"
+                     << targetColumn << " >= " << frame.numberColumns()
+                     << "'. Please report this problem.");
+        return mics;
+    }
 
     std::size_t n{std::min(NUMBER_SAMPLES_TO_COMPUTE_MIC, frame.numberRows())};
 
@@ -280,6 +235,137 @@ CDataFrameUtils::TDoubleVec CDataFrameUtils::micWithColumn(const core::CDataFram
     }
 
     return mics;
+}
+
+CDataFrameUtils::TDoubleVecVec
+CDataFrameUtils::categoryFrequencies(std::size_t numberThreads,
+                                     const core::CDataFrame& frame,
+                                     const TSizeVec& columnMask) {
+
+    TDoubleVecVec result(frame.numberColumns());
+
+    if (frame.numberRows() == 0 || frame.numberColumns() == 0) {
+        return result;
+    }
+
+    const auto& columnIsCategorical = frame.columnIsCategorical();
+    if (std::find_if(columnMask.begin(), columnMask.end(), [&](std::size_t i) {
+            return columnIsCategorical[i];
+        }) == columnMask.end()) {
+        return result;
+    }
+
+    auto results = frame.readRows(
+        numberThreads,
+        core::bindRetrievableState(
+            [&](TDoubleVecVec& counts, TRowItr beginRows, TRowItr endRows) {
+                for (auto row = beginRows; row != endRows; ++row) {
+                    for (std::size_t i : columnMask) {
+                        if (columnIsCategorical[i]) {
+                            std::size_t id{static_cast<std::size_t>((*row)[i])};
+                            counts[i].resize(std::max(counts[i].size(), id + 1), 0.0);
+                            counts[i][id] += 1.0;
+                        }
+                    }
+                }
+            },
+            TDoubleVecVec(frame.numberColumns())));
+
+    if (results.second == false) {
+        HANDLE_FATAL(<< "Internal error: failed to calculate category"
+                     << " frequencies. Please report this problem.");
+        return result;
+    }
+
+    for (const auto& counts_ : results.first) {
+        for (std::size_t i = 0; i < counts_.s_FunctionState.size(); ++i) {
+            result[i].resize(counts_.s_FunctionState[i].size());
+        }
+    }
+    for (const auto& counts_ : results.first) {
+        for (std::size_t i = 0; i < counts_.s_FunctionState.size(); ++i) {
+            for (std::size_t j = 0; j < counts_.s_FunctionState[i].size(); ++j) {
+                result[i][j] += counts_.s_FunctionState[i][j] /
+                                static_cast<double>(frame.numberRows());
+            }
+        }
+    }
+
+    return result;
+}
+
+CDataFrameUtils::TDoubleVecVec
+CDataFrameUtils::meanValueOfTargetForCategories(std::size_t numberThreads,
+                                                const core::CDataFrame& frame,
+                                                const TSizeVec& columnMask,
+                                                std::size_t targetColumn) {
+
+    TDoubleVecVec result(frame.numberColumns());
+
+    if (targetColumn >= frame.numberColumns()) {
+        HANDLE_FATAL(<< "Internal error: target column out of bounds '"
+                     << targetColumn << " >= " << frame.numberColumns()
+                     << "'. Please report this problem.");
+        return result;
+    }
+
+    if (frame.numberRows() == 0 || frame.numberColumns() == 0) {
+        return result;
+    }
+
+    using TMeanAccumulatorVec = std::vector<CBasicStatistics::SSampleMean<double>::TAccumulator>;
+    using TMeanAccumulatorVecVec = std::vector<TMeanAccumulatorVec>;
+
+    const auto& columnIsCategorical = frame.columnIsCategorical();
+    if (std::find_if(columnMask.begin(), columnMask.end(), [&](std::size_t i) {
+            return columnIsCategorical[i];
+        }) == columnMask.end()) {
+        return result;
+    }
+
+    auto results = frame.readRows(
+        numberThreads,
+        core::bindRetrievableState(
+            [&](TMeanAccumulatorVecVec& means, TRowItr beginRows, TRowItr endRows) {
+                for (auto row = beginRows; row != endRows; ++row) {
+                    for (std::size_t i : columnMask) {
+                        if (columnIsCategorical[i]) {
+                            std::size_t id{static_cast<std::size_t>((*row)[i])};
+                            means[i].resize(std::max(means[i].size(), id + 1));
+                            means[i][id].add((*row)[targetColumn]);
+                        }
+                    }
+                }
+            },
+            TMeanAccumulatorVecVec(frame.numberColumns())));
+
+    if (results.second == false) {
+        HANDLE_FATAL(<< "Internal error: failed to calculate mean target value"
+                     << " for categories. Please report this problem.");
+        return result;
+    }
+
+    TMeanAccumulatorVecVec means(frame.numberColumns());
+    for (const auto& means_ : results.first) {
+        for (std::size_t i = 0; i < means_.s_FunctionState.size(); ++i) {
+            means[i].resize(means_.s_FunctionState[i].size());
+        }
+    }
+    for (const auto& means_ : results.first) {
+        for (std::size_t i = 0; i < means_.s_FunctionState.size(); ++i) {
+            for (std::size_t j = 0; j < means_.s_FunctionState[i].size(); ++j) {
+                means[i][j] += means_.s_FunctionState[i][j];
+            }
+        }
+    }
+    for (std::size_t i = 0; i < result.size(); ++i) {
+        result[i].resize(means[i].size());
+        for (std::size_t j = 0; j < means[i].size(); ++j) {
+            result[i][j] = CBasicStatistics::mean(means[i][j]);
+        }
+    }
+
+    return result;
 }
 
 bool CDataFrameUtils::isMissing(double x) {
