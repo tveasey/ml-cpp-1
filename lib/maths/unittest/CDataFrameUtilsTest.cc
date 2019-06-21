@@ -11,6 +11,7 @@
 #include <maths/CBasicStatistics.h>
 #include <maths/CDataFrameUtils.h>
 #include <maths/CMic.h>
+#include <maths/COrderings.h>
 #include <maths/CQuantileSketch.h>
 
 #include <test/CRandomNumbers.h>
@@ -495,6 +496,95 @@ void CDataFrameUtilsTest::testMeanValueOfTargetForCategories() {
     core::stopDefaultAsyncExecutor();
 }
 
+void CDataFrameUtilsTest::testCategoryMicWithColumn() {
+
+    std::size_t rows{5000};
+    std::size_t cols{4};
+    std::size_t capacity{2000};
+
+    test::CRandomNumbers rng;
+
+    TDoubleVecVec frequencies;
+    rng.generateDirichletSamples({20.0, 60.0, 5.0, 15.0, 1.0}, cols - 1, frequencies);
+
+    TDoubleVecVec values(cols);
+    for (std::size_t i = 0; i < frequencies.size(); ++i) {
+        for (std::size_t j = 0; j < frequencies[i].size(); ++j) {
+            std::size_t target{static_cast<std::size_t>(
+                static_cast<double>(rows) * frequencies[i][j] + 0.5)};
+            std::size_t count{std::min(values[i].size() + target, rows)};
+            values[i].resize(count, j);
+        }
+        rng.random_shuffle(values[i].begin(), values[i].end());
+    }
+
+    values[cols - 1].resize(rows);
+    rng.generateNormalSamples(0.0, 1.0, rows, values[cols - 1]);
+    for (std::size_t i = 0; i < rows; ++i) {
+        values[cols - 1][i] += 2.0 * values[2][i];
+    }
+
+    TFactoryFunc makeOnDisk{[=] {
+        return core::makeDiskStorageDataFrame(test::CTestTmpDir::tmpDir(), cols, rows, capacity)
+            .first;
+    }};
+    TFactoryFunc makeMainMemory{
+        [=] { return core::makeMainStorageDataFrame(cols, capacity).first; }};
+
+    core::stopDefaultAsyncExecutor();
+
+    for (auto threads : {1, 4}) {
+
+        for (const auto& factory : {makeOnDisk, makeMainMemory}) {
+
+            auto frame = factory();
+
+            for (std::size_t i = 0; i < rows; ++i) {
+                frame->writeRow([&values, i, cols](core::CDataFrame::TFloatVecItr column,
+                                                   std::int32_t&) {
+                    for (std::size_t j = 0; j < cols; ++j, ++column) {
+                        *column = values[j][i];
+                    }
+                });
+            }
+            frame->finishWritingRows();
+            frame->writeCategoricalColumns({true, false, true, false});
+
+            auto mics = maths::CDataFrameUtils::categoryMicWithColumn(threads, *frame, {0, 1, 2}, 3);
+
+            LOG_DEBUG(<< "mics[0] = " << core::CContainerPrinter::print(mics[0]));
+            LOG_DEBUG(<< "mics[2] = " << core::CContainerPrinter::print(mics[2]));
+
+            CPPUNIT_ASSERT_EQUAL(std::size_t{4}, mics.size());
+            for (const auto& mic : mics) {
+                CPPUNIT_ASSERT(std::is_sorted(mic.begin(), mic.end(), [](const auto& lhs, const auto& rhs) {
+                    return maths::COrderings::lexicographical_compare(-lhs.second, lhs.first, -rhs.second, rhs.first);
+                }));
+            }
+            for (std::size_t i : {0, 2}) {
+                CPPUNIT_ASSERT_EQUAL(std::size_t{5}, mics[i].size());
+            }
+            for (std::size_t i : {1, 3}) {
+                CPPUNIT_ASSERT(mics[i].empty());
+            }
+
+            CPPUNIT_ASSERT(mics[0][0].second < 0.15);
+            CPPUNIT_ASSERT(mics[2][0].second > 0.45);
+
+            TSizeVec categoryOrder;
+            for (const auto& category : mics[2]) {
+                categoryOrder.push_back(category.first);
+            }
+            CPPUNIT_ASSERT_EQUAL(std::string{"[1, 3, 0, 4, 2]"},
+                                 core::CContainerPrinter::print(categoryOrder));
+        }
+
+        core::startDefaultAsyncExecutor();
+    }
+
+    core::stopDefaultAsyncExecutor();
+}
+
 CppUnit::Test* CDataFrameUtilsTest::suite() {
     CppUnit::TestSuite* suiteOfTests = new CppUnit::TestSuite("CDataFrameUtilsTest");
 
@@ -511,6 +601,9 @@ CppUnit::Test* CDataFrameUtilsTest::suite() {
     suiteOfTests->addTest(new CppUnit::TestCaller<CDataFrameUtilsTest>(
         "CDataFrameUtilsTest::testMeanValueOfTargetForCategories",
         &CDataFrameUtilsTest::testMeanValueOfTargetForCategories));
+    suiteOfTests->addTest(new CppUnit::TestCaller<CDataFrameUtilsTest>(
+        "CDataFrameUtilsTest::testCategoryMicWithColumn",
+        &CDataFrameUtilsTest::testCategoryMicWithColumn));
 
     return suiteOfTests;
 }

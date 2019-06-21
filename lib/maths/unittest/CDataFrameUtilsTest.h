@@ -16,6 +16,7 @@ public:
     void testMicWithColumn();
     void testCategoryFrequencies();
     void testMeanValueOfTargetForCategories();
+    void testCategoryMicWithColumn();
 
     static CppUnit::Test* suite();
 };
