@@ -67,7 +67,7 @@ double CMic::compute() {
 
         for (std::size_t l = 2; l < rootb; ++l) {
             TDoubleVec q(this->equipartitionAxis(Y, l));
-            TDoubleVec mi{this->optimizeXAxis(q, q.size(), q.size())};
+            TDoubleVec mi{this->optimizeXAxis(q, q.size(), l)};
             for (std::size_t p = 0; p < mi.size(); ++p) {
                 mic = std::max(mic, mi[p] / CTools::fastLog(static_cast<double>(p + 2)));
             }
@@ -75,7 +75,7 @@ double CMic::compute() {
 
         for (std::size_t l = rootb; l < b / 2; ++l) {
             TDoubleVec q(this->equipartitionAxis(Y, l));
-            TDoubleVec mi{this->optimizeXAxis(q, q.size(), b / q.size())};
+            TDoubleVec mi{this->optimizeXAxis(q, q.size(), b / l)};
             for (std::size_t p = 0; p < mi.size(); ++p) {
                 mic = std::max(mic, mi[p] / CTools::fastLog(static_cast<double>(p + 2)));
             }
