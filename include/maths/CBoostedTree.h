@@ -137,8 +137,8 @@ public:
     //! Set the fraction of features we'll use in the bag to build a tree.
     CBoostedTree& featureBagFraction(double featureBagFraction);
     //! Set the maximum number of optimisation rounds we'll use for hyperparameter
-    //! optimisation.
-    CBoostedTree& maximumHyperparameterOptimisationRounds(std::size_t rounds);
+    //! optimisation per parameter.
+    CBoostedTree& maximumOptimisationRoundsPerHyperparameter(std::size_t rounds);
     //@}
 
     //! Train the model on the values in \p frame.
@@ -156,6 +156,9 @@ public:
     //! \param[in] dimension The dimension of the training data points.
     virtual std::size_t estimateMemoryUsedByTrain(std::size_t totalTrainingDataSize,
                                                   std::size_t dimension) const override;
+
+    //! Get the feature weights the model has chosen.
+    TDoubleVec featureWeights() const override;
 
     //! Get the number of columns training the model will add to the data frame.
     std::size_t numberExtraColumnsForTrain() const override;

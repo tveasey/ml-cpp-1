@@ -24,6 +24,7 @@ namespace maths {
 //! on a data frame.
 class MATHS_EXPORT CDataFrameRegressionModel {
 public:
+    using TDoubleVec = std::vector<double>;
     using TProgressCallback = std::function<void(double)>;
     using TMemoryUsageCallback = std::function<void(std::uint64_t)>;
 
@@ -46,6 +47,9 @@ public:
     //! \param[in] dimension The dimension of the training data points.
     virtual std::size_t estimateMemoryUsedByTrain(std::size_t totalTrainingDataSize,
                                                   std::size_t dimension) const = 0;
+
+    //! Get the feature weights the model has chosen.
+    virtual TDoubleVec featureWeights() const = 0;
 
     //! Get the number of columns training the model will add to the data frame.
     virtual std::size_t numberExtraColumnsForTrain() const = 0;
