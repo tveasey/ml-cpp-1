@@ -318,21 +318,17 @@ public:
 
     //! Update the anomaly with prediction error and probability.
     //!
-    //! Extends the current anomaly if \p probability is small; otherwise,
-    //! it closes it. If the time series is currently anomalous, update the
-    //! model with the anomaly feature vector.
-    void sample(const CModelProbabilityParams& params,
-                core_t::TTime time,
-                double error,
-                double bucketProbability,
-                double overallProbability);
+    //! Update the current anomaly's feature vector and the anomaly model
+    //! with the new vector value if \p pBaseModel is small, otherwise
+    //! reset the feature vector.
+    void sample(const CModelProbabilityParams& params, core_t::TTime time, double error, double pBaseModel);
 
     //! Reset the mean error norm.
     void reset();
 
-    //! If the time series is currently anomalous, compute the anomalousness
-    //! of the anomaly feature vector.
-    TDoubleDoublePr probability(double bucketProbability, double overallProbability) const;
+    //! Compute the probability of the current anomaly's feature vector
+    //! value if \p pBaseModel is small.
+    TDoubleDoublePr probability(double pBaseModel) const;
 
     //! Age the model to account for \p time elapsed time.
     void propagateForwardsByTime(double time);
@@ -491,17 +487,15 @@ CTimeSeriesAnomalyModel::CTimeSeriesAnomalyModel(core_t::TTime bucketLength, dou
 void CTimeSeriesAnomalyModel::sample(const CModelProbabilityParams& params,
                                      core_t::TTime time,
                                      double predictionError,
-                                     double bucketProbability,
-                                     double overallProbability) {
+                                     double pBaseModel) {
 
-    if (overallProbability < this->largestAnomalyProbability()) {
+    if (pBaseModel < this->largestAnomalyProbability()) {
         if (m_Anomaly == boost::none) {
             m_Anomaly.reset(CAnomaly{this->scale(time)});
         }
-        if (bucketProbability < this->largestAnomalyProbability()) {
-            m_Anomaly->update(this->scale(time), predictionError);
-            this->sample(params, m_Anomaly->weight());
-        }
+        m_Anomaly->update(this->scale(time), predictionError);
+        this->sample(params, m_Anomaly->weight());
+
     } else if (m_Anomaly != boost::none) {
         this->sample(params, 1.0 - m_Anomaly->weight());
         m_Anomaly.reset();
@@ -526,13 +520,13 @@ void CTimeSeriesAnomalyModel::reset() {
     }
 }
 
-TDoubleDoublePr CTimeSeriesAnomalyModel::probability(double bucketProbability,
-                                                     double overallProbability) const {
+TDoubleDoublePr CTimeSeriesAnomalyModel::probability(double pBaseModel) const {
 
-    double anomalyProbability{1.0};
+    double pJoint{pBaseModel};
+    double pAnomalyModel{1.0};
 
-    if (overallProbability < this->largestAnomalyProbability() &&
-        this->anomalyProbability(anomalyProbability)) {
+    if (pBaseModel < this->largestAnomalyProbability() &&
+        this->anomalyProbability(pAnomalyModel)) {
 
         // We logarithmically interpolate the anomaly probability and the
         // probability we've determined for the bucket. This determines
@@ -563,20 +557,19 @@ TDoubleDoublePr CTimeSeriesAnomalyModel::probability(double bucketProbability,
 
         double a{-CTools::fastLog(this->largestAnomalyProbability())};
         double b{-CTools::fastLog(SMALL_PROBABILITY)};
-        double lambda{std::min(this->largestAnomalyProbability() / bucketProbability, 1.0)};
-        double logOverallProbability{CTools::fastLog(overallProbability)};
-        double logAnomalyProbability{CTools::fastLog(anomalyProbability)};
+        double lambda{std::min(this->largestAnomalyProbability() / pBaseModel, 1.0)};
+        double logPBaseModel{CTools::fastLog(pBaseModel)};
+        double logPAnomalyModel{CTools::fastLog(pAnomalyModel)};
 
-        double x{std::max((b + logOverallProbability) / (b - a), 0.0)};
-        double y{(1.0 - b / (b - logAnomalyProbability))};
+        double x{std::max((b + logPBaseModel) / (b - a), 0.0)};
+        double y{(1.0 - b / (b - logPAnomalyModel))};
         double alpha{0.5 * (1.0 - x + x * y)};
 
-        overallProbability = std::exp((1.0 - alpha) * logOverallProbability +
-                                      alpha * lambda * logAnomalyProbability);
-        LOG_TRACE(<< "alpha = " << alpha << ", p(combined) = " << overallProbability);
+        pJoint = std::exp((1.0 - alpha) * logPBaseModel + alpha * lambda * logPAnomalyModel);
+        LOG_TRACE(<< "alpha = " << alpha << ", p(combined) = " << pJoint);
     }
 
-    return {overallProbability, anomalyProbability};
+    return {pJoint, pAnomalyModel};
 }
 
 bool CTimeSeriesAnomalyModel::anomalyProbability(double& result) const {
@@ -1131,13 +1124,11 @@ bool CUnivariateTimeSeriesModel::uncorrelatedProbability(const CModelProbability
         double residual{
             (sample[0] - m_ResidualModel->nearestMarginalLikelihoodMean(sample[0])) /
             std::max(std::sqrt(this->seasonalWeight(0.0, time)[0]), 1.0)};
-        double pSingleBucket{
-            jointProbabilityGivenBucket(empty, pBucketEmpty, probabilities[0])};
 
-        m_AnomalyModel->sample(params, time, residual, pSingleBucket, pOverall);
+        m_AnomalyModel->sample(params, time, residual, pOverall);
 
         double pAnomaly;
-        std::tie(pOverall, pAnomaly) = m_AnomalyModel->probability(pSingleBucket, pOverall);
+        std::tie(pOverall, pAnomaly) = m_AnomalyModel->probability(pOverall);
         probabilities.push_back(pAnomaly);
         featureProbabilities.emplace_back(
             SModelProbabilityResult::E_AnomalyModelProbability, pAnomaly);
@@ -1273,10 +1264,10 @@ bool CUnivariateTimeSeriesModel::correlatedProbability(const CModelProbabilityPa
                                        mostAnomalousSample)) /
             std::max(std::sqrt(this->seasonalWeight(0.0, mostAnomalousTime)[0]), 1.0)};
 
-        m_AnomalyModel->sample(params, mostAnomalousTime, residual, pSingleBucket, pOverall);
+        m_AnomalyModel->sample(params, mostAnomalousTime, residual, pOverall);
 
         double pAnomaly;
-        std::tie(pOverall, pAnomaly) = m_AnomalyModel->probability(pSingleBucket, pOverall);
+        std::tie(pOverall, pAnomaly) = m_AnomalyModel->probability(pOverall);
         probabilities.push_back(pAnomaly);
         featureProbabilities.emplace_back(
             SModelProbabilityResult::E_AnomalyModelProbability, pAnomaly);
@@ -2697,13 +2688,11 @@ bool CMultivariateTimeSeriesModel::probability(const CModelProbabilityParams& pa
         for (std::size_t i = 0; i < dimension; ++i) {
             residual += (sample[0][i] - nearest[i]) / std::max(std::sqrt(scale[i]), 1.0);
         }
-        double pSingleBucket{
-            jointProbabilityGivenBucket(empty, pBucketEmpty, probabilities[0])};
 
-        m_AnomalyModel->sample(params, time, residual, pSingleBucket, pOverall);
+        m_AnomalyModel->sample(params, time, residual, pOverall);
 
         double pAnomaly;
-        std::tie(pOverall, pAnomaly) = m_AnomalyModel->probability(pSingleBucket, pOverall);
+        std::tie(pOverall, pAnomaly) = m_AnomalyModel->probability(pOverall);
         probabilities.push_back(pAnomaly);
         featureProbabilities.emplace_back(
             SModelProbabilityResult::E_AnomalyModelProbability, pAnomaly);
