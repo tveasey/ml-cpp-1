@@ -143,30 +143,6 @@ public:
                           double minimumScale,
                           const TWriteForecastResult& writer) = 0;
 
-    //! Detrend \p value from the time series being modeled by removing
-    //! any periodic component at \p time.
-    //!
-    //! \note That detrending preserves the time series mean.
-    virtual double detrend(core_t::TTime time,
-                           double value,
-                           double confidence,
-                           int components = E_All) const = 0;
-
-    //! Get the mean variance of the baseline.
-    virtual double meanVariance() const = 0;
-
-    //! Compute the variance scale at \p time.
-    //!
-    //! \param[in] time The time of interest.
-    //! \param[in] variance The variance of the distribution to scale.
-    //! \param[in] confidence The symmetric confidence interval for the
-    //! variance scale as a percentage.
-    virtual maths_t::TDoubleDoublePr
-    scale(core_t::TTime time, double variance, double confidence, bool smooth = true) const = 0;
-
-    //! Get the values in a recent time window.
-    virtual TFloatMeanAccumulatorVec windowValues(const TPredictor& predictor) const = 0;
-
     //! Roll time forwards by \p skipInterval.
     virtual void skipTime(core_t::TTime skipInterval) = 0;
 
@@ -182,6 +158,8 @@ public:
     //! Get the static size of this object.
     virtual std::size_t staticSize() const = 0;
 
+    //! \name Test interface
+    //@{
     //! Get the time shift which is being applied.
     virtual core_t::TTime timeShift() const = 0;
 
@@ -191,6 +169,7 @@ public:
     //! This is the latest time of any point added to this object or
     //! the time skipped to.
     virtual core_t::TTime lastValueTime() const = 0;
+    //@}
 
 protected:
     static void noop(TFloatMeanAccumulatorVec) {}

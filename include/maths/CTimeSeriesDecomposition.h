@@ -152,27 +152,6 @@ public:
                           double minimumScale,
                           const TWriteForecastResult& writer);
 
-    //! Detrend \p value from the time series being modeled by removing
-    //! any trend and periodic component at \p time.
-    virtual double
-    detrend(core_t::TTime time, double value, double confidence, int components = E_All) const;
-
-    //! Get the mean variance of the baseline.
-    virtual double meanVariance() const;
-
-    //! Compute the variance scale at \p time.
-    //!
-    //! \param[in] time The time of interest.
-    //! \param[in] variance The variance of the distribution
-    //! to scale.
-    //! \param[in] confidence The symmetric confidence interval
-    //! for the variance scale as a percentage.
-    virtual maths_t::TDoubleDoublePr
-    scale(core_t::TTime time, double variance, double confidence, bool smooth = true) const;
-
-    //! Get the values in a recent time window.
-    virtual TFloatMeanAccumulatorVec windowValues(const TPredictor& predictor) const;
-
     //! Roll time forwards by \p skipInterval.
     virtual void skipTime(core_t::TTime skipInterval);
 
@@ -188,6 +167,8 @@ public:
     //! Get the static size of this object.
     virtual std::size_t staticSize() const;
 
+    //! \name Test interface
+    //@{
     //! Get the time shift which is being applied.
     virtual core_t::TTime timeShift() const;
 
@@ -197,7 +178,8 @@ public:
     //! This is the latest time of any point added to this object or
     //! the time skipped to.
     virtual core_t::TTime lastValueTime() const;
-
+    //@}
+    
 private:
     using TMediatorPtr = std::unique_ptr<CMediator>;
 

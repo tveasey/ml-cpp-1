@@ -197,25 +197,35 @@ void CSeasonalComponentAdaptiveBucketing::linearScale(double scale) {
 void CSeasonalComponentAdaptiveBucketing::add(core_t::TTime time,
                                               double value,
                                               double prediction,
+                                              double logPrediction,
                                               double weight) {
     std::size_t bucket{0};
     if (!this->initialized() || !this->bucket(time, bucket)) {
         return;
     }
 
+    double logValue{CTools::fastLog(value)};
     weight = this->adjustedWeight(bucket, weight);
     this->CAdaptiveBucketing::add(bucket, time, weight);
 
     SBucket& bucket_{m_Buckets[bucket]};
     double t{m_Time->regression(time)};
     TRegression& regression{bucket_.s_Regression};
+    TRegression& logRegression{bucket_.s_LogRegression};
 
-    TDoubleMeanVarAccumulator moments = CBasicStatistics::momentsAccumulator(
-        regression.count(), prediction, static_cast<double>(bucket_.s_Variance));
+    TDoubleMeanVarAccumulator moments{CBasicStatistics::momentsAccumulator(
+        regression.count(), prediction, static_cast<double>(bucket_.s_Variance))};
     moments.add(value, weight * weight);
 
+    TDoubleMeanVarAccumulator logMoments{CBasicStatistics::momentsAccumulator(
+        regression.count(), logPrediction, static_cast<double>(bucket_.s_LogVariance))};
+    moments.add(logValue, weight * weight);
+
     regression.add(t, value, weight);
+    regression.add(t, logValue, weight);
+
     bucket_.s_Variance = CBasicStatistics::maximumLikelihoodVariance(moments);
+    bucket_.s_LogVariance = CBasicStatistics::maximumLikelihoodVariance(logMoments);
 
     if (std::fabs(value - prediction) >
         LARGE_ERROR_STANDARD_DEVIATIONS * std::sqrt(bucket_.s_Variance)) {
@@ -343,7 +353,7 @@ bool CSeasonalComponentAdaptiveBucketing::acceptRestoreTraverser(core::CStateRes
         }
         m_Buckets.clear();
         m_Buckets.reserve(regressions.size());
-        for (std::size_t i = 0u; i < regressions.size(); ++i) {
+        for (std::size_t i = 0; i < regressions.size(); ++i) {
             m_Buckets.emplace_back(regressions[i], variances[i], initialTime,
                                    lastUpdates[i]);
         }

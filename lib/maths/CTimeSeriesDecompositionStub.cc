@@ -74,29 +74,6 @@ void CTimeSeriesDecompositionStub::forecast(core_t::TTime /*startTime*/,
                                             const TWriteForecastResult& /*writer*/) {
 }
 
-double CTimeSeriesDecompositionStub::detrend(core_t::TTime /*time*/,
-                                             double value,
-                                             double /*confidence*/,
-                                             int /*components*/) const {
-    return value;
-}
-
-double CTimeSeriesDecompositionStub::meanVariance() const {
-    return 0.0;
-}
-
-maths_t::TDoubleDoublePr CTimeSeriesDecompositionStub::scale(core_t::TTime /*time*/,
-                                                             double /*variance*/,
-                                                             double /*confidence*/,
-                                                             bool /*smooth*/) const {
-    return {1.0, 1.0};
-}
-
-CTimeSeriesDecompositionStub::TFloatMeanAccumulatorVec
-CTimeSeriesDecompositionStub::windowValues(const TPredictor& /*predictor*/) const {
-    return {};
-}
-
 void CTimeSeriesDecompositionStub::skipTime(core_t::TTime /*skipInterval*/) {
 }
 

@@ -103,7 +103,7 @@ public:
     //! \param[in] prediction The prediction for \p value.
     //! \param[in] weight The weight of function point. The smaller
     //! this is the less influence it has on the bucket.
-    void add(core_t::TTime time, double value, double prediction, double weight = 1.0);
+    void add(core_t::TTime time, double value, double logPrediction, double prediction, double weight = 1.0);
 
     //! Age the bucket values to account for \p time elapsed time.
     void propagateForwardsByTime(double time, bool meanRevert = false);
@@ -155,7 +155,10 @@ private:
         bool isBad() const;
 
         TRegression s_Regression;
+        TRegression s_LogRegression;
         CFloatStorage s_Variance;
+        CFloatStorage s_LogVariance;
+        CFloatStorage s_Offset;
         core_t::TTime s_FirstUpdate;
         core_t::TTime s_LastUpdate;
     };

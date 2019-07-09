@@ -50,12 +50,12 @@ protected:
     //! \brief A low memory representation of the value and variance splines.
     class MATHS_EXPORT CPackedSplines {
     public:
-        enum ESpline { E_Value = 0, E_Variance = 1 };
+        enum ESpline { E_Value = 0, E_Variance = 1, E_LogValue = 2, E_LogVariance = 3 };
 
     public:
-        using TTypeArray = std::array<CSplineTypes::EType, 2>;
-        using TFloatVecArray = std::array<TFloatVec, 2>;
-        using TDoubleVecArray = std::array<TDoubleVec, 2>;
+        using TTypeArray = std::array<CSplineTypes::EType, 4>;
+        using TFloatVecArray = std::array<TFloatVec, 4>;
+        using TDoubleVecArray = std::array<TDoubleVec, 4>;
 
     public:
         CPackedSplines(CSplineTypes::EType valueInterpolationType,
@@ -78,7 +78,7 @@ protected:
         void clear();
 
         //! Shift the spline values by \p shift.
-        void shift(ESpline spline, double shift);
+        void shift(double shift);
 
         //! Get a constant spline reference.
         TSplineCRef spline(ESpline spline) const;
@@ -93,6 +93,8 @@ protected:
         void interpolate(const TDoubleVec& knots,
                          const TDoubleVec& values,
                          const TDoubleVec& variances,
+                         const TDoubleVec& logValues,
+                         const TDoubleVec& logVariances,
                          CSplineTypes::EBoundaryCondition boundary);
 
         //! Get a checksum for this object.
@@ -141,7 +143,11 @@ protected:
     //! \param[in] knots The spline knot points.
     //! \param[in] values The values at the spline knot points.
     //! \param[in] variances The variances at the spline knot points.
-    void interpolate(const TDoubleVec& knots, const TDoubleVec& values, const TDoubleVec& variances);
+    void interpolate(const TDoubleVec& knots,
+                     const TDoubleVec& values,
+                     const TDoubleVec& variances,
+                     const TDoubleVec& logValues,
+                     const TDoubleVec& logVariances);
 
     //! Shift the component's values by \p shift.
     void shiftLevel(double shift);
@@ -154,19 +160,16 @@ protected:
     //! as a percentage.
     TDoubleDoublePr value(double offset, double n, double confidence) const;
 
+    //! Interpolate the function at \p time.
+    //!
+    //! \param[in] offset The offset for which to get the value.
+    //! \param[in] n The bucket count containing \p offset.
+    //! \param[in] confidence The symmetric confidence interval for the variance
+    //! as a percentage.
+    TDoubleDoublePr logValue(double offset, double n, double confidence) const;
+
     //! Get the mean value of the function.
     double meanValue() const;
-
-    //! Get the variance of the residual about the function at \p time.
-    //!
-    //! \param[in] offset The offset for which to get the variance.
-    //! \param[in] n The bucket count containing \p offset.
-    //! \param[in] confidence The symmetric confidence interval for the
-    //! variance as a percentage.
-    TDoubleDoublePr variance(double offset, double n, double confidence) const;
-
-    //! Get the mean variance of the function residuals.
-    double meanVariance() const;
 
     //! Get the maximum size to use for the bucketing.
     std::size_t maxSize() const;
@@ -179,6 +182,12 @@ protected:
 
     //! Get the variance spline.
     TSplineCRef varianceSpline() const;
+
+    //! Get the value spline.
+    TSplineCRef logValueSpline() const;
+
+    //! Get the variance spline.
+    TSplineCRef logVarianceSpline() const;
 
     //! Get the underlying splines representation.
     const CPackedSplines& splines() const;
@@ -202,10 +211,7 @@ private:
     CPackedSplines m_Splines;
 
     //! The mean value in the period.
-    double m_MeanValue;
-
-    //! The mean residual variance in the period.
-    double m_MeanVariance;
+    double m_MeanValue = 0.0;
 };
 }
 }
