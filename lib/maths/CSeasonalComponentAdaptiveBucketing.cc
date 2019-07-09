@@ -255,19 +255,13 @@ void CSeasonalComponentAdaptiveBucketing::propagateForwardsByTime(double time, b
 }
 
 double CSeasonalComponentAdaptiveBucketing::count(core_t::TTime time) const {
-    const TRegression* regression = this->regression(time);
-    return regression ? regression->count() : 0.0;
-}
-
-const TRegression* CSeasonalComponentAdaptiveBucketing::regression(core_t::TTime time) const {
-    const TRegression* result{nullptr};
     if (this->initialized()) {
         std::size_t bucket{0};
         this->bucket(time, bucket);
         bucket = CTools::truncate(bucket, std::size_t(0), m_Buckets.size() - 1);
-        result = &m_Buckets[bucket].s_Regression;
+        return m_Buckets[bucket].s_Regression.count();
     }
-    return result;
+    return 0.0;
 }
 
 double CSeasonalComponentAdaptiveBucketing::slope() const {

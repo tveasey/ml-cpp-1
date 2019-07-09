@@ -163,13 +163,6 @@ public:
     //! Get the mean variance of the component residuals.
     double meanVariance() const;
 
-    //! Get the covariance matrix of the regression parameters' at \p time.
-    //!
-    //! \param[in] time The time of interest.
-    //! \param[out] result Filled in with the regression parameters'
-    //! covariance matrix.
-    bool covariances(core_t::TTime time, TMatrix& result) const;
-
     //! Get the value spline.
     TSplineCRef valueSpline() const;
 

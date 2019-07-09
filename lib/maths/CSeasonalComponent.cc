@@ -250,21 +250,6 @@ double CSeasonalComponent::meanVariance() const {
     return this->CDecompositionComponent::meanVariance();
 }
 
-bool CSeasonalComponent::covariances(core_t::TTime time, TMatrix& result) const {
-    result = TMatrix(0.0);
-
-    if (!this->initialized()) {
-        return false;
-    }
-
-    if (auto r = m_Bucketing.regression(time)) {
-        double variance{CBasicStatistics::mean(this->variance(time, 0.0))};
-        return r->covariances(variance, result);
-    }
-
-    return false;
-}
-
 CSeasonalComponent::TSplineCRef CSeasonalComponent::valueSpline() const {
     return this->CDecompositionComponent::valueSpline();
 }

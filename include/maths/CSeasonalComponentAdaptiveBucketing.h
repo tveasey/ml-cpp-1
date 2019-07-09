@@ -114,9 +114,6 @@ public:
     //! Get the count in the bucket containing \p time.
     double count(core_t::TTime time) const;
 
-    //! Get the regression to use at \p time.
-    const TRegression* regression(core_t::TTime time) const;
-
     //! Get the common slope of the bucket regression models.
     double slope() const;
 
