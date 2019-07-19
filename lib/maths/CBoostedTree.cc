@@ -832,7 +832,8 @@ private:
         std::iota(regressors.begin(), regressors.end(), 0);
         regressors.erase(regressors.begin() + m_DependentVariable);
 
-        TDoubleVec mics(CDataFrameUtils::micWithColumn(frame, regressors, m_DependentVariable));
+        TDoubleVec mics(CDataFrameUtils::micWithColumn(
+            CDataFrameUtils::CMetricColumnValue{m_DependentVariable}, frame, regressors));
 
         regressors.erase(
             std::remove_if(regressors.begin(), regressors.end(),
