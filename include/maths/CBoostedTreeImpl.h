@@ -15,10 +15,11 @@
 #include <core/CStateRestoreTraverser.h>
 
 #include <maths/CBasicStatistics.h>
-#include <maths/CBayesianOptimisation.h>
 #include <maths/CBoostedTree.h>
+#include <maths/CDataFrameCategoryEncoder.h>
 #include <maths/CDataFrameUtils.h>
 #include <maths/CLinearAlgebraEigen.h>
+#include <maths/CPRNG.h>
 #include <maths/CTools.h>
 #include <maths/ImportExport.h>
 
@@ -34,6 +35,8 @@
 
 namespace ml {
 namespace maths {
+class CBayesianOptimisation;
+
 namespace boosted_tree_detail {
 inline std::size_t predictionColumn(std::size_t numberColumns) {
     return numberColumns - 3;
@@ -58,6 +61,11 @@ public:
     CBoostedTreeImpl(std::size_t numberThreads,
                      std::size_t dependentVariable,
                      CBoostedTree::TLossFunctionUPtr loss);
+
+    ~CBoostedTreeImpl();
+
+    CBoostedTreeImpl& operator=(const CBoostedTreeImpl&) = delete;
+    CBoostedTreeImpl& operator=(CBoostedTreeImpl&&);
 
     //! Train the model on the values in \p frame.
     void train(core::CDataFrame& frame, CBoostedTree::TProgressCallback recordProgress);
@@ -97,8 +105,8 @@ private:
     using TSizeDoublePr = std::pair<std::size_t, double>;
     using TDoubleDoubleDoubleTr = std::tuple<double, double, double>;
     using TRowItr = core::CDataFrame::TRowItr;
-    using TRowRef = core::CDataFrame::TRowRef;
     using TPackedBitVectorVec = std::vector<core::CPackedBitVector>;
+    using TDataFrameCategoryEncoderUPtr = std::unique_ptr<CDataFrameCategoryEncoder>;
 
     class CNode;
     using TNodeVec = std::vector<CNode>;
@@ -138,8 +146,9 @@ private:
         bool isLeaf() const { return m_LeftChild < 0; }
 
         //! Get the leaf index for \p row.
-        std::size_t
-        leafIndex(const TRowRef& row, const TNodeVec& tree, std::int32_t index = 0) const {
+        std::size_t leafIndex(const CEncodedDataFrameRowRef& row,
+                              const TNodeVec& tree,
+                              std::int32_t index = 0) const {
             if (this->isLeaf()) {
                 return index;
             }
@@ -152,7 +161,7 @@ private:
         }
 
         //! Get the value predicted by \p tree for the feature vector \p row.
-        double value(const TRowRef& row, const TNodeVec& tree) const {
+        double value(const CEncodedDataFrameRowRef& row, const TNodeVec& tree) const {
             return tree[this->leafIndex(row, tree)].m_NodeValue;
         }
 
@@ -179,6 +188,7 @@ private:
         //! Get the row masks of the left and right children of this node.
         auto rowMasks(std::size_t numberThreads,
                       const core::CDataFrame& frame,
+                      const CDataFrameCategoryEncoder& encoder,
                       core::CPackedBitVector rowMask) const {
 
             LOG_TRACE(<< "Splitting feature '" << m_SplitFeature << "' @ " << m_SplitValue);
@@ -191,7 +201,7 @@ private:
                     [&](core::CPackedBitVector& leftRowMask, TRowItr beginRows, TRowItr endRows) {
                         for (auto row = beginRows; row != endRows; ++row) {
                             std::size_t index{row->index()};
-                            double value{(*row)[m_SplitFeature]};
+                            double value{encoder.encode(*row)[m_SplitFeature]};
                             bool missing{CDataFrameUtils::isMissing(value)};
                             if ((missing && m_AssignMissingToLeft) ||
                                 (missing == false && value < m_SplitValue)) {
@@ -270,6 +280,7 @@ private:
         CLeafNodeStatistics(std::size_t id,
                             std::size_t numberThreads,
                             const core::CDataFrame& frame,
+                            const CDataFrameCategoryEncoder& encoder,
                             double lambda,
                             double gamma,
                             const TDoubleVecVec& candidateSplits,
@@ -282,7 +293,7 @@ private:
             LOG_TRACE(<< "row mask = " << m_RowMask);
             LOG_TRACE(<< "feature bag = " << core::CContainerPrinter::print(m_FeatureBag));
 
-            this->computeAggregateLossDerivatives(numberThreads, frame);
+            this->computeAggregateLossDerivatives(numberThreads, frame, encoder);
         }
 
         //! This should only called by split but is public so it's accessible to make_shared.
@@ -339,6 +350,7 @@ private:
                    std::size_t rightChildId,
                    std::size_t numberThreads,
                    const core::CDataFrame& frame,
+                   const CDataFrameCategoryEncoder& encoder,
                    double lambda,
                    double gamma,
                    const TDoubleVecVec& candidateSplits,
@@ -348,7 +360,7 @@ private:
 
             if (leftChildRowMask.manhattan() < rightChildRowMask.manhattan()) {
                 auto leftChild = std::make_shared<CLeafNodeStatistics>(
-                    leftChildId, numberThreads, frame, lambda, gamma,
+                    leftChildId, numberThreads, frame, encoder, lambda, gamma,
                     candidateSplits, featureBag, std::move(leftChildRowMask));
                 auto rightChild = std::make_shared<CLeafNodeStatistics>(
                     rightChildId, *this, *leftChild, std::move(rightChildRowMask));
@@ -357,7 +369,7 @@ private:
             }
 
             auto rightChild = std::make_shared<CLeafNodeStatistics>(
-                rightChildId, numberThreads, frame, lambda, gamma,
+                rightChildId, numberThreads, frame, encoder, lambda, gamma,
                 candidateSplits, featureBag, std::move(rightChildRowMask));
             auto leftChild = std::make_shared<CLeafNodeStatistics>(
                 leftChildId, *this, *rightChild, std::move(leftChildRowMask));
@@ -459,14 +471,15 @@ private:
 
     private:
         void computeAggregateLossDerivatives(std::size_t numberThreads,
-                                             const core::CDataFrame& frame) {
+                                             const core::CDataFrame& frame,
+                                             const CDataFrameCategoryEncoder& encoder) {
 
             auto result = frame.readRows(
                 numberThreads, 0, frame.numberRows(),
                 core::bindRetrievableState(
                     [&](SDerivatives& state, TRowItr beginRows, TRowItr endRows) {
                         for (auto row = beginRows; row != endRows; ++row) {
-                            this->addRowDerivatives(*row, state);
+                            this->addRowDerivatives(encoder.encode(*row), state);
                         }
                     },
                     SDerivatives{m_CandidateSplits}),
@@ -500,7 +513,8 @@ private:
                       << core::CContainerPrinter::print(m_MissingCurvatures));
         }
 
-        void addRowDerivatives(const TRowRef& row, SDerivatives& derivatives) const;
+        void addRowDerivatives(const CEncodedDataFrameRowRef& row,
+                               SDerivatives& derivatives) const;
 
         const SSplitStatistics& bestSplitStatistics() const {
             if (m_BestSplit == boost::none) {
@@ -650,7 +664,7 @@ private:
     static const CNode& root(const TNodeVec& tree);
 
     //! Get the forest's prediction for \p row.
-    static double predictRow(const TRowRef& row, const TNodeVecVec& forest);
+    static double predictRow(const CEncodedDataFrameRowRef& row, const TNodeVecVec& forest);
 
     //! Select the next hyperparameters for which to train a model.
     bool selectNextHyperparameters(const TMeanVarAccumulator& lossMoments,
@@ -706,6 +720,7 @@ private:
     std::size_t m_RowsPerFeature = 50;
     double m_FeatureBagFraction = 0.5;
     double m_MaximumTreeSizeFraction = 1.0;
+    TDataFrameCategoryEncoderUPtr m_Encoder;
     TDoubleVec m_FeatureSampleProbabilities;
     TPackedBitVectorVec m_MissingFeatureRowMasks;
     TPackedBitVectorVec m_TrainingRowMasks;

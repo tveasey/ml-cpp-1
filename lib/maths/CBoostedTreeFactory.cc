@@ -10,6 +10,7 @@
 
 #include <maths/CBayesianOptimisation.h>
 #include <maths/CBoostedTreeImpl.h>
+#include <maths/CDataFrameCategoryEncoder.h>
 #include <maths/CSampling.h>
 
 namespace ml {
@@ -147,34 +148,22 @@ bool CBoostedTreeFactory::initializeFeatureSampleDistribution(const core::CDataF
     std::iota(regressors.begin(), regressors.end(), 0);
     regressors.erase(regressors.begin() + m_TreeImpl->m_DependentVariable);
 
-    TDoubleVec mics(CDataFrameUtils::micWithColumn(
-        CDataFrameUtils::CMetricColumnValue{m_TreeImpl->m_DependentVariable}, frame, regressors));
+    m_TreeImpl->m_Encoder = std::make_unique<CDataFrameCategoryEncoder>(
+        m_TreeImpl->m_NumberThreads, frame, regressors, m_TreeImpl->m_DependentVariable,
+        m_TreeImpl->m_RowsPerFeature, m_MinimumFrequencyToOneHotEncode);
 
-    regressors.erase(std::remove_if(regressors.begin(), regressors.end(),
-                                    [&](std::size_t i) { return mics[i] == 0.0; }),
-                     regressors.end());
-    LOG_TRACE(<< "candidate regressors = " << core::CContainerPrinter::print(regressors));
+    TDoubleVec mics(m_TreeImpl->m_Encoder->featureMics());
+    LOG_TRACE(<< "candidate regressors MICe = " << core::CContainerPrinter::print(mics));
 
-    m_TreeImpl->m_FeatureSampleProbabilities.assign(n, 0.0);
-    if (regressors.size() > 0) {
-        std::stable_sort(regressors.begin(), regressors.end(),
-                         [&mics](std::size_t lhs, std::size_t rhs) {
-                             return mics[lhs] > mics[rhs];
-                         });
-
-        std::size_t maximumNumberFeatures{frame.numberRows() / m_TreeImpl->m_RowsPerFeature};
-        LOG_TRACE(<< "Using up to " << maximumNumberFeatures << " out of "
-                  << regressors.size() << " features");
-
-        regressors.resize(std::min(maximumNumberFeatures, regressors.size()));
-
+    if (m_TreeImpl->m_FeatureSampleProbabilities.size() > 0) {
         double Z{std::accumulate(
             regressors.begin(), regressors.end(), 0.0,
             [&mics](double z, std::size_t i) { return z + mics[i]; })};
         LOG_TRACE(<< "Z = " << Z);
-        for (auto i : regressors) {
-            m_TreeImpl->m_FeatureSampleProbabilities[i] = mics[i] / Z;
+        for (auto& mic : mics) {
+            mic /= Z;
         }
+        m_TreeImpl->m_FeatureSampleProbabilities = std::move(mics);
         LOG_TRACE(<< "P(sample) = "
                   << core::CContainerPrinter::print(m_TreeImpl->m_FeatureSampleProbabilities));
         return true;
@@ -292,7 +281,18 @@ CBoostedTreeFactory& CBoostedTreeFactory::operator=(CBoostedTreeFactory&&) = def
 CBoostedTreeFactory::CBoostedTreeFactory(std::size_t numberThreads,
                                          std::size_t dependentVariable,
                                          CBoostedTree::TLossFunctionUPtr loss)
-    : m_TreeImpl{new CBoostedTreeImpl{numberThreads, dependentVariable, std::move(loss)}} {
+    : m_TreeImpl{std::make_unique<CBoostedTreeImpl>(numberThreads,
+                                                    dependentVariable,
+                                                    std::move(loss))} {
+}
+
+CBoostedTreeFactory& CBoostedTreeFactory::minimumFrequencyToOneHotEncode(double frequency) {
+    if (frequency >= 1.0) {
+        LOG_WARN(<< "Frequency to one-hot encode must be less than one");
+        frequency = 1.0 - std::numeric_limits<double>::epsilon();
+    }
+    m_MinimumFrequencyToOneHotEncode = frequency;
+    return *this;
 }
 
 CBoostedTreeFactory& CBoostedTreeFactory::numberFolds(std::size_t numberFolds) {

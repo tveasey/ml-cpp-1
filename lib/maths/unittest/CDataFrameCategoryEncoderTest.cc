@@ -73,23 +73,19 @@ void CDataFrameCategoryEncoderTest::testOneHotEncoding() {
                                  encoder.columnIsCategorical(i));
         }
 
-        CPPUNIT_ASSERT_EQUAL(
-            std::string{"[1, 2]"},
-            core::CContainerPrinter::print(encoder.selectedMetricFeatures()));
-
         TSizeVec expectedColumns{0, 0, 0, 0, 1, 2, 3};
+        TSizeVec expectedEncoding{0, 1, 2, 3, 0, 0, 0};
         CPPUNIT_ASSERT_EQUAL(expectedColumns.size(), encoder.numberFeatures());
         for (std::size_t i = 0; i < expectedColumns.size(); ++i) {
             CPPUNIT_ASSERT_EQUAL(expectedColumns[i], encoder.column(i));
+            CPPUNIT_ASSERT_EQUAL(expectedEncoding[i], encoder.encoding(i));
         }
 
         TSizeVecVec expectedOneHotEncodedCategories{{0, 1}, {}, {}, {}};
         for (std::size_t i = 0; i < cols; ++i) {
-            CPPUNIT_ASSERT_EQUAL(expectedOneHotEncodedCategories[i].size(),
-                                 encoder.numberOneHotEncodedCategories(i));
             if (encoder.columnIsCategorical(i)) {
                 for (auto j : expectedOneHotEncodedCategories[i]) {
-                    CPPUNIT_ASSERT_EQUAL(true, encoder.isOne(j, i, j));
+                    CPPUNIT_ASSERT_EQUAL(true, encoder.isHot(j, i, j));
                 }
             }
         }
@@ -253,9 +249,11 @@ void CDataFrameCategoryEncoderTest::testCorrelatedFeatures() {
         // the same information is carried by columns 0 and 1 so we should
         // choose columns 0 or 1 and column 5.
 
-        CPPUNIT_ASSERT_EQUAL(
-            std::string{"[1, 5]"},
-            core::CContainerPrinter::print(encoder.selectedMetricFeatures()));
+        TSizeVec expectedColumns{1, 5, 6};
+        CPPUNIT_ASSERT_EQUAL(expectedColumns.size(), encoder.numberFeatures());
+        for (std::size_t i = 0; i < encoder.numberFeatures(); ++i) {
+            CPPUNIT_ASSERT_EQUAL(expectedColumns[i], encoder.column(i));
+        }
     }
 
     // Two correlated categorical fields.
@@ -287,9 +285,12 @@ void CDataFrameCategoryEncoderTest::testCorrelatedFeatures() {
 
         maths::CDataFrameCategoryEncoder encoder{1, *frame, {0, 1}, 6, 50};
 
-        CPPUNIT_ASSERT_EQUAL(
-            std::string{"[0]"},
-            core::CContainerPrinter::print(encoder.selectedCategoricalFeatures()));
+        TSizeVec expectedColumns{0, 0, 0, 0, 6};
+        CPPUNIT_ASSERT_EQUAL(expectedColumns.size(), encoder.numberFeatures());
+        for (std::size_t i = 0; i < encoder.numberFeatures(); ++i) {
+            CPPUNIT_ASSERT_EQUAL(expectedColumns[i], encoder.column(i));
+        }
+
         CPPUNIT_ASSERT_EQUAL(static_cast<std::size_t>(numberCategories),
                              encoder.numberOneHotEncodedCategories(0));
     }
@@ -349,41 +350,36 @@ void CDataFrameCategoryEncoderTest::testEncodedDataFrameRowRef() {
     }
     frame->finishWritingRows();
 
+    auto expectedFrequencies =
+        maths::CDataFrameUtils::categoryFrequencies(1, *frame, {0, 2});
+    TSizeVecVec expectedOneHot{{0, 1, 2, 3}, {}, {0, 1, 3}, {}};
+    TSizeVecVec expectedRare{{4}, {}, {4}, {}};
+
     maths::CDataFrameCategoryEncoder encoder{1, *frame, {0, 1, 2, 3}, 4, 50};
+    LOG_DEBUG(<< "# features = " << encoder.numberFeatures());
 
     auto expectedEncoded = [&](const core::CDataFrame::TRowRef& row, std::size_t i) {
 
-        // We should have one-hot encoded categories 0 and 1 for each categorical
-        // feature, category 4 should be rare and 2 and 3 should be mean target
-        // encoded.
+        TSizeVec encoding{0, 1, 2, 3, 4, 0, 0, 0, 1, 2, 0};
 
         std::size_t categories[]{static_cast<std::size_t>(row[0]),
                                  static_cast<std::size_t>(row[3])};
 
-        if (i < 2) {
-            return categories[0] == i ? 1.0 : 0.0; // one-hot
+        if (i < expectedOneHot[0].size()) {
+            return categories[0] == expectedOneHot[0][encoder.encoding(i)] ? 1.0 : 0.0; // one-hot
         }
-        if (i == 2) {
-            return categories[0] == 4 ? 1.0 : 0.0; // rare
+        if (i < expectedOneHot[0].size() + expectedRare[0].size()) {
+            return categories[0] == 4 ? expectedFrequencies[0][encoder.encoding(i)]
+                                      : 0.0; // rare
         }
-        if (i == 3) {
-            return maths::CBasicStatistics::mean(
-                expectedTargetMeanValues[0][categories[0]]); // mean target
+        if (i < expectedOneHot[0].size() + expectedRare[0].size() + 2) {
+            return static_cast<double>(row[encoder.column(i)]); // metrics
         }
-        if (i < 6) {
-            return static_cast<double>(row[i - 3]); // metrics
+        if (i < expectedOneHot[0].size() + expectedRare[0].size() + 2 +
+                    expectedOneHot[2].size()) {
+            return categories[1] == expectedOneHot[2][encoder.encoding(i)] ? 1.0 : 0.0; // one-hot
         }
-        if (i < 8) {
-            return categories[1] == i - 6 ? 1.0 : 0.0; // one-hot
-        }
-        if (i == 8) {
-            return categories[1] == 4 ? 1.0 : 0.0; // rare
-        }
-        if (i == 9) {
-            return maths::CBasicStatistics::mean(
-                expectedTargetMeanValues[1][categories[1]]); // mean target
-        }
-        return static_cast<double>(row[4]); // target
+        return static_cast<double>(row[encoder.column(i)]); // target
     };
 
     bool passed{true};

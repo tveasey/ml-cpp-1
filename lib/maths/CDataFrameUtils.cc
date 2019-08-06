@@ -12,14 +12,16 @@
 #include <core/Concurrency.h>
 
 #include <maths/CBasicStatistics.h>
+#include <maths/CDataFrameCategoryEncoder.h>
 #include <maths/CMathsFuncs.h>
 #include <maths/CMic.h>
 #include <maths/COrderings.h>
 #include <maths/CQuantileSketch.h>
 #include <maths/CSampling.h>
 
-#include <boost/unordered_set.hpp>
+#include <boost/unordered_map.hpp>
 
+#include <memory>
 #include <vector>
 
 namespace ml {
@@ -27,12 +29,11 @@ namespace maths {
 namespace {
 using TFloatVec = std::vector<CFloatStorage>;
 using TFloatVecVec = std::vector<TFloatVec>;
-using TFloatFloatPr = std::pair<CFloatStorage, CFloatStorage>;
-using TFloatFloatPrVec = std::vector<TFloatFloatPr>;
-using TFloatUSet = boost::unordered_set<CFloatStorage, std::hash<double>>;
 using TRowItr = core::CDataFrame::TRowItr;
 using TRowRef = core::CDataFrame::TRowRef;
 using TRowSampler = CSampling::CRandomStreamSampler<TRowRef>;
+using TSizeEncoderPtrUMap =
+    boost::unordered_map<std::size_t, std::unique_ptr<CDataFrameUtils::CColumnValue>>;
 
 //! Reduce the results of a call to core::CDataFrame::readRows using \p reduceFirst
 //! for the first and \p reduce for the rest and writing the result \p reduction.
@@ -56,13 +57,13 @@ bool doReduce(std::pair<std::vector<READER>, bool> readResults,
 
 //! Get a row feature sampler.
 template<typename TARGET>
-auto rowFeatureSampler(std::size_t i, const TARGET& target, TFloatFloatPrVec& samples) {
+auto rowFeatureSampler(std::size_t i, const TARGET& target, TFloatVecVec& samples) {
     return [i, &target, &samples](std::size_t slot, const TRowRef& row) {
         if (slot >= samples.size()) {
             samples.resize(slot + 1, {0.0, 0.0});
         }
-        samples[slot].first = row[i];
-        samples[slot].second = target(row);
+        samples[slot][0] = row[i];
+        samples[slot][1] = target(row);
     };
 }
 
@@ -145,14 +146,26 @@ bool CDataFrameUtils::columnQuantiles(std::size_t numberThreads,
                                       const TSizeVec& columnMask,
                                       const CQuantileSketch& sketch,
                                       TQuantileSketchVec& result,
+                                      const CDataFrameCategoryEncoder* encoder,
                                       TWeightFunction weight) {
 
     auto readQuantiles = core::bindRetrievableState(
         [&](TQuantileSketchVec& quantiles, TRowItr beginRows, TRowItr endRows) {
-            for (auto row = beginRows; row != endRows; ++row) {
-                for (std::size_t i = 0; i < columnMask.size(); ++i) {
-                    if (isMissing((*row)[columnMask[i]]) == false) {
-                        quantiles[i].add((*row)[columnMask[i]], weight(*row));
+            if (encoder != nullptr) {
+                for (auto row = beginRows; row != endRows; ++row) {
+                    CEncodedDataFrameRowRef encodedRow{encoder->encode(*row)};
+                    for (std::size_t i = 0; i < columnMask.size(); ++i) {
+                        if (isMissing(encodedRow[columnMask[i]]) == false) {
+                            quantiles[i].add(encodedRow[columnMask[i]], weight(*row));
+                        }
+                    }
+                }
+            } else {
+                for (auto row = beginRows; row != endRows; ++row) {
+                    for (std::size_t i = 0; i < columnMask.size(); ++i) {
+                        if (isMissing((*row)[columnMask[i]]) == false) {
+                            quantiles[i].add((*row)[columnMask[i]], weight(*row));
+                        }
                     }
                 }
             }
@@ -186,13 +199,14 @@ CDataFrameUtils::categoryFrequencies(std::size_t numberThreads,
         return TDoubleVecVec(frame.numberColumns());
     }
 
+    // Note this can throw a length_error in resize hence the try block around read.
     auto readCategoryCounts = core::bindRetrievableState(
         [&](TDoubleVecVec& counts, TRowItr beginRows, TRowItr endRows) {
             for (auto row = beginRows; row != endRows; ++row) {
                 for (std::size_t i : columnMask) {
-                    std::size_t id{static_cast<std::size_t>((*row)[i])};
-                    counts[i].resize(std::max(counts[i].size(), id + 1), 0.0);
-                    counts[i][id] += 1.0;
+                    std::size_t category{static_cast<std::size_t>((*row)[i])};
+                    counts[i].resize(std::max(counts[i].size(), category + 1), 0.0);
+                    counts[i][category] += 1.0;
                 }
             }
         },
@@ -202,6 +216,7 @@ CDataFrameUtils::categoryFrequencies(std::size_t numberThreads,
     };
     auto reduceCategoryCounts = [](TDoubleVecVec counts, TDoubleVecVec& result) {
         for (std::size_t i = 0; i < counts.size(); ++i) {
+            result[i].resize(std::max(result[i].size(), counts[i].size()), 0.0);
             for (std::size_t j = 0; j < counts[i].size(); ++j) {
                 result[i][j] += counts[i][j];
             }
@@ -209,11 +224,16 @@ CDataFrameUtils::categoryFrequencies(std::size_t numberThreads,
     };
 
     TDoubleVecVec result;
-    if (doReduce(frame.readRows(numberThreads, readCategoryCounts),
-                 copyCategoryCounts, reduceCategoryCounts, result) == false) {
-        HANDLE_FATAL(<< "Internal error: failed to calculate category"
-                     << " frequencies. Please report this problem.");
-        return result;
+    try {
+        if (doReduce(frame.readRows(numberThreads, readCategoryCounts),
+                     copyCategoryCounts, reduceCategoryCounts, result) == false) {
+            HANDLE_FATAL(<< "Internal error: failed to calculate category"
+                         << " frequencies. Please report this problem.");
+            return result;
+        }
+    } catch (const std::exception& e) {
+        HANDLE_FATAL(<< "Internal error: '" << e.what() << "' exception calculating"
+                     << " category frequencies. Please report this problem.");
     }
     for (std::size_t i = 0; i < result.size(); ++i) {
         for (std::size_t j = 0; j < result[i].size(); ++j) {
@@ -240,13 +260,14 @@ CDataFrameUtils::meanValueOfTargetForCategories(const CColumnValue& target,
     using TMeanAccumulatorVec = std::vector<CBasicStatistics::SSampleMean<double>::TAccumulator>;
     using TMeanAccumulatorVecVec = std::vector<TMeanAccumulatorVec>;
 
+    // Note this can throw a length_error in resize hence the try block around read.
     auto readColumnMeans = core::bindRetrievableState(
         [&](TMeanAccumulatorVecVec& means_, TRowItr beginRows, TRowItr endRows) {
             for (auto row = beginRows; row != endRows; ++row) {
                 for (std::size_t i : columnMask) {
-                    std::size_t id{static_cast<std::size_t>((*row)[i])};
-                    means_[i].resize(std::max(means_[i].size(), id + 1));
-                    means_[i][id].add(target(*row));
+                    std::size_t category{static_cast<std::size_t>((*row)[i])};
+                    means_[i].resize(std::max(means_[i].size(), category + 1));
+                    means_[i][category].add(target(*row));
                 }
             }
         },
@@ -256,6 +277,7 @@ CDataFrameUtils::meanValueOfTargetForCategories(const CColumnValue& target,
     };
     auto reduceColumnMeans = [](TMeanAccumulatorVecVec means_, TMeanAccumulatorVecVec& means) {
         for (std::size_t i = 0; i < means_.size(); ++i) {
+            means[i].resize(std::max(means[i].size(), means_[i].size()));
             for (std::size_t j = 0; j < means_[i].size(); ++j) {
                 means[i][j] += means_[i][j];
             }
@@ -263,10 +285,16 @@ CDataFrameUtils::meanValueOfTargetForCategories(const CColumnValue& target,
     };
 
     TMeanAccumulatorVecVec means;
-    if (doReduce(frame.readRows(numberThreads, readColumnMeans),
-                 copyColumnMeans, reduceColumnMeans, means) == false) {
-        HANDLE_FATAL(<< "Internal error: failed to calculate mean target value"
-                     << " for categories. Please report this problem.");
+    try {
+        if (doReduce(frame.readRows(numberThreads, readColumnMeans),
+                     copyColumnMeans, reduceColumnMeans, means) == false) {
+            HANDLE_FATAL(<< "Internal error: failed to calculate mean target values"
+                         << " for categories. Please report this problem.");
+            return result;
+        }
+    } catch (const std::exception& e) {
+        HANDLE_FATAL(<< "Internal error: '" << e.what() << "' exception calculating"
+                     << " mean target values for categories. Please report this problem.");
         return result;
     }
     for (std::size_t i = 0; i < result.size(); ++i) {
@@ -279,41 +307,45 @@ CDataFrameUtils::meanValueOfTargetForCategories(const CColumnValue& target,
     return result;
 }
 
-CDataFrameUtils::TSizeDoublePrVecVec
-CDataFrameUtils::categoryMicWithColumn(const CColumnValue& target,
-                                       std::size_t numberThreads,
-                                       const core::CDataFrame& frame,
-                                       TSizeVec columnMask,
-                                       double minimumFrequency) {
+CDataFrameUtils::TSizeDoublePrVecVecVec
+CDataFrameUtils::categoricalMicWithColumn(const CColumnValue& target,
+                                          std::size_t numberThreads,
+                                          const core::CDataFrame& frame,
+                                          TSizeVec columnMask,
+                                          const TEncoderFactoryVec& encoderFactories) {
 
-    TSizeDoublePrVecVec none(frame.numberColumns());
+    TSizeDoublePrVecVecVec none(encoderFactories.size(),
+                                TSizeDoublePrVecVec(frame.numberColumns()));
 
     removeMetricColumns(frame, columnMask);
     if (frame.numberRows() == 0 || columnMask.empty()) {
         return none;
     }
 
-    auto method = frame.inMainMemory() ? categoryMicWithColumnDataFrameInMemory
-                                       : categoryMicWithColumnDataFrameOnDisk;
+    auto method = frame.inMainMemory() ? categoricalMicWithColumnDataFrameInMemory
+                                       : categoricalMicWithColumnDataFrameOnDisk;
 
-    TSizeDoublePrVecVec mics(method(
-        target, numberThreads, frame, columnMask,
-        std::min(NUMBER_SAMPLES_TO_COMPUTE_MIC, frame.numberRows()), minimumFrequency));
+    TSizeDoublePrVecVecVec mics(
+        method(target, numberThreads, frame, columnMask, encoderFactories,
+               std::min(NUMBER_SAMPLES_TO_COMPUTE_MIC, frame.numberRows())));
 
-    for (auto& categoryMics : mics) {
-        std::sort(categoryMics.begin(), categoryMics.end(),
-                  [](const TSizeDoublePr& lhs, const TSizeDoublePr& rhs) {
-                      return COrderings::lexicographical_compare(
-                          -lhs.second, lhs.first, -rhs.second, rhs.first);
-                  });
+    for (auto& encoderMics : mics) {
+        for (auto& categoryMics : encoderMics) {
+            std::sort(categoryMics.begin(), categoryMics.end(),
+                      [](const TSizeDoublePr& lhs, const TSizeDoublePr& rhs) {
+                          return COrderings::lexicographical_compare(
+                              -lhs.second, lhs.first, -rhs.second, rhs.first);
+                      });
+        }
     }
 
     return mics;
 }
 
-CDataFrameUtils::TDoubleVec CDataFrameUtils::micWithColumn(const CColumnValue& target,
-                                                           const core::CDataFrame& frame,
-                                                           TSizeVec columnMask) {
+CDataFrameUtils::TDoubleVec
+CDataFrameUtils::metricMicWithColumn(const CColumnValue& target,
+                                     const core::CDataFrame& frame,
+                                     TSizeVec columnMask) {
 
     TDoubleVec zeros(frame.numberColumns(), 0.0);
 
@@ -322,8 +354,8 @@ CDataFrameUtils::TDoubleVec CDataFrameUtils::micWithColumn(const CColumnValue& t
         return zeros;
     }
 
-    auto method = frame.inMainMemory() ? micWithColumnDataFrameInMemory
-                                       : micWithColumnDataFrameOnDisk;
+    auto method = frame.inMainMemory() ? metricMicWithColumnDataFrameInMemory
+                                       : metricMicWithColumnDataFrameOnDisk;
 
     return method(target, frame, columnMask,
                   std::min(NUMBER_SAMPLES_TO_COMPUTE_MIC, frame.numberRows()));
@@ -333,138 +365,170 @@ bool CDataFrameUtils::isMissing(double x) {
     return CMathsFuncs::isFinite(x) == false;
 }
 
-CDataFrameUtils::TSizeDoublePrVecVec
-CDataFrameUtils::categoryMicWithColumnDataFrameInMemory(const CColumnValue& target,
-                                                        std::size_t numberThreads,
-                                                        const core::CDataFrame& frame,
-                                                        const TSizeVec& columnMask,
-                                                        std::size_t numberSamples,
-                                                        double minimumFrequency) {
+CDataFrameUtils::TSizeDoublePrVecVecVec
+CDataFrameUtils::categoricalMicWithColumnDataFrameInMemory(const CColumnValue& target,
+                                                           std::size_t numberThreads,
+                                                           const core::CDataFrame& frame,
+                                                           const TSizeVec& columnMask,
+                                                           const TEncoderFactoryVec& encoderFactories,
+                                                           std::size_t numberSamples) {
 
-    TSizeDoublePrVecVec mics(frame.numberColumns());
+    TSizeDoublePrVecVecVec encoderMics;
+    encoderMics.reserve(encoderFactories.size());
 
-    TDoubleVecVec frequencies(categoryFrequencies(numberThreads, frame, columnMask));
-    LOG_TRACE(<< "frequencies = " << core::CContainerPrinter::print(frequencies));
+    for (const auto& encoderFactory_ : encoderFactories) {
 
-    TFloatFloatPrVec samples;
-    TFloatUSet categories;
-    CMic mic;
+        TEncoderFactory encoderFactory;
+        double minimumFrequency;
+        std::tie(encoderFactory, minimumFrequency) = encoderFactory_;
 
-    samples.reserve(numberSamples);
-    mic.reserve(numberSamples);
+        TSizeDoublePrVecVec mics(frame.numberColumns());
 
-    for (auto i : columnMask) {
+        TDoubleVecVec frequencies(categoryFrequencies(numberThreads, frame, columnMask));
+        LOG_TRACE(<< "frequencies = " << core::CContainerPrinter::print(frequencies));
+
+        TFloatVecVec samples;
+        TSizeEncoderPtrUMap encoders;
+        CMic mic;
+
+        samples.reserve(numberSamples);
+        mic.reserve(numberSamples);
+
+        for (auto i : columnMask) {
+
+            // Sample
+
+            TRowSampler sampler{numberSamples, rowFeatureSampler(i, target, samples)};
+            frame.readRows(1, [&](TRowItr beginRows, TRowItr endRows) {
+                for (auto row = beginRows; row != endRows; ++row) {
+                    std::size_t j{static_cast<std::size_t>((*row)[i])};
+                    if (frequencies[i][j] >= minimumFrequency &&
+                        isMissing(target(*row)) == false) {
+                        sampler.sample(*row);
+                    }
+                }
+            });
+            LOG_TRACE(<< "# samples = " << samples.size());
+
+            // Compute MICe
+
+            encoders.clear();
+            for (const auto& sample : samples) {
+                std::size_t category{static_cast<std::size_t>(std::floor(sample[0]))};
+                auto encoder = encoderFactory(i, 0, category);
+                std::size_t id{encoder->id()};
+                encoders.emplace(id, std::move(encoder));
+            }
+
+            TSizeDoublePrVec categoryMics;
+            categoryMics.reserve(encoders.size());
+            for (const auto& encoder : encoders) {
+                std::size_t category{encoder.first};
+                const auto& encode = *encoder.second;
+                mic.clear();
+                for (const auto& sample : samples) {
+                    mic.add(encode(sample), sample[1]);
+                }
+                categoryMics.emplace_back(category, mic.compute());
+            }
+            mics[i] = std::move(categoryMics);
+
+            samples.clear();
+        }
+
+        encoderMics.push_back(std::move(mics));
+    }
+
+    return encoderMics;
+}
+
+CDataFrameUtils::TSizeDoublePrVecVecVec
+CDataFrameUtils::categoricalMicWithColumnDataFrameOnDisk(const CColumnValue& target,
+                                                         std::size_t numberThreads,
+                                                         const core::CDataFrame& frame,
+                                                         const TSizeVec& columnMask,
+                                                         const TEncoderFactoryVec& encoderFactories,
+                                                         std::size_t numberSamples) {
+
+    TSizeDoublePrVecVecVec encoderMics;
+    encoderMics.reserve(encoderFactories.size());
+
+    for (const auto& encoderFactory_ : encoderFactories) {
+
+        TEncoderFactory encoderFactory;
+        double minimumFrequency;
+        std::tie(encoderFactory, minimumFrequency) = encoderFactory_;
+
+        TSizeDoublePrVecVec mics(frame.numberColumns());
+
+        TDoubleVecVec frequencies(categoryFrequencies(numberThreads, frame, columnMask));
+        LOG_TRACE(<< "frequencies = " << core::CContainerPrinter::print(frequencies));
+
+        TFloatVecVec samples;
+        TSizeEncoderPtrUMap encoders;
+        CMic mic;
+
+        samples.reserve(numberSamples);
+        mic.reserve(numberSamples);
 
         // Sample
+        //
+        // The law of large numbers means we have a high probability of sampling
+        // each category provided minimumFrequency * NUMBER_SAMPLES_TO_COMPUTE_MIC
+        // is large (which we ensure it is).
 
-        TRowSampler sampler{numberSamples, rowFeatureSampler(i, target, samples)};
+        TRowSampler sampler{numberSamples, rowSampler(samples)};
         frame.readRows(1, [&](TRowItr beginRows, TRowItr endRows) {
             for (auto row = beginRows; row != endRows; ++row) {
-                std::size_t j{static_cast<std::size_t>((*row)[i])};
-                if (frequencies[i][j] >= minimumFrequency && isMissing(target(*row)) == false) {
+                if (isMissing(target(*row)) == false) {
                     sampler.sample(*row);
                 }
             }
         });
         LOG_TRACE(<< "# samples = " << samples.size());
 
-        // Compute MICe
+        for (auto i : columnMask) {
 
-        categories.clear();
-        for (const auto& sample : samples) {
-            categories.insert(std::floor(sample.first));
-        }
-        LOG_TRACE(<< "feature = " << i
-                  << " categories = " << core::CContainerPrinter::print(categories));
-
-        TSizeDoublePrVec categoryMics;
-        categoryMics.reserve(categories.size());
-        for (auto category : categories) {
-            mic.clear();
+            encoders.clear();
             for (const auto& sample : samples) {
-                mic.add(std::floor(sample.first) != category ? 0.0 : 1.0, sample.second);
+                std::size_t category{static_cast<std::size_t>(sample[i])};
+                if (frequencies[i][category] >= minimumFrequency) {
+                    auto encoder = encoderFactory(i, i, category);
+                    std::size_t id{encoder->id()};
+                    encoders.emplace(id, std::move(encoder));
+                }
             }
-            categoryMics.emplace_back(static_cast<std::size_t>(category), mic.compute());
-        }
-        mics[i] = std::move(categoryMics);
 
-        samples.clear();
+            TSizeDoublePrVec categoryMics;
+            categoryMics.reserve(encoders.size());
+            for (const auto& encoder : encoders) {
+                std::size_t category{encoder.first};
+                const auto& encode = *encoder.second;
+                mic.clear();
+                for (const auto& sample : samples) {
+                    mic.add(encode(sample), target(sample));
+                }
+                categoryMics.emplace_back(static_cast<std::size_t>(category),
+                                          mic.compute());
+            }
+            mics[i] = std::move(categoryMics);
+        }
+
+        encoderMics.push_back(std::move(mics));
     }
 
-    return mics;
-}
-
-CDataFrameUtils::TSizeDoublePrVecVec
-CDataFrameUtils::categoryMicWithColumnDataFrameOnDisk(const CColumnValue& target,
-                                                      std::size_t numberThreads,
-                                                      const core::CDataFrame& frame,
-                                                      const TSizeVec& columnMask,
-                                                      std::size_t numberSamples,
-                                                      double minimumFrequency) {
-
-    TSizeDoublePrVecVec mics(frame.numberColumns());
-
-    TDoubleVecVec frequencies(categoryFrequencies(numberThreads, frame, columnMask));
-    LOG_TRACE(<< "frequencies = " << core::CContainerPrinter::print(frequencies));
-
-    TFloatVecVec samples;
-    TFloatUSet categories;
-    CMic mic;
-
-    samples.reserve(numberSamples);
-    mic.reserve(numberSamples);
-
-    // Sample
-    //
-    // The law of large numbers means we have a high probability of sampling
-    // each category provided minimumFrequency * NUMBER_SAMPLES_TO_COMPUTE_MIC
-    // is large (which we ensure it is).
-
-    TRowSampler sampler{numberSamples, rowSampler(samples)};
-    frame.readRows(1, [&](TRowItr beginRows, TRowItr endRows) {
-        for (auto row = beginRows; row != endRows; ++row) {
-            if (isMissing(target(*row)) == false) {
-                sampler.sample(*row);
-            }
-        }
-    });
-    LOG_TRACE(<< "# samples = " << samples.size());
-
-    for (auto i : columnMask) {
-        categories.clear();
-        for (const auto& sample : samples) {
-            std::size_t category{static_cast<std::size_t>(sample[i])};
-            if (frequencies[i][category] >= minimumFrequency) {
-                categories.insert(std::floor(sample[i]));
-            }
-        }
-        LOG_TRACE(<< "feature = " << i
-                  << " categories = " << core::CContainerPrinter::print(categories));
-
-        TSizeDoublePrVec categoryMics;
-        categoryMics.reserve(categories.size());
-        for (auto category : categories) {
-            mic.clear();
-            for (const auto& sample : samples) {
-                mic.add(std::floor(sample[i]) != category ? 0.0 : 1.0, target(sample));
-            }
-            categoryMics.emplace_back(static_cast<std::size_t>(category), mic.compute());
-        }
-        mics[i] = std::move(categoryMics);
-    }
-
-    return mics;
+    return encoderMics;
 }
 
 CDataFrameUtils::TDoubleVec
-CDataFrameUtils::micWithColumnDataFrameInMemory(const CColumnValue& target,
-                                                const core::CDataFrame& frame,
-                                                const TSizeVec& columnMask,
-                                                std::size_t numberSamples) {
+CDataFrameUtils::metricMicWithColumnDataFrameInMemory(const CColumnValue& target,
+                                                      const core::CDataFrame& frame,
+                                                      const TSizeVec& columnMask,
+                                                      std::size_t numberSamples) {
 
     TDoubleVec mics(frame.numberColumns(), 0.0);
 
-    TFloatFloatPrVec samples;
+    TFloatVecVec samples;
     samples.reserve(numberSamples);
 
     for (auto i : columnMask) {
@@ -495,7 +559,7 @@ CDataFrameUtils::micWithColumnDataFrameInMemory(const CColumnValue& target,
         CMic mic;
         mic.reserve(samples.size());
         for (const auto& sample : samples) {
-            mic.add(sample.first, sample.second);
+            mic.add(sample[0], sample[1]);
         }
 
         mics[i] = (1.0 - fractionMissing) * mic.compute();
@@ -506,10 +570,10 @@ CDataFrameUtils::micWithColumnDataFrameInMemory(const CColumnValue& target,
 }
 
 CDataFrameUtils::TDoubleVec
-CDataFrameUtils::micWithColumnDataFrameOnDisk(const CColumnValue& target,
-                                              const core::CDataFrame& frame,
-                                              const TSizeVec& columnMask,
-                                              std::size_t numberSamples) {
+CDataFrameUtils::metricMicWithColumnDataFrameOnDisk(const CColumnValue& target,
+                                                    const core::CDataFrame& frame,
+                                                    const TSizeVec& columnMask,
+                                                    std::size_t numberSamples) {
 
     TDoubleVec mics(frame.numberColumns(), 0.0);
 

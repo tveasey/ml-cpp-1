@@ -47,6 +47,8 @@ public:
     CBoostedTreeFactory(CBoostedTreeFactory&&);
     CBoostedTreeFactory& operator=(CBoostedTreeFactory&&);
 
+    //! Set the minimum fraction with a category value to one-hot encode.
+    CBoostedTreeFactory& minimumFrequencyToOneHotEncode(double frequency);
     //! Set the number of folds to use for estimating the generalisation error.
     CBoostedTreeFactory& numberFolds(std::size_t numberFolds);
     //! Set the lambda regularisation parameter.
@@ -108,6 +110,7 @@ private:
     std::size_t numberHyperparameterTuningRounds() const;
 
 private:
+    double m_MinimumFrequencyToOneHotEncode;
     TBoostedTreeImplUPtr m_TreeImpl;
     CBoostedTree::TProgressCallback m_ProgressCallback;
 };
