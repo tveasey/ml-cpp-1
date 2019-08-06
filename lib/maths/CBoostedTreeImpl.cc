@@ -12,6 +12,7 @@
 #include <maths/CDataFrameCategoryEncoder.h>
 #include <maths/CQuantileSketch.h>
 #include <maths/CSampling.h>
+#include <maths/CSetTools.h>
 
 namespace ml {
 namespace maths {
@@ -33,6 +34,14 @@ double readPrediction(const TRowRef& row) {
     return row[predictionColumn(row.numberColumns())];
 }
 
+double readLossGradient(const TRowRef& row) {
+    return row[lossGradientColumn(row.numberColumns())];
+}
+
+double readLossCurvature(const TRowRef& row) {
+    return row[lossCurvatureColumn(row.numberColumns())];
+}
+
 double readActual(const TRowRef& row, std::size_t dependentVariable) {
     return row[dependentVariable];
 }
@@ -41,21 +50,19 @@ double readActual(const TRowRef& row, std::size_t dependentVariable) {
 void CBoostedTreeImpl::CLeafNodeStatistics::addRowDerivatives(const CEncodedDataFrameRowRef& row,
                                                               SDerivatives& derivatives) const {
 
-    std::size_t numberColumns{row.numberColumns()};
-    std::size_t gradientColumn{lossGradientColumn(numberColumns)};
-    std::size_t curvatureColumn{lossCurvatureColumn(numberColumns)};
+    const TRowRef& unencodedRow{row.unencodedRow()};
 
     for (std::size_t i = 0; i < m_CandidateSplits.size(); ++i) {
         double featureValue{row[i]};
         if (CDataFrameUtils::isMissing(featureValue)) {
-            derivatives.s_MissingGradients[i] += row[gradientColumn];
-            derivatives.s_MissingCurvatures[i] += row[curvatureColumn];
+            derivatives.s_MissingGradients[i] += readLossGradient(unencodedRow);
+            derivatives.s_MissingCurvatures[i] += readLossCurvature(unencodedRow);
         } else {
             auto j = std::upper_bound(m_CandidateSplits[i].begin(),
                                       m_CandidateSplits[i].end(), featureValue) -
                      m_CandidateSplits[i].begin();
-            derivatives.s_Gradients[i][j] += row[gradientColumn];
-            derivatives.s_Curvatures[i][j] += row[curvatureColumn];
+            derivatives.s_Gradients[i][j] += readLossGradient(unencodedRow);
+            derivatives.s_Curvatures[i][j] += readLossCurvature(unencodedRow);
         }
     }
 }
@@ -72,6 +79,7 @@ CBoostedTreeImpl& CBoostedTreeImpl::operator=(CBoostedTreeImpl&&) = default;
 
 void CBoostedTreeImpl::train(core::CDataFrame& frame,
                              CBoostedTree::TProgressCallback recordProgress) {
+
     LOG_TRACE(<< "Main training loop...");
 
     if (this->canTrain() == false) {
@@ -184,9 +192,8 @@ CBoostedTreeImpl::regularisedLoss(const core::CDataFrame& frame,
         core::bindRetrievableState(
             [&](double& loss, TRowItr beginRows, TRowItr endRows) {
                 for (auto row = beginRows; row != endRows; ++row) {
-                    std::size_t numberColumns{row->numberColumns()};
-                    loss += m_Loss->value((*row)[predictionColumn(numberColumns)],
-                                          (*row)[m_DependentVariable]);
+                    loss += m_Loss->value(readPrediction(*row),
+                                          readActual(*row, m_DependentVariable));
                 }
             },
             0.0),
@@ -302,16 +309,23 @@ CBoostedTreeImpl::candidateSplits(const core::CDataFrame& frame,
     TSizeVec features{this->candidateFeatures()};
     LOG_TRACE(<< "candidate features = " << core::CContainerPrinter::print(features));
 
+    TSizeVec binaryFeatures(features);
+    binaryFeatures.erase(std::remove_if(
+        binaryFeatures.begin(), binaryFeatures.end(),
+        [this](std::size_t index) { return m_Encoder->isBinary(index); }));
+    CSetTools::inplace_set_difference(features, binaryFeatures.begin(),
+                                      binaryFeatures.end());
+
     TQuantileSketchVec columnQuantiles;
-    CDataFrameUtils::columnQuantiles(
-        m_NumberThreads, frame, trainingRowMask, features,
-        CQuantileSketch{CQuantileSketch::E_Linear, 100}, columnQuantiles,
-        m_Encoder.get(), [](const TRowRef& row) {
-            return row[lossCurvatureColumn(row.numberColumns())];
-        });
+    CDataFrameUtils::columnQuantiles(m_NumberThreads, frame, trainingRowMask, features,
+                                     CQuantileSketch{CQuantileSketch::E_Linear, 100},
+                                     columnQuantiles, m_Encoder.get(), readLossCurvature);
 
-    TDoubleVecVec result(numberFeatures(frame));
+    TDoubleVecVec result(this->numberFeatures());
 
+    for (std::size_t i : binaryFeatures) {
+        result[binaryFeatures[i]] = TDoubleVec{0.5};
+    }
     for (std::size_t i = 0; i < features.size(); ++i) {
 
         TDoubleVec columnSplits;
@@ -358,7 +372,7 @@ CBoostedTreeImpl::trainTree(core::CDataFrame& frame,
     TLeafNodeStatisticsPtrQueue leaves;
     leaves.push(std::make_shared<CLeafNodeStatistics>(
         0 /*root*/, m_NumberThreads, frame, *m_Encoder, m_Lambda, m_Gamma,
-        candidateSplits, this->featureBag(frame), trainingRowMask));
+        candidateSplits, this->featureBag(), trainingRowMask));
 
     // For each iteration we:
     //   1. Find the leaf with the greatest decrease in loss
@@ -389,7 +403,7 @@ CBoostedTreeImpl::trainTree(core::CDataFrame& frame,
         std::tie(leftChildId, rightChildId) = tree[leaf->id()].split(
             splitFeature, splitValue, assignMissingToLeft, tree);
 
-        TSizeVec featureBag{this->featureBag(frame)};
+        TSizeVec featureBag{this->featureBag()};
 
         core::CPackedBitVector leftChildRowMask;
         core::CPackedBitVector rightChildRowMask;
@@ -412,14 +426,18 @@ CBoostedTreeImpl::trainTree(core::CDataFrame& frame,
     return tree;
 }
 
-std::size_t CBoostedTreeImpl::featureBagSize(const core::CDataFrame& frame) const {
-    return static_cast<std::size_t>(std::max(
-        std::ceil(m_FeatureBagFraction * static_cast<double>(numberFeatures(frame))), 1.0));
+std::size_t CBoostedTreeImpl::numberFeatures() const {
+    return m_Encoder->numberFeatures();
 }
 
-CBoostedTreeImpl::TSizeVec CBoostedTreeImpl::featureBag(const core::CDataFrame& frame) const {
+std::size_t CBoostedTreeImpl::featureBagSize() const {
+    return static_cast<std::size_t>(std::max(
+        std::ceil(m_FeatureBagFraction * static_cast<double>(this->numberFeatures())), 1.0));
+}
 
-    std::size_t size{this->featureBagSize(frame)};
+CBoostedTreeImpl::TSizeVec CBoostedTreeImpl::featureBag() const {
+
+    std::size_t size{this->featureBagSize()};
 
     TSizeVec features{this->candidateFeatures()};
     if (size >= features.size()) {

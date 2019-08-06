@@ -28,10 +28,12 @@ CBoostedTreeFactory::TBoostedTreeUPtr CBoostedTreeFactory::buildFor(core::CDataF
 
     // We store the gradient and curvature of the loss function and the predicted
     // value for the dependent variable of the regression.
-    frame.resizeColumns(m_TreeImpl->m_NumberThreads, frame.numberColumns() + 3);
+    frame.resizeColumns(m_TreeImpl->m_NumberThreads,
+                        frame.numberColumns() + this->numberExtraColumnsForTrain());
 
-    // TODO we should do feature selection per fold.
-    if (this->initializeFeatureSampleDistribution(frame)) {
+    this->selectFeaturesAndEncodeCategories(frame);
+
+    if (this->initializeFeatureSampleDistribution()) {
         this->initializeHyperparameters(frame, m_ProgressCallback);
         this->initializeHyperparameterOptimisation();
     }
@@ -138,27 +140,29 @@ CBoostedTreeFactory::crossValidationRowMasks() const {
     return {trainingRowMasks, testingRowMasks};
 }
 
-bool CBoostedTreeFactory::initializeFeatureSampleDistribution(const core::CDataFrame& frame) const {
+void CBoostedTreeFactory::selectFeaturesAndEncodeCategories(const core::CDataFrame& frame) const {
 
-    // Exclude all constant features by zeroing their probabilities.
+    // TODO we should do feature selection per fold.
 
-    std::size_t n{numberFeatures(frame)};
-
-    TSizeVec regressors(n);
+    TSizeVec regressors(frame.numberColumns() - this->numberExtraColumnsForTrain());
     std::iota(regressors.begin(), regressors.end(), 0);
     regressors.erase(regressors.begin() + m_TreeImpl->m_DependentVariable);
 
     m_TreeImpl->m_Encoder = std::make_unique<CDataFrameCategoryEncoder>(
         m_TreeImpl->m_NumberThreads, frame, regressors, m_TreeImpl->m_DependentVariable,
         m_TreeImpl->m_RowsPerFeature, m_MinimumFrequencyToOneHotEncode);
+}
+
+bool CBoostedTreeFactory::initializeFeatureSampleDistribution() const {
+
+    // Compute feature sample probabilities.
 
     TDoubleVec mics(m_TreeImpl->m_Encoder->featureMics());
     LOG_TRACE(<< "candidate regressors MICe = " << core::CContainerPrinter::print(mics));
 
     if (m_TreeImpl->m_FeatureSampleProbabilities.size() > 0) {
-        double Z{std::accumulate(
-            regressors.begin(), regressors.end(), 0.0,
-            [&mics](double z, std::size_t i) { return z + mics[i]; })};
+        double Z{std::accumulate(mics.begin(), mics.end(), 0.0,
+                                 [](double z, double mic) { return z + mic; })};
         LOG_TRACE(<< "Z = " << Z);
         for (auto& mic : mics) {
             mic /= Z;

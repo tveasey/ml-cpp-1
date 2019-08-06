@@ -225,6 +225,10 @@ std::size_t CEncodedDataFrameRowRef::numberColumns() const {
     return m_Encoder->numberFeatures();
 }
 
+const CEncodedDataFrameRowRef::TRowRef& CEncodedDataFrameRowRef::unencodedRow() const {
+    return m_Row;
+}
+
 CDataFrameCategoryEncoder::CDataFrameCategoryEncoder(std::size_t numberThreads,
                                                      const core::CDataFrame& frame,
                                                      const TSizeVec& columnMask,
@@ -294,6 +298,12 @@ std::size_t CDataFrameCategoryEncoder::encoding(std::size_t index) const {
 
 std::size_t CDataFrameCategoryEncoder::column(std::size_t index) const {
     return m_FeatureVectorColumnMap[index];
+}
+
+bool CDataFrameCategoryEncoder::isBinary(std::size_t index) const {
+    std::size_t encoding{this->encoding(index)};
+    std::size_t feature{this->column(index)};
+    return encoding < m_OneHotEncodedCategories[feature].size();
 }
 
 std::size_t CDataFrameCategoryEncoder::numberOneHotEncodedCategories(std::size_t feature) const {

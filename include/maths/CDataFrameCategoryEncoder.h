@@ -57,6 +57,9 @@ public:
         }
     }
 
+    //! Get the underlying row reference.
+    const TRowRef& unencodedRow() const;
+
 private:
     TRowRef m_Row;
     const CDataFrameCategoryEncoder* m_Encoder;
@@ -120,6 +123,9 @@ public:
 
     //! Get the data frame column of \p index into the feature vector.
     std::size_t column(std::size_t index) const;
+
+    //! Check if \p index is a binary feature.
+    bool isBinary(std::size_t index) const;
 
     //! Get the number of one-hot encoded categories for \p feature.
     std::size_t numberOneHotEncodedCategories(std::size_t feature) const;

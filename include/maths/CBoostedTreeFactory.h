@@ -94,8 +94,10 @@ private:
 
     std::pair<TPackedBitVectorVec, TPackedBitVectorVec> crossValidationRowMasks() const;
 
+    void selectFeaturesAndEncodeCategories(const core::CDataFrame& frame) const;
+
     //! Initialize the regressors sample distribution.
-    bool initializeFeatureSampleDistribution(const core::CDataFrame& frame) const;
+    bool initializeFeatureSampleDistribution() const;
 
     //! Read overrides for hyperparameters and if necessary estimate the initial
     //! values for \f$\lambda\f$ and \f$\gamma\f$ which match the gain from an

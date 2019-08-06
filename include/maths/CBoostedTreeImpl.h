@@ -41,9 +41,8 @@ namespace boosted_tree_detail {
 inline std::size_t predictionColumn(std::size_t numberColumns) {
     return numberColumns - 3;
 }
-
-inline std::size_t numberFeatures(const core::CDataFrame& frame) {
-    return frame.numberColumns() - 3;
+inline std::size_t numberColumnsAddedToDataFrame() {
+    return 3;
 }
 }
 
@@ -639,11 +638,14 @@ private:
                        const core::CPackedBitVector& trainingRowMask,
                        const TDoubleVecVec& candidateSplits) const;
 
+    //! Get the number of features including category encoding.
+    std::size_t numberFeatures() const;
+
     //! Get the number of features to consider splitting on.
-    std::size_t featureBagSize(const core::CDataFrame& frame) const;
+    std::size_t featureBagSize() const;
 
     //! Sample the features according to their categorical distribution.
-    TSizeVec featureBag(const core::CDataFrame& frame) const;
+    TSizeVec featureBag() const;
 
     //! Refresh the predictions and loss function derivatives for the masked
     //! rows in \p frame with predictions of \p tree.
