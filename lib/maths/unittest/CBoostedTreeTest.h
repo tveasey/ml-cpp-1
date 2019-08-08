@@ -17,13 +17,12 @@ public:
     void testThreading();
     void testConstantFeatures();
     void testConstantObjective();
+    void testCategoricalRegressors();
     void testMissingData();
-    void testPersistRestore();
-    // TODO void testCategoricalRegressors();
     // TODO void testFeatureWeights();
     // TODO void testNuisanceFeatures();
-    // TODO void testCheckpointing();
-    void testErrors();
+    void testPersistRestore();
+    void testRestoreErrorHandling();
 
     static CppUnit::Test* suite();
 };

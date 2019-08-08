@@ -11,6 +11,7 @@
 #include <core/CTriple.h>
 
 #include <maths/CBasicStatistics.h>
+#include <maths/CChecksum.h>
 #include <maths/CDataFrameUtils.h>
 #include <maths/COrderings.h>
 
@@ -92,7 +93,7 @@ public:
         }
         if (this->isRare()) {
             return std::make_unique<CDataFrameUtils::CFrequencyCategoricalColumnValue>(
-                m_Feature, rareCategories, frequencies);
+                m_Feature, frequencies);
         }
         if (this->isTargetMean()) {
             return std::make_unique<CDataFrameUtils::CTargetMeanCategoricalColumnValue>(
@@ -208,10 +209,9 @@ CFloatStorage CEncodedDataFrameRowRef::operator[](std::size_t i) const {
         return m_Encoder->isHot(encoding, feature, category) ? 1.0 : 0.0;
     }
 
-    if (encoding == numberOneHotEncodedCategories && m_Encoder->hasRareCategories(feature)) {
-        return m_Encoder->isRareCategory(feature, category)
-                   ? m_Encoder->frequency(feature, category)
-                   : 0.0;
+    if (encoding == numberOneHotEncodedCategories &&
+        m_Encoder->usesFrequencyEncoding(feature)) {
+        return m_Encoder->frequency(feature, category);
     }
 
     return m_Encoder->targetMeanValue(feature, category);
@@ -231,6 +231,7 @@ const CEncodedDataFrameRowRef::TRowRef& CEncodedDataFrameRowRef::unencodedRow() 
 
 CDataFrameCategoryEncoder::CDataFrameCategoryEncoder(std::size_t numberThreads,
                                                      const core::CDataFrame& frame,
+                                                     const core::CPackedBitVector& rowMask,
                                                      const TSizeVec& columnMask,
                                                      std::size_t targetColumn,
                                                      std::size_t minimumRowsPerFeature,
@@ -265,15 +266,16 @@ CDataFrameCategoryEncoder::CDataFrameCategoryEncoder(std::size_t numberThreads,
     // to the permitted overall feature count.
     // We mean value encode the remaining features where we have a representative
     // sample size.
-    // We frequency encode all rare categories of a categorical column.
+    // We frequency encode all rare categories of a categorical feature.
 
-    this->frequencyEncode(numberThreads, frame, categoricalColumnMask);
+    this->setupFrequencyEncoding(numberThreads, frame, rowMask, categoricalColumnMask);
 
-    this->targetMeanValueEncode(numberThreads, frame, categoricalColumnMask, targetColumn);
+    this->setupTargetMeanValueEncoding(numberThreads, frame, rowMask,
+                                       categoricalColumnMask, targetColumn);
 
-    this->finishEncoding(targetColumn,
-                         this->oneHotEncode(numberThreads, frame, metricColumnMask,
-                                            categoricalColumnMask, targetColumn));
+    this->finishEncoding(
+        targetColumn, this->selectFeatures(numberThreads, frame, rowMask, metricColumnMask,
+                                           categoricalColumnMask, targetColumn));
 }
 
 CEncodedDataFrameRowRef CDataFrameCategoryEncoder::encode(TRowRef row) const {
@@ -337,27 +339,46 @@ bool CDataFrameCategoryEncoder::isHot(std::size_t encoding,
                one - m_OneHotEncodedCategories[feature].begin();
 }
 
-bool CDataFrameCategoryEncoder::hasRareCategories(std::size_t feature) const {
-    return m_RareCategories[feature].size() > 0;
-}
-
-bool CDataFrameCategoryEncoder::isRareCategory(std::size_t feature, std::size_t category) const {
-    return m_RareCategories[feature].find(category) != m_RareCategories[feature].end();
+bool CDataFrameCategoryEncoder::usesFrequencyEncoding(std::size_t feature) const {
+    return m_ColumnUsesFrequencyEncoding[feature];
 }
 
 double CDataFrameCategoryEncoder::frequency(std::size_t feature, std::size_t category) const {
     return m_CategoryFrequencies[feature][category];
 }
 
+bool CDataFrameCategoryEncoder::isRareCategory(std::size_t feature, std::size_t category) const {
+    return m_RareCategories[feature].find(category) != m_RareCategories[feature].end();
+}
+
 double CDataFrameCategoryEncoder::targetMeanValue(std::size_t feature,
                                                   std::size_t category) const {
-    return m_TargetMeanValues[feature][category];
+    // TODO better solution
+    return this->isRareCategory(feature, category)
+               ? 0.0
+               : m_TargetMeanValues[feature][category];
+}
+
+std::uint64_t CDataFrameCategoryEncoder::checksum(std::uint64_t seed) const {
+    seed = CChecksum::calculate(seed, m_MinimumRowsPerFeature);
+    seed = CChecksum::calculate(seed, m_MinimumFrequencyToOneHotEncode);
+    seed = CChecksum::calculate(seed, m_RedundancyWeight);
+    seed = CChecksum::calculate(seed, m_ColumnIsCategorical);
+    seed = CChecksum::calculate(seed, m_ColumnUsesFrequencyEncoding);
+    seed = CChecksum::calculate(seed, m_OneHotEncodedCategories);
+    seed = CChecksum::calculate(seed, m_RareCategories);
+    seed = CChecksum::calculate(seed, m_CategoryFrequencies);
+    seed = CChecksum::calculate(seed, m_TargetMeanValues);
+    seed = CChecksum::calculate(seed, m_FeatureVectorMics);
+    seed = CChecksum::calculate(seed, m_FeatureVectorColumnMap);
+    return CChecksum::calculate(seed, m_FeatureVectorEncodingMap);
 }
 
 CDataFrameCategoryEncoder::TSizeDoublePrVecVec
 CDataFrameCategoryEncoder::mics(std::size_t numberThreads,
                                 const core::CDataFrame& frame,
                                 const CDataFrameUtils::CColumnValue& target,
+                                const core::CPackedBitVector& rowMask,
                                 const TSizeVec& metricColumnMask,
                                 const TSizeVec& categoricalColumnMask) const {
 
@@ -374,14 +395,14 @@ CDataFrameCategoryEncoder::mics(std::size_t numberThreads,
          0.0},
         {[this](std::size_t column, std::size_t sampleColumn, std::size_t) {
              return std::make_unique<CDataFrameUtils::CFrequencyCategoricalColumnValue>(
-                 sampleColumn, m_RareCategories[column], m_CategoryFrequencies[column]);
+                 sampleColumn, m_CategoryFrequencies[column]);
          },
          0.0}};
 
-    auto metricMics = CDataFrameUtils::metricMicWithColumn(target, frame, metricColumnMask);
+    auto metricMics = CDataFrameUtils::metricMicWithColumn(target, frame, rowMask,
+                                                           metricColumnMask);
     auto categoricalMics = CDataFrameUtils::categoricalMicWithColumn(
-        target, numberThreads, frame, categoricalColumnMask, encoderFactories);
-    LOG_TRACE(<< "categorical MICe = " << core::CContainerPrinter::print(categoricalMics));
+        target, numberThreads, frame, rowMask, categoricalColumnMask, encoderFactories);
 
     TSizeDoublePrVecVec mics(std::move(categoricalMics[0]));
     for (std::size_t i = 0; i < categoricalMics[1].size(); ++i) {
@@ -399,16 +420,18 @@ CDataFrameCategoryEncoder::mics(std::size_t numberThreads,
             mics[i].emplace_back(METRIC_CATEGORY, metricMics[i]);
         }
     }
+    LOG_TRACE(<< "MICe = " << core::CContainerPrinter::print(mics));
 
     return mics;
 }
 
-void CDataFrameCategoryEncoder::frequencyEncode(std::size_t numberThreads,
-                                                const core::CDataFrame& frame,
-                                                const TSizeVec& categoricalColumnMask) {
+void CDataFrameCategoryEncoder::setupFrequencyEncoding(std::size_t numberThreads,
+                                                       const core::CDataFrame& frame,
+                                                       const core::CPackedBitVector& rowMask,
+                                                       const TSizeVec& categoricalColumnMask) {
 
     m_CategoryFrequencies = CDataFrameUtils::categoryFrequencies(
-        numberThreads, frame, categoricalColumnMask);
+        numberThreads, frame, rowMask, categoricalColumnMask);
     LOG_TRACE(<< "category frequencies = "
               << core::CContainerPrinter::print(m_CategoryFrequencies));
 
@@ -425,20 +448,21 @@ void CDataFrameCategoryEncoder::frequencyEncode(std::size_t numberThreads,
     LOG_TRACE(<< "rare categories = " << core::CContainerPrinter::print(m_RareCategories));
 }
 
-void CDataFrameCategoryEncoder::targetMeanValueEncode(std::size_t numberThreads,
-                                                      const core::CDataFrame& frame,
-                                                      const TSizeVec& categoricalColumnMask,
-                                                      std::size_t targetColumn) {
+void CDataFrameCategoryEncoder::setupTargetMeanValueEncoding(std::size_t numberThreads,
+                                                             const core::CDataFrame& frame,
+                                                             const core::CPackedBitVector& rowMask,
+                                                             const TSizeVec& categoricalColumnMask,
+                                                             std::size_t targetColumn) {
 
     m_TargetMeanValues = CDataFrameUtils::meanValueOfTargetForCategories(
         CDataFrameUtils::CMetricColumnValue{targetColumn}, numberThreads, frame,
-        categoricalColumnMask);
+        rowMask, categoricalColumnMask);
     LOG_TRACE(<< "target mean values = "
               << core::CContainerPrinter::print(m_TargetMeanValues));
 }
 
 CDataFrameCategoryEncoder::TSizeSizePrDoubleMap
-CDataFrameCategoryEncoder::oneHotEncodeAll(const TSizeDoublePrVecVec& mics) {
+CDataFrameCategoryEncoder::selectAllFeatures(const TSizeDoublePrVecVec& mics) {
 
     TSizeSizePrDoubleMap selectedFeatureMics;
 
@@ -457,22 +481,25 @@ CDataFrameCategoryEncoder::oneHotEncodeAll(const TSizeDoublePrVecVec& mics) {
 
             if (isCategory(category)) {
                 m_OneHotEncodedCategories[feature].push_back(category);
+            } else if (isRare(category)) {
+                m_ColumnUsesFrequencyEncoding[feature] = true;
             }
         }
     }
 
-    LOG_TRACE(<< "One-hot encoded = "
+    LOG_TRACE(<< "one-hot encoded = "
               << core::CContainerPrinter::print(m_OneHotEncodedCategories));
 
     return selectedFeatureMics;
 }
 
 CDataFrameCategoryEncoder::TSizeSizePrDoubleMap
-CDataFrameCategoryEncoder::oneHotEncode(std::size_t numberThreads,
-                                        const core::CDataFrame& frame,
-                                        TSizeVec metricColumnMask,
-                                        TSizeVec categoricalColumnMask,
-                                        std::size_t targetColumn) {
+CDataFrameCategoryEncoder::selectFeatures(std::size_t numberThreads,
+                                          const core::CDataFrame& frame,
+                                          const core::CPackedBitVector& rowMask,
+                                          TSizeVec metricColumnMask,
+                                          TSizeVec categoricalColumnMask,
+                                          std::size_t targetColumn) {
 
     // We want to choose features which provide independent information about the
     // target variable. Ideally, we'd recompute MICe w.r.t. target - f(x) with x
@@ -488,7 +515,7 @@ CDataFrameCategoryEncoder::oneHotEncode(std::size_t numberThreads,
 
     TSizeDoublePrVecVec mics(this->mics(
         numberThreads, frame, CDataFrameUtils::CMetricColumnValue{targetColumn},
-        metricColumnMask, categoricalColumnMask));
+        rowMask, metricColumnMask, categoricalColumnMask));
     LOG_TRACE(<< "features MICe = " << core::CContainerPrinter::print(mics));
 
     std::size_t numberAvailableFeatures{this->numberAvailableFeatures(mics)};
@@ -497,13 +524,14 @@ CDataFrameCategoryEncoder::oneHotEncode(std::size_t numberThreads,
     LOG_TRACE(<< "number possible features = " << numberAvailableFeatures
               << " maximum permitted features = " << maximumNumberFeatures);
 
+    m_ColumnUsesFrequencyEncoding.resize(frame.numberColumns(), false);
     m_OneHotEncodedCategories.resize(frame.numberColumns());
 
     TSizeSizePrDoubleMap selectedFeatureMics;
 
     if (maximumNumberFeatures >= numberAvailableFeatures) {
-        selectedFeatureMics = this->oneHotEncodeAll(mics);
 
+        selectedFeatureMics = this->selectAllFeatures(mics);
     } else {
 
         CMinRedundancyMaxRelevancyGreedySearch search{m_RedundancyWeight, mics};
@@ -522,6 +550,8 @@ CDataFrameCategoryEncoder::oneHotEncode(std::size_t numberThreads,
 
             if (selected.isCategory()) {
                 m_OneHotEncodedCategories[feature].push_back(category);
+            } else if (selected.isRare()) {
+                m_ColumnUsesFrequencyEncoding[feature] = true;
             } else if (selected.isMetric()) {
                 metricColumnMask.erase(std::find(metricColumnMask.begin(),
                                                  metricColumnMask.end(), feature));
@@ -530,7 +560,7 @@ CDataFrameCategoryEncoder::oneHotEncode(std::size_t numberThreads,
             auto columnValue = selected.columnValue(m_RareCategories[feature],
                                                     m_CategoryFrequencies[feature],
                                                     m_TargetMeanValues[feature]);
-            mics = this->mics(numberThreads, frame, *columnValue,
+            mics = this->mics(numberThreads, frame, *columnValue, rowMask,
                               metricColumnMask, categoricalColumnMask);
             search.update(mics);
         }
@@ -541,7 +571,7 @@ CDataFrameCategoryEncoder::oneHotEncode(std::size_t numberThreads,
         std::sort(categories.begin(), categories.end());
     }
 
-    LOG_TRACE(<< "One-hot encoded = "
+    LOG_TRACE(<< "one-hot encoded = "
               << core::CContainerPrinter::print(m_OneHotEncodedCategories));
     LOG_TRACE(<< "selected features MICe = "
               << core::CContainerPrinter::print(selectedFeatureMics));

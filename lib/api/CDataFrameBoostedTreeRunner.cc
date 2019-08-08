@@ -105,8 +105,7 @@ CDataFrameBoostedTreeRunner::CDataFrameBoostedTreeRunner(const CDataFrameAnalysi
     : CDataFrameAnalysisRunner{spec} {
 }
 
-CDataFrameBoostedTreeRunner::~CDataFrameBoostedTreeRunner() {
-}
+CDataFrameBoostedTreeRunner::~CDataFrameBoostedTreeRunner() = default;
 
 std::size_t CDataFrameBoostedTreeRunner::numberExtraColumns() const {
     return m_BoostedTreeFactory->numberExtraColumnsForTrain();

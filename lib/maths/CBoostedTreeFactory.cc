@@ -147,9 +147,11 @@ void CBoostedTreeFactory::selectFeaturesAndEncodeCategories(const core::CDataFra
     TSizeVec regressors(frame.numberColumns() - this->numberExtraColumnsForTrain());
     std::iota(regressors.begin(), regressors.end(), 0);
     regressors.erase(regressors.begin() + m_TreeImpl->m_DependentVariable);
+    LOG_TRACE(<< "candidate regressors = " << core::CContainerPrinter::print(regressors));
 
     m_TreeImpl->m_Encoder = std::make_unique<CDataFrameCategoryEncoder>(
-        m_TreeImpl->m_NumberThreads, frame, regressors, m_TreeImpl->m_DependentVariable,
+        m_TreeImpl->m_NumberThreads, frame, m_TreeImpl->allTrainingRowsMask(),
+        regressors, m_TreeImpl->m_DependentVariable,
         m_TreeImpl->m_RowsPerFeature, m_MinimumFrequencyToOneHotEncode);
 }
 
@@ -160,7 +162,7 @@ bool CBoostedTreeFactory::initializeFeatureSampleDistribution() const {
     TDoubleVec mics(m_TreeImpl->m_Encoder->featureMics());
     LOG_TRACE(<< "candidate regressors MICe = " << core::CContainerPrinter::print(mics));
 
-    if (m_TreeImpl->m_FeatureSampleProbabilities.size() > 0) {
+    if (mics.size() > 0) {
         double Z{std::accumulate(mics.begin(), mics.end(), 0.0,
                                  [](double z, double mic) { return z + mic; })};
         LOG_TRACE(<< "Z = " << Z);

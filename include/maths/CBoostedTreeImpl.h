@@ -660,7 +660,7 @@ private:
                     const TNodeVecVec& forest) const;
 
     //! Get a column mask of the suitable regressor features.
-    TSizeVec candidateFeatures() const;
+    TSizeVec candidateRegressorFeatures() const;
 
     //! Get the root node of \p tree.
     static const CNode& root(const TNodeVec& tree);

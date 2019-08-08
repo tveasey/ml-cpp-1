@@ -112,7 +112,7 @@ private:
     std::size_t numberHyperparameterTuningRounds() const;
 
 private:
-    double m_MinimumFrequencyToOneHotEncode;
+    double m_MinimumFrequencyToOneHotEncode = 0.05;
     TBoostedTreeImplUPtr m_TreeImpl;
     CBoostedTree::TProgressCallback m_ProgressCallback;
 };

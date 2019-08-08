@@ -306,25 +306,31 @@ CBoostedTreeImpl::candidateSplits(const core::CDataFrame& frame,
 
     using TQuantileSketchVec = std::vector<CQuantileSketch>;
 
-    TSizeVec features{this->candidateFeatures()};
+    TSizeVec features{this->candidateRegressorFeatures()};
     LOG_TRACE(<< "candidate features = " << core::CContainerPrinter::print(features));
 
     TSizeVec binaryFeatures(features);
-    binaryFeatures.erase(std::remove_if(
-        binaryFeatures.begin(), binaryFeatures.end(),
-        [this](std::size_t index) { return m_Encoder->isBinary(index); }));
+    binaryFeatures.erase(std::remove_if(binaryFeatures.begin(), binaryFeatures.end(),
+                                        [this](std::size_t index) {
+                                            return m_Encoder->isBinary(index) == false;
+                                        }),
+                         binaryFeatures.end());
     CSetTools::inplace_set_difference(features, binaryFeatures.begin(),
                                       binaryFeatures.end());
+    LOG_TRACE(<< "binary features = " << core::CContainerPrinter::print(binaryFeatures)
+              << " other features = " << core::CContainerPrinter::print(features));
 
     TQuantileSketchVec columnQuantiles;
     CDataFrameUtils::columnQuantiles(m_NumberThreads, frame, trainingRowMask, features,
                                      CQuantileSketch{CQuantileSketch::E_Linear, 100},
                                      columnQuantiles, m_Encoder.get(), readLossCurvature);
 
-    TDoubleVecVec result(this->numberFeatures());
+    TDoubleVecVec candidateSplits(this->numberFeatures());
 
     for (std::size_t i : binaryFeatures) {
-        result[binaryFeatures[i]] = TDoubleVec{0.5};
+        candidateSplits[i] = TDoubleVec{0.5};
+        LOG_TRACE(<< "feature '" << i << "' splits = "
+                  << core::CContainerPrinter::print(candidateSplits[i]));
     }
     for (std::size_t i = 0; i < features.size(); ++i) {
 
@@ -344,13 +350,15 @@ CBoostedTreeImpl::candidateSplits(const core::CDataFrame& frame,
 
         columnSplits.erase(std::unique(columnSplits.begin(), columnSplits.end()),
                            columnSplits.end());
-        result[features[i]] = std::move(columnSplits);
+        candidateSplits[features[i]] = std::move(columnSplits);
 
         LOG_TRACE(<< "feature '" << features[i] << "' splits = "
-                  << core::CContainerPrinter::print(result[features[i]]));
+                  << core::CContainerPrinter::print(candidateSplits[features[i]]));
     }
 
-    return result;
+    LOG_TRACE(<< "candidate splits = " << core::CContainerPrinter::print(candidateSplits));
+
+    return candidateSplits;
 }
 
 CBoostedTreeImpl::TNodeVec
@@ -439,7 +447,7 @@ CBoostedTreeImpl::TSizeVec CBoostedTreeImpl::featureBag() const {
 
     std::size_t size{this->featureBagSize()};
 
-    TSizeVec features{this->candidateFeatures()};
+    TSizeVec features{this->candidateRegressorFeatures()};
     if (size >= features.size()) {
         return features;
     }
@@ -538,7 +546,7 @@ double CBoostedTreeImpl::meanLoss(const core::CDataFrame& frame,
     return CBasicStatistics::mean(loss);
 }
 
-CBoostedTreeImpl::TSizeVec CBoostedTreeImpl::candidateFeatures() const {
+CBoostedTreeImpl::TSizeVec CBoostedTreeImpl::candidateRegressorFeatures() const {
     TSizeVec result;
     result.reserve(m_FeatureSampleProbabilities.size());
     for (std::size_t i = 0; i < m_FeatureSampleProbabilities.size(); ++i) {

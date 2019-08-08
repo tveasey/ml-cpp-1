@@ -297,7 +297,8 @@ void CDataFrameUtilsTest::testColumnQuantilesWithEncoding() {
     }
     frame->finishWritingRows();
 
-    maths::CDataFrameCategoryEncoder encoder{1, *frame, {1, 2, 3, 4, 5}, 0, 50};
+    maths::CDataFrameCategoryEncoder encoder{
+        1, *frame, core::CPackedBitVector{rows, true}, {1, 2, 3, 4, 5}, 0, 50};
 
     core::CPackedBitVector rowMask{rows, true};
     TSizeVec columnMask(encoder.numberFeatures());
@@ -337,6 +338,8 @@ void CDataFrameUtilsTest::testMicWithColumn() {
     std::size_t capacity{500};
     std::size_t numberRows{2000};
     std::size_t numberCols{4};
+
+    core::CPackedBitVector rowMask{numberRows, true};
 
     TFactoryFunc makeOnDisk{[=] {
         return core::makeDiskStorageDataFrame(test::CTestTmpDir::tmpDir(),
@@ -382,7 +385,7 @@ void CDataFrameUtilsTest::testMicWithColumn() {
         }
 
         TDoubleVec actual(maths::CDataFrameUtils::metricMicWithColumn(
-            maths::CDataFrameUtils::CMetricColumnValue{3}, *frame, {0, 1, 2}));
+            maths::CDataFrameUtils::CMetricColumnValue{3}, *frame, rowMask, {0, 1, 2}));
 
         LOG_DEBUG(<< "expected = " << core::CContainerPrinter::print(expected));
         LOG_DEBUG(<< "actual   = " << core::CContainerPrinter::print(actual));
@@ -437,7 +440,7 @@ void CDataFrameUtilsTest::testMicWithColumn() {
         }
 
         TDoubleVec actual(maths::CDataFrameUtils::metricMicWithColumn(
-            maths::CDataFrameUtils::CMetricColumnValue{3}, *frame, {0, 1, 2}));
+            maths::CDataFrameUtils::CMetricColumnValue{3}, *frame, rowMask, {0, 1, 2}));
 
         LOG_DEBUG(<< "expected = " << core::CContainerPrinter::print(expected));
         LOG_DEBUG(<< "actual   = " << core::CContainerPrinter::print(actual));
@@ -486,7 +489,7 @@ void CDataFrameUtilsTest::testCategoryFrequencies() {
             frame->finishWritingRows();
 
             TDoubleVecVec actualFrequencies{maths::CDataFrameUtils::categoryFrequencies(
-                threads, *frame, {0, 1, 2, 3})};
+                threads, *frame, core::CPackedBitVector{rows, true}, {0, 1, 2, 3})};
 
             CPPUNIT_ASSERT_EQUAL(std::size_t{4}, actualFrequencies.size());
             for (std::size_t i : {0, 2}) {
@@ -562,7 +565,8 @@ void CDataFrameUtilsTest::testMeanValueOfTargetForCategories() {
             frame->finishWritingRows();
 
             TDoubleVecVec actualMeans(maths::CDataFrameUtils::meanValueOfTargetForCategories(
-                maths::CDataFrameUtils::CMetricColumnValue{3}, threads, *frame, {0, 1, 2}));
+                maths::CDataFrameUtils::CMetricColumnValue{3}, threads, *frame,
+                core::CPackedBitVector{rows, true}, {0, 1, 2}));
 
             CPPUNIT_ASSERT_EQUAL(std::size_t{4}, actualMeans.size());
             for (std::size_t i : {0, 2}) {
@@ -631,7 +635,7 @@ void CDataFrameUtilsTest::testCategoryMicWithColumn() {
 
             auto mics = maths::CDataFrameUtils::categoricalMicWithColumn(
                 maths::CDataFrameUtils::CMetricColumnValue{3}, threads, *frame,
-                {0, 1, 2},
+                core::CPackedBitVector{rows, true}, {0, 1, 2},
                 {{[](std::size_t, std::size_t sampleColumn, std::size_t category) {
                       return std::make_unique<maths::CDataFrameUtils::COneHotCategoricalColumnValue>(
                           sampleColumn, category);
