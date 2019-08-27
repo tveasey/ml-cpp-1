@@ -27,7 +27,7 @@ public:
     virtual ~CArgMinLoss() = default;
 
     //! Update with a point prediction and actual value.
-    void add(double prediction, double actual);
+    virtual void add(double prediction, double actual) = 0;
 
     //! Returns the value at the node which minimises the loss for the
     //! at the predictions added.
@@ -35,9 +35,6 @@ public:
     //! Formally, returns \f$x^* = arg\min_x\{\sum_i{L(p_i + x, a_i)}\}\f$
     //! for predictions and actuals \f$p_i\f$ and \f$a_i\f$, respectively.
     virtual double value() const = 0;
-
-private:
-    virtual void addImpl(double prediction, double actual) = 0;
 };
 
 //! \brief Defines the loss function for the regression problem.
@@ -64,13 +61,11 @@ public:
 //! \brief Finds the leaf node value which minimises the MSE.
 class MATHS_EXPORT CArgMinMse final : public CArgMinLoss {
 public:
+    void add(double prediction, double actual) override;
     double value() const override;
 
 private:
     using TMeanAccumulator = CBasicStatistics::SSampleMean<double>::TAccumulator;
-
-private:
-    void addImpl(double prediction, double actual) override;
 
 private:
     TMeanAccumulator m_MeanError;
