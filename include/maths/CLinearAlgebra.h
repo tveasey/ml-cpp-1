@@ -16,9 +16,7 @@
 #include <maths/ImportExport.h>
 #include <maths/MathsTypes.h>
 
-#include <boost/array.hpp>
 #include <boost/geometry.hpp>
-//#include <boost/geometry/geometries/adapted/boost_array.hpp>
 #include <boost/geometry/geometries/adapted/std_array.hpp>
 #include <boost/numeric/conversion/bounds.hpp>
 #include <boost/operators.hpp>

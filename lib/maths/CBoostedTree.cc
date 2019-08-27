@@ -22,7 +22,6 @@ using namespace boosted_tree_detail;
 namespace boosted_tree {
 
 void CArgMinLoss::add(double prediction, double actual) {
-    std::unique_lock<std::mutex> lock{m_Mutex};
     this->addImpl(prediction, actual);
 }
 

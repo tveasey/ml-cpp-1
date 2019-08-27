@@ -842,7 +842,7 @@ void CBasicStatisticsTest::testCovariances() {
         LOG_DEBUG(<< "mean2 = " << maths::CBasicStatistics::mean(covariances2));
         LOG_DEBUG(<< "covariances2 = " << maths::CBasicStatistics::covariances(covariances2));
         LOG_DEBUG(<< "count3 = " << maths::CBasicStatistics::count(covariances3));
-        LOG_DEBUG(<< "mean3 = " << maths::CBasicStatistics::mean(covariances3).transpose());
+        LOG_DEBUG(<< "mean3 = " << maths::CBasicStatistics::mean(covariances3));
         LOG_DEBUG(<< "covariances3 =\n"
                   << maths::CBasicStatistics::covariances(covariances3));
 

@@ -100,7 +100,7 @@ CBayesianOptimisation::TVector CBayesianOptimisation::maximumExpectedImprovement
         }
         TVector x{a + interpolate.asDiagonal() * (b - a)};
         double fx{minusEI(x)};
-        LOG_TRACE(<< "x = " << x.transpose() << " EI(x) = " << fx);
+        LOG_TRACE(<< "x = " << x << " EI(x) = " << fx);
 
         if (-fx > fmax) {
             xmax = std::move(x);
@@ -123,7 +123,7 @@ CBayesianOptimisation::TVector CBayesianOptimisation::maximumExpectedImprovement
         double fcand;
         std::tie(xcand, fcand) = lbfgs.constrainedMinimize(
             minusEI, minusEIGradient, a, b, std::move(x0.second), rho);
-        LOG_TRACE(<< "xcand = " << xcand.transpose() << " EI(cand) = " << fcand);
+        LOG_TRACE(<< "xcand = " << xcand << " EI(cand) = " << fcand);
 
         if (-fcand > fmax) {
             xmax = std::move(xcand);
@@ -131,7 +131,7 @@ CBayesianOptimisation::TVector CBayesianOptimisation::maximumExpectedImprovement
         }
     }
 
-    LOG_TRACE(<< "best = " << xmax.cwiseProduct(m_MaxBoundary - m_MinBoundary).transpose()
+    LOG_TRACE(<< "best = " << xmax.cwiseProduct(m_MaxBoundary - m_MinBoundary)
               << " EI(best) = " << fmax);
 
     return xmax.cwiseProduct(m_MaxBoundary - m_MinBoundary);

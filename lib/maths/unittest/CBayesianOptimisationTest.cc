@@ -233,7 +233,7 @@ void CBayesianOptimisationTest::testMaximumExpectedImprovement() {
         for (std::size_t i = 0; i < 5; ++i) {
             rng.generateUniformSamples(-10.0, 10.0, 4, evaluationCoordinates);
             TVector x{vector(evaluationCoordinates)};
-            LOG_TRACE(<< "initial " << x.transpose() << ", f(initial) = " << f(x));
+            LOG_TRACE(<< "initial " << x << ", f(initial) = " << f(x));
             bopt.add(x, f(x), 10.0);
             fminBopt = std::min(fminBopt, f(x));
             fminRs = std::min(fminRs, f(x));
@@ -242,7 +242,7 @@ void CBayesianOptimisationTest::testMaximumExpectedImprovement() {
         LOG_TRACE(<< "Bayesian optimisation...");
         for (std::size_t i = 0; i < 10; ++i) {
             TVector x{bopt.maximumExpectedImprovement()};
-            LOG_TRACE(<< "x = " << x.transpose() << ", f(x) = " << f(x));
+            LOG_TRACE(<< "x = " << x << ", f(x) = " << f(x));
             bopt.add(x, f(x), 10.0);
             fminBopt = std::min(fminBopt, f(x));
         }
@@ -251,7 +251,7 @@ void CBayesianOptimisationTest::testMaximumExpectedImprovement() {
         for (std::size_t i = 0; i < 10; ++i) {
             rng.generateUniformSamples(0.0, 1.0, 4, randomSearch);
             TVector x{a + vector(randomSearch).asDiagonal() * (b - a)};
-            LOG_TRACE(<< "x = " << x.transpose() << ", f(x) = " << f(x));
+            LOG_TRACE(<< "x = " << x << ", f(x) = " << f(x));
             fminRs = std::min(fminRs, f(x));
         }
 

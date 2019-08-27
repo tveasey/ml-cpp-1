@@ -17,7 +17,6 @@
 
 #include <cstddef>
 #include <memory>
-#include <thread>
 
 namespace ml {
 namespace maths {
@@ -39,9 +38,6 @@ public:
 
 private:
     virtual void addImpl(double prediction, double actual) = 0;
-
-private:
-    std::mutex m_Mutex;
 };
 
 //! \brief Defines the loss function for the regression problem.

@@ -98,10 +98,12 @@ private:
     using TOptionalDouble = boost::optional<double>;
     using TOptionalSize = boost::optional<std::size_t>;
     using TVector = CDenseVector<double>;
+    using TVectorVec = std::vector<TVector>;
     using TDoubleVecVec = std::vector<TDoubleVec>;
     using TSizeVec = std::vector<std::size_t>;
     using TSizeDoublePr = std::pair<std::size_t, double>;
     using TDoubleDoubleDoubleTr = std::tuple<double, double, double>;
+    using TRowRef = core::CDataFrame::TRowRef;
     using TRowItr = core::CDataFrame::TRowItr;
     using TPackedBitVectorVec = std::vector<core::CPackedBitVector>;
     using TDataFrameCategoryEncoderUPtr = std::unique_ptr<CDataFrameCategoryEncoder>;
@@ -309,31 +311,20 @@ private:
 
             m_Gradients.resize(m_CandidateSplits.size());
             m_Curvatures.resize(m_CandidateSplits.size());
-            m_MissingGradients.resize(m_CandidateSplits.size(), 0.0);
-            m_MissingCurvatures.resize(m_CandidateSplits.size(), 0.0);
+            m_MissingGradients = SConstant<TVector>::get(m_CandidateSplits.size(), 0.0);
+            m_MissingCurvatures = SConstant<TVector>::get(m_CandidateSplits.size(), 0.0);
 
             for (std::size_t i = 0; i < m_CandidateSplits.size(); ++i) {
-                std::size_t numberSplits{m_CandidateSplits[i].size() + 1};
-                m_Gradients[i].resize(numberSplits);
-                m_Curvatures[i].resize(numberSplits);
-                for (std::size_t j = 0; j < numberSplits; ++j) {
-                    m_Gradients[i][j] = parent.m_Gradients[i][j] -
-                                        sibling.m_Gradients[i][j];
-                    m_Curvatures[i][j] = parent.m_Curvatures[i][j] -
-                                         sibling.m_Curvatures[i][j];
-                }
-                m_MissingGradients[i] = parent.m_MissingGradients[i] -
-                                        sibling.m_MissingGradients[i];
-                m_MissingCurvatures[i] = parent.m_MissingCurvatures[i] -
-                                         sibling.m_MissingCurvatures[i];
+                m_Gradients[i] = parent.m_Gradients[i] - sibling.m_Gradients[i];
+                m_Curvatures[i] = parent.m_Curvatures[i] - sibling.m_Curvatures[i];
             }
+            m_MissingGradients = parent.m_MissingGradients - sibling.m_MissingGradients;
+            m_MissingCurvatures = parent.m_MissingCurvatures - sibling.m_MissingCurvatures;
 
             LOG_TRACE(<< "gradients = " << core::CContainerPrinter::print(m_Gradients));
             LOG_TRACE(<< "curvatures = " << core::CContainerPrinter::print(m_Curvatures));
-            LOG_TRACE(<< "missing gradients = "
-                      << core::CContainerPrinter::print(m_MissingGradients));
-            LOG_TRACE(<< "missing curvatures = "
-                      << core::CContainerPrinter::print(m_MissingCurvatures));
+            LOG_TRACE(<< "missing gradients = " << m_MissingGradients);
+            LOG_TRACE(<< "missing curvatures = " << m_MissingCurvatures);
         }
 
         CLeafNodeStatistics(const CLeafNodeStatistics&) = delete;
@@ -359,8 +350,8 @@ private:
 
             if (leftChildRowMask.manhattan() < rightChildRowMask.manhattan()) {
                 auto leftChild = std::make_shared<CLeafNodeStatistics>(
-                    leftChildId, numberThreads, frame, encoder, lambda, gamma,
-                    candidateSplits, featureBag, std::move(leftChildRowMask));
+                    leftChildId, numberThreads, frame, encoder, lambda, gamma, candidateSplits,
+                    std::move(featureBag), std::move(leftChildRowMask));
                 auto rightChild = std::make_shared<CLeafNodeStatistics>(
                     rightChildId, *this, *leftChild, std::move(rightChildRowMask));
 
@@ -369,7 +360,7 @@ private:
 
             auto rightChild = std::make_shared<CLeafNodeStatistics>(
                 rightChildId, numberThreads, frame, encoder, lambda, gamma,
-                candidateSplits, featureBag, std::move(rightChildRowMask));
+                candidateSplits, std::move(featureBag), std::move(rightChildRowMask));
             auto leftChild = std::make_shared<CLeafNodeStatistics>(
                 leftChildId, *this, *rightChild, std::move(leftChildRowMask));
 
@@ -448,72 +439,57 @@ private:
         };
 
         //! \brief A collection of aggregate derivatives.
-        struct SDerivatives {
-            SDerivatives(const TDoubleVecVec& candidateSplits)
-                : s_Gradients(candidateSplits.size()),
-                  s_Curvatures(candidateSplits.size()),
-                  s_MissingGradients(candidateSplits.size(), 0.0),
-                  s_MissingCurvatures(candidateSplits.size(), 0.0) {
+        class CDerivatives {
+        public:
+            CDerivatives(const TDoubleVecVec& candidateSplits);
 
-                for (std::size_t i = 0; i < candidateSplits.size(); ++i) {
-                    std::size_t numberSplits{candidateSplits[i].size() + 1};
-                    s_Gradients[i].resize(numberSplits, 0.0);
-                    s_Curvatures[i].resize(numberSplits, 0.0);
-                }
+            CDerivatives& operator+=(const CDerivatives& rhs);
+            void addRowDerivatives(const CEncodedDataFrameRowRef& row);
+            auto move() {
+                return std::make_tuple(std::move(m_Gradients), std::move(m_Curvatures),
+                                       std::move(m_MissingGradients),
+                                       std::move(m_MissingCurvatures));
             }
 
-            TDoubleVecVec s_Gradients;
-            TDoubleVecVec s_Curvatures;
-            TDoubleVec s_MissingGradients;
-            TDoubleVec s_MissingCurvatures;
+        private:
+            const TDoubleVecVec* m_CandidateSplits;
+            TVectorVec m_Gradients;
+            TVectorVec m_Curvatures;
+            TVector m_MissingGradients;
+            TVector m_MissingCurvatures;
         };
 
     private:
         void computeAggregateLossDerivatives(std::size_t numberThreads,
                                              const core::CDataFrame& frame,
                                              const CDataFrameCategoryEncoder& encoder) {
-
             auto result = frame.readRows(
-                numberThreads, 0, frame.numberRows(),
+                1, 0, frame.numberRows(),
                 core::bindRetrievableState(
-                    [&](SDerivatives& state, TRowItr beginRows, TRowItr endRows) {
-                        for (auto row = beginRows; row != endRows; ++row) {
-                            this->addRowDerivatives(encoder.encode(*row), state);
+                    [&](CDerivatives& derivatives, TRowItr beginRows, TRowItr endRows) {
+                        auto results = core::parallel_for_each(
+                            numberThreads, beginRows, endRows,
+                            core::bindRetrievableState(
+                                [&encoder](CDerivatives& derivatives_, const TRowRef& row) {
+                                    derivatives_.addRowDerivatives(encoder.encode(row));
+                                },
+                                CDerivatives{m_CandidateSplits}));
+                        for (const auto& result_ : results) {
+                            derivatives += result_.s_FunctionState;
                         }
+
                     },
-                    SDerivatives{m_CandidateSplits}),
+                    CDerivatives{m_CandidateSplits}),
                 &m_RowMask);
 
-            auto& results = result.first;
-
-            m_Gradients = std::move(results[0].s_FunctionState.s_Gradients);
-            m_Curvatures = std::move(results[0].s_FunctionState.s_Curvatures);
-            m_MissingGradients = std::move(results[0].s_FunctionState.s_MissingGradients);
-            m_MissingCurvatures = std::move(results[0].s_FunctionState.s_MissingCurvatures);
-
-            for (std::size_t k = 1; k < results.size(); ++k) {
-                const auto& derivatives = results[k].s_FunctionState;
-                for (std::size_t i = 0; i < m_CandidateSplits.size(); ++i) {
-                    std::size_t numberSplits{m_CandidateSplits[i].size() + 1};
-                    for (std::size_t j = 0; j < numberSplits; ++j) {
-                        m_Gradients[i][j] += derivatives.s_Gradients[i][j];
-                        m_Curvatures[i][j] += derivatives.s_Curvatures[i][j];
-                    }
-                    m_MissingGradients[i] += derivatives.s_MissingGradients[i];
-                    m_MissingCurvatures[i] += derivatives.s_MissingCurvatures[i];
-                }
-            }
+            std::tie(m_Gradients, m_Curvatures, m_MissingGradients,
+                     m_MissingCurvatures) = result.first[0].s_FunctionState.move();
 
             LOG_TRACE(<< "gradients = " << core::CContainerPrinter::print(m_Gradients));
             LOG_TRACE(<< "curvatures = " << core::CContainerPrinter::print(m_Curvatures));
-            LOG_TRACE(<< "missing gradients = "
-                      << core::CContainerPrinter::print(m_MissingGradients));
-            LOG_TRACE(<< "missing curvatures = "
-                      << core::CContainerPrinter::print(m_MissingCurvatures));
+            LOG_TRACE(<< "missing gradients = " << m_MissingGradients);
+            LOG_TRACE(<< "missing curvatures = " << m_MissingCurvatures);
         }
-
-        void addRowDerivatives(const CEncodedDataFrameRowRef& row,
-                               SDerivatives& derivatives) const;
 
         const SSplitStatistics& bestSplitStatistics() const {
             if (m_BestSplit == boost::none) {
@@ -530,23 +506,20 @@ private:
             SSplitStatistics result{-INF, m_FeatureBag.size(), INF, true};
 
             for (auto i : m_FeatureBag) {
-                double g{std::accumulate(m_Gradients[i].begin(), m_Gradients[i].end(), 0.0) +
-                         m_MissingGradients[i]};
-                double h{std::accumulate(m_Curvatures[i].begin(),
-                                         m_Curvatures[i].end(), 0.0) +
-                         m_MissingCurvatures[i]};
-                double gl[]{m_MissingGradients[i], 0.0};
-                double hl[]{m_MissingCurvatures[i], 0.0};
+                double g{m_Gradients[i].sum() + m_MissingGradients(i)};
+                double h{m_Curvatures[i].sum() + m_MissingCurvatures(i)};
+                double gl[]{m_MissingGradients(i), 0.0};
+                double hl[]{m_MissingCurvatures(i), 0.0};
 
                 double maximumGain{-INF};
                 std::size_t splitAt{m_FeatureBag.size()};
                 std::size_t assignMissingTo{ASSIGN_MISSING_TO_LEFT};
 
-                for (std::size_t j = 0; j + 1 < m_Gradients[i].size(); ++j) {
-                    gl[ASSIGN_MISSING_TO_LEFT] += m_Gradients[i][j];
-                    hl[ASSIGN_MISSING_TO_LEFT] += m_Curvatures[i][j];
-                    gl[ASSIGN_MISSING_TO_RIGHT] += m_Gradients[i][j];
-                    hl[ASSIGN_MISSING_TO_RIGHT] += m_Curvatures[i][j];
+                for (int j = 0; j + 1 < m_Gradients[i].size(); ++j) {
+                    gl[ASSIGN_MISSING_TO_LEFT] += m_Gradients[i](j);
+                    hl[ASSIGN_MISSING_TO_LEFT] += m_Curvatures[i](j);
+                    gl[ASSIGN_MISSING_TO_RIGHT] += m_Gradients[i](j);
+                    hl[ASSIGN_MISSING_TO_RIGHT] += m_Curvatures[i](j);
 
                     double gain[]{CTools::pow2(gl[ASSIGN_MISSING_TO_LEFT]) /
                                           (hl[ASSIGN_MISSING_TO_LEFT] + m_Lambda) +
@@ -592,10 +565,10 @@ private:
         const TDoubleVecVec& m_CandidateSplits;
         TSizeVec m_FeatureBag;
         core::CPackedBitVector m_RowMask;
-        TDoubleVecVec m_Gradients;
-        TDoubleVecVec m_Curvatures;
-        TDoubleVec m_MissingGradients;
-        TDoubleVec m_MissingCurvatures;
+        TVectorVec m_Gradients;
+        TVectorVec m_Curvatures;
+        TVector m_MissingGradients;
+        TVector m_MissingCurvatures;
         mutable boost::optional<SSplitStatistics> m_BestSplit;
     };
 
@@ -717,7 +690,7 @@ private:
     std::size_t m_NumberFolds = 4;
     std::size_t m_MaximumNumberTrees = 20;
     std::size_t m_MaximumAttemptsToAddTree = 3;
-    std::size_t m_NumberSplitsPerFeature = 75;
+    std::size_t m_NumberSplitsPerFeature = 64;
     std::size_t m_MaximumOptimisationRoundsPerHyperparameter = 5;
     std::size_t m_RowsPerFeature = 50;
     double m_FeatureBagFraction = 0.5;

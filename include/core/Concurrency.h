@@ -252,7 +252,7 @@ parallel_for_each(std::size_t partitions,
     // in guarding against accidental deadlock in the case someone inadvertantly calls
     // parallelised code in the function to execute.
 
-    concurrency_detail::CDefaultAsyncExecutorBusyForScope scope{};
+    concurrency_detail::CDefaultAsyncExecutorBusyForScope scope;
 
     if (partitions < 2 || scope.wasBusy()) {
         CLoopProgress progress{end - start, recordProgress};
@@ -344,7 +344,7 @@ parallel_for_each(std::size_t partitions,
 
     // See above for details.
 
-    concurrency_detail::CDefaultAsyncExecutorBusyForScope scope{};
+    concurrency_detail::CDefaultAsyncExecutorBusyForScope scope;
 
     if (partitions < 2 || scope.wasBusy()) {
 

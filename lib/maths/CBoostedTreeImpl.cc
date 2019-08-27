@@ -48,22 +48,50 @@ double readActual(const TRowRef& row, std::size_t dependentVariable) {
 }
 }
 
-void CBoostedTreeImpl::CLeafNodeStatistics::addRowDerivatives(const CEncodedDataFrameRowRef& row,
-                                                              SDerivatives& derivatives) const {
+CBoostedTreeImpl::CLeafNodeStatistics::CDerivatives::CDerivatives(const TDoubleVecVec& candidateSplits)
+    : m_CandidateSplits{&candidateSplits},
+      m_Gradients(candidateSplits.size()), m_Curvatures(candidateSplits.size()),
+      m_MissingGradients{SConstant<TVector>::get(candidateSplits.size(), 0.0)},
+      m_MissingCurvatures{SConstant<TVector>::get(candidateSplits.size(), 0.0)} {
+
+    for (std::size_t i = 0; i < candidateSplits.size(); ++i) {
+        std::size_t numberSplits{candidateSplits[i].size() + 1};
+        m_Gradients[i] = SConstant<TVector>::get(numberSplits, 0.0);
+        m_Curvatures[i] = SConstant<TVector>::get(numberSplits, 0.0);
+    }
+}
+
+CBoostedTreeImpl::CLeafNodeStatistics::CDerivatives&
+CBoostedTreeImpl::CLeafNodeStatistics::CDerivatives::operator+=(const CDerivatives& rhs) {
+    for (std::size_t i = 0; i < rhs.m_Gradients.size(); ++i) {
+        m_Gradients[i] += rhs.m_Gradients[i];
+        m_Curvatures[i] += rhs.m_Curvatures[i];
+    }
+    m_MissingGradients += rhs.m_MissingGradients;
+    m_MissingCurvatures += rhs.m_MissingCurvatures;
+    return *this;
+}
+
+void CBoostedTreeImpl::CLeafNodeStatistics::CDerivatives::addRowDerivatives(const CEncodedDataFrameRowRef& row) {
 
     const TRowRef& unencodedRow{row.unencodedRow()};
+    double gradient{readLossGradient(unencodedRow)};
+    double curvature{readLossCurvature(unencodedRow)};
 
-    for (std::size_t i = 0; i < m_CandidateSplits.size(); ++i) {
+    for (std::size_t i = 0; i < m_CandidateSplits->size(); ++i) {
         double featureValue{row[i]};
-        if (CDataFrameUtils::isMissing(featureValue)) {
-            derivatives.s_MissingGradients[i] += readLossGradient(unencodedRow);
-            derivatives.s_MissingCurvatures[i] += readLossCurvature(unencodedRow);
+        const auto& featureCandidateSplits{(*m_CandidateSplits)[i]};
+        if (featureCandidateSplits.empty()) {
+            // Fall through
+        } else if (CDataFrameUtils::isMissing(featureValue)) {
+            m_MissingGradients.coeffRef(i) += gradient;
+            m_MissingCurvatures.coeffRef(i) += curvature;
         } else {
-            auto j = std::upper_bound(m_CandidateSplits[i].begin(),
-                                      m_CandidateSplits[i].end(), featureValue) -
-                     m_CandidateSplits[i].begin();
-            derivatives.s_Gradients[i][j] += readLossGradient(unencodedRow);
-            derivatives.s_Curvatures[i][j] += readLossCurvature(unencodedRow);
+            auto j = std::upper_bound(featureCandidateSplits.begin(),
+                                      featureCandidateSplits.end(), featureValue) -
+                     featureCandidateSplits.begin();
+            m_Gradients[i].coeffRef(j) += gradient;
+            m_Curvatures[i].coeffRef(j) += curvature;
         }
     }
 }

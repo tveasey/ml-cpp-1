@@ -25,6 +25,7 @@
 #include <Eigen/SparseCore>
 
 #include <iterator>
+#include <ostream>
 
 namespace Eigen {
 #define LESS_OR_GREATER(l, r)                                                  \
@@ -317,6 +318,11 @@ private:
 
 template<typename SCALAR>
 const std::string CDenseVector<SCALAR>::DENSE_VECTOR_TAG{"dense_vector"};
+
+template<typename SCALAR>
+std::ostream& operator<<(std::ostream& o, const CDenseVector<SCALAR>& v) {
+    return o << v.transpose();
+}
 
 //! \brief Gets a constant dense vector with specified dimension.
 template<typename SCALAR>

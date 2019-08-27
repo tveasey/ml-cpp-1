@@ -74,13 +74,13 @@ void CLbfgsTest::testQuadtratic() {
         for (std::size_t i = 0; i < 10; ++i) {
             diagonal(i) = samples[i];
         }
-        LOG_TRACE(<< "diagonal = " << diagonal.transpose());
+        LOG_TRACE(<< "diagonal = " << diagonal);
 
         rng.generateUniformSamples(-10.0, 10.0, 10, samples);
         for (std::size_t i = 0; i < 10; ++i) {
             x0(i) = samples[i];
         }
-        LOG_TRACE(<< "x0 = " << x0.transpose());
+        LOG_TRACE(<< "x0 = " << x0);
 
         TVector x;
         double fx;
@@ -193,13 +193,13 @@ void CLbfgsTest::testConstrainedMinimize() {
         for (std::size_t i = 0; i < 10; ++i) {
             diagonal(i) = samples[i];
         }
-        LOG_TRACE(<< "diagonal = " << diagonal.transpose());
+        LOG_TRACE(<< "diagonal = " << diagonal);
 
         rng.generateUniformSamples(-10.0, 10.0, 10, samples);
         for (std::size_t i = 0; i < 10; ++i) {
             x0(i) = samples[i];
         }
-        LOG_TRACE(<< "x0 = " << x0.transpose());
+        LOG_TRACE(<< "x0 = " << x0);
 
         rng.generateUniformSamples(-10.0, 10.0, 20, samples);
         for (std::size_t i = 0; i < 10; ++i) {
@@ -207,9 +207,9 @@ void CLbfgsTest::testConstrainedMinimize() {
             b(i) = std::max(samples[i], samples[10 + i]);
             xmin(i) = a(i) * b(i) < 0.0 ? 0.0 : (b(i) < 0.0 ? b(i) : a(i));
         }
-        LOG_TRACE(<< "a  = " << a.transpose());
-        LOG_TRACE(<< "b  = " << b.transpose());
-        LOG_TRACE(<< "x* = " << xmin.transpose());
+        LOG_TRACE(<< "a  = " << a);
+        LOG_TRACE(<< "b  = " << b);
+        LOG_TRACE(<< "x* = " << xmin);
 
         TVector x;
         double fx;

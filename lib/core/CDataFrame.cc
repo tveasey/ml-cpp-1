@@ -280,7 +280,7 @@ CDataFrame::parallelApplyToAllRows(std::size_t numberThreads,
 
     CPackedBitVector::COneBitIndexConstIterator maskedRow;
     CPackedBitVector::COneBitIndexConstIterator endMaskedRows;
-    if (rowMask) {
+    if (rowMask != nullptr) {
         maskedRow = rowMask->beginOneBits();
         endMaskedRows = rowMask->endOneBits();
     }
@@ -315,7 +315,7 @@ CDataFrame::parallelApplyToAllRows(std::size_t numberThreads,
                 TPopMaskedRowFunc popMaskedRow;
                 if (rowMask != nullptr) {
                     beginSliceRows = *maskedRow;
-                    popMaskedRow = [endSliceRows, &maskedRow, endMaskedRows]() mutable {
+                    popMaskedRow = [endSliceRows, maskedRow, endMaskedRows]() mutable {
                         return ++maskedRow == endMaskedRows
                                    ? endSliceRows
                                    : std::min(*maskedRow, endSliceRows);
@@ -348,7 +348,7 @@ CDataFrame::sequentialApplyToAllRows(std::size_t beginRows,
 
     CPackedBitVector::COneBitIndexConstIterator maskedRow;
     CPackedBitVector::COneBitIndexConstIterator endMaskedRows;
-    if (rowMask) {
+    if (rowMask != nullptr) {
         maskedRow = rowMask->beginOneBits();
         endMaskedRows = rowMask->endOneBits();
     }
@@ -433,7 +433,7 @@ CDataFrame::sequentialApplyToAllRows(std::size_t beginRows,
             TPopMaskedRowFunc popMaskedRow;
             if (rowMask != nullptr) {
                 beginSliceRows = *maskedRow;
-                popMaskedRow = [endSliceRows, &maskedRow, endMaskedRows]() mutable {
+                popMaskedRow = [endSliceRows, maskedRow, endMaskedRows]() mutable {
                     return ++maskedRow == endMaskedRows
                                ? endSliceRows
                                : std::min(*maskedRow, endSliceRows);
