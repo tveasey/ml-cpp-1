@@ -115,7 +115,6 @@ class CBoostedTreeImpl;
 //! proposed by Reshef for this purpose. See CDataFrameCategoryEncoder for more details.
 class MATHS_EXPORT CBoostedTree final : public CDataFrameRegressionModel {
 public:
-    using TProgressCallback = std::function<void(double)>;
     using TRowRef = core::CDataFrame::TRowRef;
     using TLossFunctionUPtr = std::unique_ptr<boosted_tree::CLoss>;
     using TDataFramePtr = core::CDataFrame*;
@@ -155,7 +154,10 @@ private:
     using TImplUPtr = std::unique_ptr<CBoostedTreeImpl>;
 
 private:
-    CBoostedTree(core::CDataFrame& frame, TProgressCallback recordProgress, TImplUPtr&& impl);
+    CBoostedTree(core::CDataFrame& frame,
+                 TProgressCallback recordProgress,
+                 TMemoryUsageCallback recordMemoryUsage,
+                 TImplUPtr&& impl);
 
 private:
     TImplUPtr m_Impl;
