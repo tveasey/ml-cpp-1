@@ -209,7 +209,10 @@ private:
             auto result = frame.readRows(
                 numberThreads, 0, frame.numberRows(),
                 core::bindRetrievableState(
-                    [&](core::CPackedBitVector& leftRowMask, TRowItr beginRows, TRowItr endRows) {
+                    [&](auto& state, TRowItr beginRows, TRowItr endRows) {
+                        core::CPackedBitVector& leftRowMask{std::get<0>(state)};
+                        std::size_t& leftCount{std::get<1>(state)};
+                        std::size_t& rightCount{std::get<2>(state)};
                         for (auto row = beginRows; row != endRows; ++row) {
                             std::size_t index{row->index()};
                             double value{encoder.encode(*row)[m_SplitFeature]};
@@ -218,20 +221,30 @@ private:
                                 (missing == false && value < m_SplitValue)) {
                                 leftRowMask.extend(false, index - leftRowMask.size());
                                 leftRowMask.extend(true);
+                                ++leftCount;
+                            } else {
+                                ++rightCount;
                             }
                         }
                     },
-                    core::CPackedBitVector{}),
+                    std::make_tuple(core::CPackedBitVector{}, std::size_t{0}, std::size_t{0})),
                 &rowMask);
 
-            for (auto& mask : result.first) {
-                mask.s_FunctionState.extend(
-                    false, rowMask.size() - mask.s_FunctionState.size());
+            const auto& results = result.first;
+
+            for (auto& mask_ : results) {
+                core::CPackedBitVector& mask{std::get<0>(mask_.s_FunctionState)};
+                mask.extend(false, rowMask.size() - mask.size());
             }
 
-            core::CPackedBitVector leftRowMask{std::move(result.first[0].s_FunctionState)};
-            for (std::size_t i = 1; i < result.first.size(); ++i) {
-                leftRowMask |= result.first[i].s_FunctionState;
+            core::CPackedBitVector leftRowMask;
+            std::size_t leftCount;
+            std::size_t rightCount;
+            std::tie(leftRowMask, leftCount, rightCount) = std::move(results[0].s_FunctionState);
+            for (std::size_t i = 1; i < results.size(); ++i) {
+                leftRowMask |= std::get<0>(results[i].s_FunctionState);
+                leftCount += std::get<1>(results[i].s_FunctionState);
+                rightCount += std::get<2>(results[i].s_FunctionState);
             }
             LOG_TRACE(<< "# rows in left node = " << leftRowMask.manhattan());
             LOG_TRACE(<< "left row mask = " << leftRowMask);
@@ -241,7 +254,8 @@ private:
             LOG_TRACE(<< "# rows in right node = " << rightRowMask.manhattan());
             LOG_TRACE(<< "left row mask = " << rightRowMask);
 
-            return std::make_pair(std::move(leftRowMask), std::move(rightRowMask));
+            return std::make_tuple(std::move(leftRowMask), std::move(rightRowMask),
+                                   leftCount < rightCount);
         }
 
         //! Get a human readable description of this tree.
@@ -356,9 +370,10 @@ private:
                    const TDoubleVecVec& candidateSplits,
                    TSizeVec featureBag,
                    core::CPackedBitVector leftChildRowMask,
-                   core::CPackedBitVector rightChildRowMask) {
+                   core::CPackedBitVector rightChildRowMask,
+                   bool leftChildHasFewerRows) {
 
-            if (leftChildRowMask.manhattan() < rightChildRowMask.manhattan()) {
+            if (leftChildHasFewerRows) {
                 auto leftChild = std::make_shared<CLeafNodeStatistics>(
                     leftChildId, numberThreads, frame, encoder, lambda, gamma, candidateSplits,
                     std::move(featureBag), std::move(leftChildRowMask));

@@ -84,8 +84,8 @@ double readActual(const TRowRef& row, std::size_t dependentVariable) {
 }
 
 CBoostedTreeImpl::CLeafNodeStatistics::CDerivatives::CDerivatives(const TDoubleVecVec& candidateSplits)
-    : m_CandidateSplits{&candidateSplits},
-      m_Gradients(candidateSplits.size()), m_Curvatures(candidateSplits.size()),
+    : m_CandidateSplits{&candidateSplits}, m_Gradients(candidateSplits.size()),
+      m_Curvatures(candidateSplits.size()),
       m_MissingGradients{SConstant<TVector>::get(candidateSplits.size(), 0.0)},
       m_MissingCurvatures{SConstant<TVector>::get(candidateSplits.size(), 0.0)} {
 
@@ -560,15 +560,18 @@ CBoostedTreeImpl::trainTree(core::CDataFrame& frame,
 
             core::CPackedBitVector leftChildRowMask;
             core::CPackedBitVector rightChildRowMask;
-            std::tie(leftChildRowMask, rightChildRowMask) = tree[leaf->id()].rowMasks(
-                m_NumberThreads, frame, *m_Encoder, std::move(leaf->rowMask()));
+            bool leftChildHasFewerRows;
+            std::tie(leftChildRowMask, rightChildRowMask, leftChildHasFewerRows) =
+                tree[leaf->id()].rowMasks(m_NumberThreads, frame, *m_Encoder,
+                                          std::move(leaf->rowMask()));
 
             TLeafNodeStatisticsPtr leftChild;
             TLeafNodeStatisticsPtr rightChild;
-            std::tie(leftChild, rightChild) = leaf->split(
-                leftChildId, rightChildId, m_NumberThreads, frame, *m_Encoder,
-                m_Lambda, m_Gamma, candidateSplits, std::move(featureBag),
-                std::move(leftChildRowMask), std::move(rightChildRowMask));
+            std::tie(leftChild, rightChild) =
+                leaf->split(leftChildId, rightChildId, m_NumberThreads, frame,
+                            *m_Encoder, m_Lambda, m_Gamma, candidateSplits,
+                            std::move(featureBag), std::move(leftChildRowMask),
+                            std::move(rightChildRowMask), leftChildHasFewerRows);
 
             scopeMemoryUsage.add(leftChild);
             scopeMemoryUsage.add(rightChild);
@@ -628,10 +631,11 @@ void CBoostedTreeImpl::refreshPredictionsAndLossDerivatives(core::CDataFrame& fr
     frame.readRows(
         1, 0, frame.numberRows(),
         [&](TRowItr beginRows, TRowItr endRows) {
-            for (auto row = beginRows; row != endRows; ++row) {
-                double prediction{readPrediction(*row)};
-                double actual{readActual(*row, m_DependentVariable)};
-                leafValues[root(tree).leafIndex(m_Encoder->encode(*row), tree)]->add(
+            for (auto row_ = beginRows; row_ != endRows; ++row_) {
+                const TRowRef& row{*row_};
+                double prediction{readPrediction(row)};
+                double actual{readActual(row, m_DependentVariable)};
+                leafValues[root(tree).leafIndex(m_Encoder->encode(row), tree)]->add(
                     prediction, actual);
             }
         },
