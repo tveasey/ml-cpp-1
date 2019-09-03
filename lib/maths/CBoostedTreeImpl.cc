@@ -726,11 +726,11 @@ bool CBoostedTreeImpl::selectNextHyperparameters(const TMeanVarAccumulator& loss
 
     // Read parameters for last round.
     int i{0};
-    if (m_LambdaOverride == boost::none) {
-        parameters(i++) = std::log(m_Lambda);
+    if (m_LambdaOverride == boost::none || m_GammaOverride == boost::none) {
+        parameters(i++) = std::log(m_RegularizationScale);
     }
-    if (m_GammaOverride == boost::none) {
-        parameters(i++) = std::log(m_Gamma);
+    if (m_LambdaOverride == boost::none && m_GammaOverride == boost::none) {
+        parameters(i++) = m_RegularizationGammaFraction;
     }
     if (m_EtaOverride == boost::none) {
         parameters(i++) = std::log(m_Eta);
@@ -739,11 +739,20 @@ bool CBoostedTreeImpl::selectNextHyperparameters(const TMeanVarAccumulator& loss
     if (m_FeatureBagFractionOverride == boost::none) {
         parameters(i++) = m_FeatureBagFraction;
     }
+    LOG_TRACE(<< "loss moments = " << lossMoments << " for lambda = " << m_Lambda
+              << ", gamma = " << m_Gamma << ", eta = " << m_Eta
+              << ", eta growth rate per tree = " << m_EtaGrowthRatePerTree
+              << ", feature bag fraction = " << m_FeatureBagFraction);
 
     double meanLoss{CBasicStatistics::mean(lossMoments)};
-    double lossVariance{CBasicStatistics::variance(lossMoments)};
+    // We have a sample moments estimates for the validation error. We use the
+    // mean estimate of the validation error for the n-folds and we expect the
+    // sample variance of this statistic to be 1 / n * sample variance for the
+    // validation error for the individual folds.
+    double meanLossVariance{CBasicStatistics::variance(lossMoments) /
+                            CBasicStatistics::count(lossMoments)};
 
-    bopt.add(parameters, meanLoss, lossVariance);
+    bopt.add(parameters, meanLoss, meanLossVariance);
     if (3 * m_CurrentRound < m_NumberRounds) {
         std::generate_n(parameters.data(), parameters.size(), [&]() {
             return CSampling::uniformSample(m_Rng, 0.0, 1.0);
@@ -758,11 +767,17 @@ bool CBoostedTreeImpl::selectNextHyperparameters(const TMeanVarAccumulator& loss
 
     // Write parameters for next round.
     i = 0;
+    if (m_LambdaOverride == boost::none || m_GammaOverride == boost::none) {
+        m_RegularizationScale = std::exp(parameters(i++));
+    }
+    if (m_LambdaOverride == boost::none && m_GammaOverride == boost::none) {
+        m_RegularizationGammaFraction = parameters(i++);
+    }
     if (m_LambdaOverride == boost::none) {
-        m_Lambda = std::exp(parameters(i++));
+        m_Lambda = m_RegularizationScale * (1.0 - m_RegularizationGammaFraction) * m_BaseLambda;
     }
     if (m_GammaOverride == boost::none) {
-        m_Gamma = std::exp(parameters(i++));
+        m_Gamma = m_RegularizationScale * m_RegularizationGammaFraction * m_BaseGamma;
     }
     if (m_EtaOverride == boost::none) {
         m_Eta = std::exp(parameters(i++));
@@ -772,18 +787,16 @@ bool CBoostedTreeImpl::selectNextHyperparameters(const TMeanVarAccumulator& loss
         m_FeatureBagFraction = parameters(i++);
     }
 
-    LOG_TRACE(<< "lambda = " << m_Lambda << ", gamma = " << m_Gamma << ", eta = " << m_Eta
-              << ", eta growth rate per tree = " << m_EtaGrowthRatePerTree
-              << ", feature bag fraction = " << m_FeatureBagFraction);
     return true;
 }
 
 void CBoostedTreeImpl::captureBestHyperparameters(const TMeanVarAccumulator& lossMoments) {
-    // We capture the parameters with the lowest error at one standard
-    // deviation above the mean. If the mean error improvement is marginal
-    // we prefer the solution with the least variation across the folds.
-    double loss{CBasicStatistics::mean(lossMoments) +
-                std::sqrt(CBasicStatistics::variance(lossMoments))};
+    // We capture the parameters with the lowest loss at one standard deviation
+    // above the mean: if the mean loss improvement is marginal we therefore
+    // prefer the parameters with the least variation in loss across the folds.
+    double meanLossVariance{CBasicStatistics::variance(lossMoments) /
+                            CBasicStatistics::count(lossMoments)};
+    double loss{CBasicStatistics::mean(lossMoments) + std::sqrt(meanLossVariance)};
     if (loss < m_BestForestTestLoss) {
         m_BestForestTestLoss = loss;
         m_BestHyperparameters = SHyperparameters{
@@ -798,8 +811,9 @@ void CBoostedTreeImpl::restoreBestHyperparameters() {
     m_EtaGrowthRatePerTree = m_BestHyperparameters.s_EtaGrowthRatePerTree;
     m_FeatureBagFraction = m_BestHyperparameters.s_FeatureBagFraction;
     m_FeatureSampleProbabilities = m_BestHyperparameters.s_FeatureSampleProbabilities;
-    LOG_TRACE(<< "lambda* = " << m_Lambda << ", gamma* = " << m_Gamma
-              << ", eta* = " << m_Eta << ", eta growth rate per tree* = " << m_EtaGrowthRatePerTree
+    LOG_TRACE(<< "loss = " << m_BestForestTestLoss << ": lambda* = " << m_Lambda
+              << ", gamma* = " << m_Gamma << ", eta* = " << m_Eta
+              << ", eta growth rate per tree* = " << m_EtaGrowthRatePerTree
               << ", feature bag fraction* = " << m_FeatureBagFraction);
 }
 
@@ -820,6 +834,8 @@ std::size_t CBoostedTreeImpl::maximumTreeSize(std::size_t numberRows) const {
 const std::size_t CBoostedTreeImpl::PACKED_BIT_VECTOR_MAXIMUM_ROWS_PER_BYTE{256};
 
 namespace {
+const std::string BASE_GAMMA_TAG{"base_gamma_tag"};
+const std::string BASE_LAMBDA_TAG{"base_Lambda_tag"};
 const std::string BAYESIAN_OPTIMIZATION_TAG{"bayesian_optimization"};
 const std::string BEST_FOREST_TAG{"best_forest"};
 const std::string BEST_FOREST_TEST_LOSS_TAG{"best_forest_test_loss"};
@@ -850,6 +866,8 @@ const std::string NUMBER_FOLDS_TAG{"number_folds"};
 const std::string NUMBER_ROUNDS_TAG{"number_rounds"};
 const std::string NUMBER_SPLITS_PER_FEATURE_TAG{"number_splits_per_feature"};
 const std::string NUMBER_THREADS_TAG{"number_threads"};
+const std::string REGULARIZATION_SCALE_TAG{"regularization_scale"};
+const std::string REGULARIZATION_GAMMA_FRACTION_TAG{"regularization_gamma_fraction"};
 const std::string ROWS_PER_FEATURE_TAG{"rows_per_feature"};
 const std::string TESTING_ROW_MASKS_TAG{"testing_row_masks"};
 const std::string TRAINING_ROW_MASKS_TAG{"training_row_masks"};
@@ -870,6 +888,8 @@ const std::string HYPERPARAM_FEATURE_SAMPLE_PROBABILITIES_TAG{"hyperparam_featur
 }
 
 void CBoostedTreeImpl::acceptPersistInserter(core::CStatePersistInserter& inserter) const {
+    core::CPersistUtils::persist(BASE_GAMMA_TAG, m_BaseGamma, inserter);
+    core::CPersistUtils::persist(BASE_LAMBDA_TAG, m_BaseLambda, inserter);
     core::CPersistUtils::persist(BAYESIAN_OPTIMIZATION_TAG, *m_BayesianOptimization, inserter);
     core::CPersistUtils::persist(BEST_FOREST_TEST_LOSS_TAG, m_BestForestTestLoss, inserter);
     core::CPersistUtils::persist(CURRENT_ROUND_TAG, m_CurrentRound, inserter);
@@ -897,6 +917,9 @@ void CBoostedTreeImpl::acceptPersistInserter(core::CStatePersistInserter& insert
     core::CPersistUtils::persist(NUMBER_SPLITS_PER_FEATURE_TAG,
                                  m_NumberSplitsPerFeature, inserter);
     core::CPersistUtils::persist(NUMBER_THREADS_TAG, m_NumberThreads, inserter);
+    core::CPersistUtils::persist(REGULARIZATION_SCALE_TAG, m_RegularizationScale, inserter);
+    core::CPersistUtils::persist(REGULARIZATION_GAMMA_FRACTION_TAG,
+                                 m_RegularizationGammaFraction, inserter);
     core::CPersistUtils::persist(ROWS_PER_FEATURE_TAG, m_RowsPerFeature, inserter);
     core::CPersistUtils::persist(TESTING_ROW_MASKS_TAG, m_TestingRowMasks, inserter);
     core::CPersistUtils::persist(MAXIMUM_NUMBER_TREES_TAG, m_MaximumNumberTrees, inserter);
@@ -991,6 +1014,10 @@ bool CBoostedTreeImpl::restoreLoss(CBoostedTree::TLossFunctionUPtr& loss,
 bool CBoostedTreeImpl::acceptRestoreTraverser(core::CStateRestoreTraverser& traverser) {
     do {
         const std::string& name = traverser.name();
+        RESTORE(BASE_GAMMA_TAG,
+                core::CPersistUtils::restore(BASE_GAMMA_TAG, m_BaseGamma, traverser))
+        RESTORE(BASE_LAMBDA_TAG,
+                core::CPersistUtils::restore(BASE_LAMBDA_TAG, m_BaseLambda, traverser))
         RESTORE_NO_ERROR(BAYESIAN_OPTIMIZATION_TAG,
                          m_BayesianOptimization =
                              std::make_unique<CBayesianOptimisation>(traverser))
@@ -1048,6 +1075,12 @@ bool CBoostedTreeImpl::acceptRestoreTraverser(core::CStateRestoreTraverser& trav
         RESTORE(MAXIMUM_NUMBER_TREES_TAG,
                 core::CPersistUtils::restore(MAXIMUM_NUMBER_TREES_TAG,
                                              m_MaximumNumberTrees, traverser))
+        RESTORE(REGULARIZATION_SCALE_TAG,
+                core::CPersistUtils::restore(REGULARIZATION_SCALE_TAG,
+                                             m_RegularizationScale, traverser))
+        RESTORE(REGULARIZATION_GAMMA_FRACTION_TAG,
+                core::CPersistUtils::restore(REGULARIZATION_GAMMA_FRACTION_TAG,
+                                             m_RegularizationGammaFraction, traverser))
         RESTORE(TRAINING_ROW_MASKS_TAG,
                 core::CPersistUtils::restore(TRAINING_ROW_MASKS_TAG, m_TrainingRowMasks, traverser))
         RESTORE(BEST_FOREST_TAG,
