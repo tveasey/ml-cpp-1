@@ -20,6 +20,7 @@ public:
     void testCategoricalRegressors();
     void testIntegerRegressor();
     void testMissingData();
+    void testTranslationInvariance();
     //void testFeatureWeights();
     //void testNuisanceFeatures();
     void testEstimateMemoryUsedByTrain();
