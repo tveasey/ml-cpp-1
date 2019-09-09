@@ -209,8 +209,8 @@ private:
                 core::bindRetrievableState(
                     [&](auto& state, TRowItr beginRows, TRowItr endRows) {
                         core::CPackedBitVector& leftRowMask{std::get<0>(state)};
-                        std::size_t& leftCount{std::get<1>(state)};
-                        std::size_t& rightCount{std::get<2>(state)};
+                        std::size_t& leftChildNumberRows{std::get<1>(state)};
+                        std::size_t& rightChildNumberRows{std::get<2>(state)};
                         for (auto row = beginRows; row != endRows; ++row) {
                             std::size_t index{row->index()};
                             double value{encoder.encode(*row)[m_SplitFeature]};
@@ -219,9 +219,9 @@ private:
                                 (missing == false && value < m_SplitValue)) {
                                 leftRowMask.extend(false, index - leftRowMask.size());
                                 leftRowMask.extend(true);
-                                ++leftCount;
+                                ++leftChildNumberRows;
                             } else {
-                                ++rightCount;
+                                ++rightChildNumberRows;
                             }
                         }
                     },
@@ -235,13 +235,14 @@ private:
             }
 
             core::CPackedBitVector leftRowMask;
-            std::size_t leftCount;
-            std::size_t rightCount;
-            std::tie(leftRowMask, leftCount, rightCount) = std::move(masks[0].s_FunctionState);
+            std::size_t leftChildNumberRows;
+            std::size_t rightChildNumberRows;
+            std::tie(leftRowMask, leftChildNumberRows, rightChildNumberRows) =
+                std::move(masks[0].s_FunctionState);
             for (std::size_t i = 1; i < masks.size(); ++i) {
                 leftRowMask |= std::get<0>(masks[i].s_FunctionState);
-                leftCount += std::get<1>(masks[i].s_FunctionState);
-                rightCount += std::get<2>(masks[i].s_FunctionState);
+                leftChildNumberRows += std::get<1>(masks[i].s_FunctionState);
+                rightChildNumberRows += std::get<2>(masks[i].s_FunctionState);
             }
             LOG_TRACE(<< "# rows in left node = " << leftRowMask.manhattan());
             LOG_TRACE(<< "left row mask = " << leftRowMask);
@@ -252,7 +253,7 @@ private:
             LOG_TRACE(<< "left row mask = " << rightRowMask);
 
             return std::make_tuple(std::move(leftRowMask), std::move(rightRowMask),
-                                   leftCount < rightCount);
+                                   leftChildNumberRows < rightChildNumberRows);
         }
 
         //! Get a human readable description of this tree.
@@ -305,10 +306,11 @@ private:
                             const CDataFrameCategoryEncoder& encoder,
                             double lambda,
                             double gamma,
+                            std::size_t depth,
                             const TDoubleVecVec& candidateSplits,
                             TSizeVec featureBag,
                             core::CPackedBitVector rowMask)
-            : m_Id{id}, m_Lambda{lambda}, m_Gamma{gamma}, m_CandidateSplits{candidateSplits},
+            : m_Id{id}, m_Lambda{lambda}, m_Gamma{gamma}, m_Depth{depth}, m_CandidateSplits{candidateSplits},
               m_FeatureBag{std::move(featureBag)}, m_RowMask{std::move(rowMask)} {
 
             std::sort(m_FeatureBag.begin(), m_FeatureBag.end());
@@ -324,7 +326,7 @@ private:
                             const CLeafNodeStatistics& sibling,
                             core::CPackedBitVector rowMask)
             : m_Id{id}, m_Lambda{sibling.m_Lambda}, m_Gamma{sibling.m_Gamma},
-              m_CandidateSplits{sibling.m_CandidateSplits},
+              m_Depth{sibling.m_Depth}, m_CandidateSplits{sibling.m_CandidateSplits},
               m_FeatureBag{sibling.m_FeatureBag}, m_RowMask{std::move(rowMask)} {
 
             LOG_TRACE(<< "row mask = " << m_RowMask);
@@ -383,8 +385,9 @@ private:
 
             if (leftChildHasFewerRows) {
                 auto leftChild = std::make_shared<CLeafNodeStatistics>(
-                    leftChildId, numberThreads, frame, encoder, lambda, gamma, candidateSplits,
-                    std::move(featureBag), std::move(leftChildRowMask));
+                    leftChildId, numberThreads, frame, encoder, lambda, gamma,
+                    m_Depth + 1, candidateSplits, std::move(featureBag),
+                    std::move(leftChildRowMask));
                 auto rightChild = std::make_shared<CLeafNodeStatistics>(
                     rightChildId, *this, *leftChild, std::move(rightChildRowMask));
 
@@ -392,7 +395,7 @@ private:
             }
 
             auto rightChild = std::make_shared<CLeafNodeStatistics>(
-                rightChildId, numberThreads, frame, encoder, lambda, gamma,
+                rightChildId, numberThreads, frame, encoder, lambda, gamma, m_Depth + 1,
                 candidateSplits, std::move(featureBag), std::move(rightChildRowMask));
             auto leftChild = std::make_shared<CLeafNodeStatistics>(
                 leftChildId, *this, *rightChild, std::move(leftChildRowMask));
@@ -458,7 +461,7 @@ private:
             std::size_t curvatureSize{gradientsSize};
             std::size_t missingGradientsSize{(numberCols - 1) * sizeof(double)};
             std::size_t missingCurvatureSize{missingGradientsSize};
-            return featureBagSize + rowMaskSize + gradientsSize +
+            return sizeof(CLeafNodeStatistics) + featureBagSize + rowMaskSize + gradientsSize +
                    curvatureSize + missingGradientsSize + missingCurvatureSize;
         }
 
@@ -567,72 +570,13 @@ private:
             return *m_BestSplit;
         }
 
-        SSplitStatistics computeBestSplitStatistics() const {
-
-            static const std::size_t ASSIGN_MISSING_TO_LEFT{0};
-            static const std::size_t ASSIGN_MISSING_TO_RIGHT{1};
-
-            SSplitStatistics result{-INF, m_FeatureBag.size(), INF, true};
-
-            for (auto i : m_FeatureBag) {
-                double g{std::accumulate(m_Gradients[i].begin(), m_Gradients[i].end(), 0.0) +
-                         m_MissingGradients[i]};
-                double h{std::accumulate(m_Curvatures[i].begin(),
-                                         m_Curvatures[i].end(), 0.0) +
-                         m_MissingCurvatures[i]};
-                double gl[]{m_MissingGradients[i], 0.0};
-                double hl[]{m_MissingCurvatures[i], 0.0};
-
-                double maximumGain{-INF};
-                double splitAt{-INF};
-                bool assignMissingToLeft{true};
-
-                for (std::size_t j = 0; j + 1 < m_Gradients[i].size(); ++j) {
-                    gl[ASSIGN_MISSING_TO_LEFT] += m_Gradients[i][j];
-                    hl[ASSIGN_MISSING_TO_LEFT] += m_Curvatures[i][j];
-                    gl[ASSIGN_MISSING_TO_RIGHT] += m_Gradients[i][j];
-                    hl[ASSIGN_MISSING_TO_RIGHT] += m_Curvatures[i][j];
-
-                    double gain[]{CTools::pow2(gl[ASSIGN_MISSING_TO_LEFT]) /
-                                          (hl[ASSIGN_MISSING_TO_LEFT] + m_Lambda) +
-                                      CTools::pow2(g - gl[ASSIGN_MISSING_TO_LEFT]) /
-                                          (h - hl[ASSIGN_MISSING_TO_LEFT] + m_Lambda),
-                                  CTools::pow2(gl[ASSIGN_MISSING_TO_RIGHT]) /
-                                          (hl[ASSIGN_MISSING_TO_RIGHT] + m_Lambda) +
-                                      CTools::pow2(g - gl[ASSIGN_MISSING_TO_RIGHT]) /
-                                          (h - hl[ASSIGN_MISSING_TO_RIGHT] + m_Lambda)};
-
-                    if (gain[ASSIGN_MISSING_TO_LEFT] > maximumGain) {
-                        maximumGain = gain[ASSIGN_MISSING_TO_LEFT];
-                        splitAt = m_CandidateSplits[i][j];
-                        assignMissingToLeft = true;
-                    }
-                    if (gain[ASSIGN_MISSING_TO_RIGHT] > maximumGain) {
-                        maximumGain = gain[ASSIGN_MISSING_TO_RIGHT];
-                        splitAt = m_CandidateSplits[i][j];
-                        assignMissingToLeft = false;
-                    }
-                }
-
-                double gain{0.5 * (maximumGain - CTools::pow2(g) / (h + m_Lambda)) - m_Gamma};
-
-                SSplitStatistics candidate{gain, i, splitAt, assignMissingToLeft};
-                LOG_TRACE(<< "candidate split: " << candidate.print());
-
-                if (candidate > result) {
-                    result = candidate;
-                }
-            }
-
-            LOG_TRACE(<< "best split: " << result.print());
-
-            return result;
-        }
+        SSplitStatistics computeBestSplitStatistics() const;
 
     private:
         std::size_t m_Id;
         double m_Lambda;
         double m_Gamma;
+        std::size_t m_Depth;
         const TDoubleVecVec& m_CandidateSplits;
         TSizeVec m_FeatureBag;
         core::CPackedBitVector m_RowMask;

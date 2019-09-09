@@ -82,6 +82,9 @@ double readLossCurvature(const TRowRef& row) {
 double readActual(const TRowRef& row, std::size_t dependentVariable) {
     return row[dependentVariable];
 }
+
+const std::size_t ASSIGN_MISSING_TO_LEFT{0};
+const std::size_t ASSIGN_MISSING_TO_RIGHT{1};
 }
 
 void CBoostedTreeImpl::CLeafNodeStatistics::addRowDerivatives(const CEncodedDataFrameRowRef& row,
@@ -105,6 +108,65 @@ void CBoostedTreeImpl::CLeafNodeStatistics::addRowDerivatives(const CEncodedData
             derivatives.s_Curvatures[i][j] += curvature;
         }
     }
+}
+
+CBoostedTreeImpl::CLeafNodeStatistics::SSplitStatistics
+CBoostedTreeImpl::CLeafNodeStatistics::computeBestSplitStatistics() const {
+
+    SSplitStatistics result{-INF, m_FeatureBag.size(), INF, true};
+
+    for (auto i : m_FeatureBag) {
+        double g{std::accumulate(m_Gradients[i].begin(), m_Gradients[i].end(), 0.0) +
+                 m_MissingGradients[i]};
+        double h{std::accumulate(m_Curvatures[i].begin(), m_Curvatures[i].end(), 0.0) +
+                 m_MissingCurvatures[i]};
+        double gl[]{m_MissingGradients[i], 0.0};
+        double hl[]{m_MissingCurvatures[i], 0.0};
+
+        double maximumGain{-INF};
+        double splitAt{-INF};
+        bool assignMissingToLeft{true};
+
+        for (std::size_t j = 0; j + 1 < m_Gradients[i].size(); ++j) {
+            gl[ASSIGN_MISSING_TO_LEFT] += m_Gradients[i][j];
+            hl[ASSIGN_MISSING_TO_LEFT] += m_Curvatures[i][j];
+            gl[ASSIGN_MISSING_TO_RIGHT] += m_Gradients[i][j];
+            hl[ASSIGN_MISSING_TO_RIGHT] += m_Curvatures[i][j];
+
+            double gain[]{CTools::pow2(gl[ASSIGN_MISSING_TO_LEFT]) /
+                                  (hl[ASSIGN_MISSING_TO_LEFT] + m_Lambda) +
+                              CTools::pow2(g - gl[ASSIGN_MISSING_TO_LEFT]) /
+                                  (h - hl[ASSIGN_MISSING_TO_LEFT] + m_Lambda),
+                          CTools::pow2(gl[ASSIGN_MISSING_TO_RIGHT]) /
+                                  (hl[ASSIGN_MISSING_TO_RIGHT] + m_Lambda) +
+                              CTools::pow2(g - gl[ASSIGN_MISSING_TO_RIGHT]) /
+                                  (h - hl[ASSIGN_MISSING_TO_RIGHT] + m_Lambda)};
+
+            if (gain[ASSIGN_MISSING_TO_LEFT] > maximumGain) {
+                maximumGain = gain[ASSIGN_MISSING_TO_LEFT];
+                splitAt = m_CandidateSplits[i][j];
+                assignMissingToLeft = true;
+            }
+            if (gain[ASSIGN_MISSING_TO_RIGHT] > maximumGain) {
+                maximumGain = gain[ASSIGN_MISSING_TO_RIGHT];
+                splitAt = m_CandidateSplits[i][j];
+                assignMissingToLeft = false;
+            }
+        }
+
+        double gain{0.5 * (maximumGain - CTools::pow2(g) / (h + m_Lambda)) - m_Gamma};
+
+        SSplitStatistics candidate{gain, i, splitAt, assignMissingToLeft};
+        LOG_TRACE(<< "candidate split: " << candidate.print());
+
+        if (candidate > result) {
+            result = candidate;
+        }
+    }
+
+    LOG_TRACE(<< "best split: " << result.print());
+
+    return result;
 }
 
 CBoostedTreeImpl::CBoostedTreeImpl(std::size_t numberThreads, CBoostedTree::TLossFunctionUPtr loss)
@@ -497,7 +559,7 @@ CBoostedTreeImpl::trainTree(core::CDataFrame& frame,
     TLeafNodeStatisticsPtrQueue leaves;
     leaves.push(std::make_shared<CLeafNodeStatistics>(
         0 /*root*/, m_NumberThreads, frame, *m_Encoder, m_Lambda, m_Gamma,
-        candidateSplits, this->featureBag(), trainingRowMask));
+        0 /*depth*/, candidateSplits, this->featureBag(), trainingRowMask));
 
     // We update local variables because the callback can be expensive if it
     // requires accessing atomics.
