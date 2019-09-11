@@ -98,8 +98,10 @@ public:
     virtual bool isCurvatureConstant() const = 0;
     //! Get an object which computes the leaf value that minimises loss.
     virtual CArgMinLoss minimizer() const = 0;
-    //! Get the name of the loss function
+    //! Get the name of the loss function.
     virtual const std::string& name() const = 0;
+    //! Get a check sum for this loss function.
+    virtual std::uint64_t checksum() const = 0;
 
 protected:
     CArgMinLoss makeMinimizer(const boosted_tree_detail::CArgMinLossImpl& impl) const;
@@ -114,6 +116,7 @@ public:
     bool isCurvatureConstant() const override;
     CArgMinLoss minimizer() const override;
     const std::string& name() const override;
+    std::uint64_t checksum() const override;
 
 public:
     static const std::string NAME;
@@ -177,6 +180,9 @@ public:
 
     //! Get the column containing the model's prediction for the dependent variable.
     std::size_t columnHoldingPrediction(std::size_t numberColumns) const override;
+
+    //! Get a checksum for this object.
+    std::uint64_t checksum() const override;
 
     //! Persist by passing information to \p inserter.
     void acceptPersistInserter(core::CStatePersistInserter& inserter) const;

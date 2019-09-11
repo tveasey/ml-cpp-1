@@ -17,6 +17,7 @@
 
 #include <maths/CBasicStatistics.h>
 #include <maths/CBoostedTree.h>
+#include <maths/CChecksum.h>
 #include <maths/CDataFrameCategoryEncoder.h>
 #include <maths/CDataFrameUtils.h>
 #include <maths/CLinearAlgebraEigen.h>
@@ -49,7 +50,7 @@ class MATHS_EXPORT CBoostedTreeImpl final {
 public:
     using TMeanAccumulator = CBasicStatistics::SSampleMean<double>::TAccumulator;
     using TMeanVarAccumulator = CBasicStatistics::SSampleMeanVar<double>::TAccumulator;
-    using TBayesinOptimizationUPtr = std::unique_ptr<maths::CBayesianOptimisation>;
+    using TBayesinOptimizationUPtr = std::unique_ptr<CBayesianOptimisation>;
     using TProgressCallback = CBoostedTree::TProgressCallback;
     using TMemoryUsageCallback = CBoostedTree::TMemoryUsageCallback;
     using TTrainingStateCallback = CBoostedTree::TTrainingStateCallback;
@@ -89,18 +90,21 @@ public:
     //! Get the number of columns training the model will add to the data frame.
     static std::size_t numberExtraColumnsForTrain();
 
+    //! Get the memory used by this object.
+    std::size_t memoryUsage() const;
+
     //! Estimate the maximum booking memory that training the boosted tree on a data
     //! frame with \p numberRows row and \p numberColumns columns will use.
     std::size_t estimateMemoryUsage(std::size_t numberRows, std::size_t numberColumns) const;
+
+    //! Get a checksum for this object.
+    std::uint64_t checksum(std::uint64_t seed = 0) const;
 
     //! Persist by passing information to \p inserter.
     void acceptPersistInserter(core::CStatePersistInserter& inserter) const;
 
     //! Populate the object from serialized data.
     bool acceptRestoreTraverser(core::CStateRestoreTraverser& traverser);
-
-    //! Get the memory used by this object.
-    std::size_t memoryUsage() const;
 
 private:
     using TDoubleDoublePrVec = std::vector<std::pair<double, double>>;
@@ -127,7 +131,15 @@ private:
         double s_Eta;
         double s_EtaGrowthRatePerTree;
         double s_FeatureBagFraction;
-        TDoubleVec s_FeatureSampleProbabilities;
+
+        //! Get a checksum for this object.
+        std::uint64_t checksum(std::uint64_t seed) const {
+            seed = CChecksum::calculate(seed, s_Lambda);
+            seed = CChecksum::calculate(seed, s_Gamma);
+            seed = CChecksum::calculate(seed, s_Eta);
+            seed = CChecksum::calculate(seed, s_EtaGrowthRatePerTree);
+            return CChecksum::calculate(seed, s_FeatureBagFraction);
+        }
 
         //! Persist by passing information to \p inserter.
         void acceptPersistInserter(core::CStatePersistInserter& inserter) const;
@@ -261,6 +273,16 @@ private:
         std::string print(const TNodeVec& tree) const {
             std::ostringstream result;
             return this->doPrint("", tree, result).str();
+        }
+
+        //! Get a checksum for this object.
+        std::uint64_t checksum(std::uint64_t seed) const {
+            seed = CChecksum::calculate(seed, m_SplitFeature);
+            seed = CChecksum::calculate(seed, m_SplitValue);
+            seed = CChecksum::calculate(seed, m_AssignMissingToLeft);
+            seed = CChecksum::calculate(seed, m_LeftChild);
+            seed = CChecksum::calculate(seed, m_RightChild);
+            return CChecksum::calculate(seed, m_NodeValue);
         }
 
         //! Persist by passing information to \p inserter.

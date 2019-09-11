@@ -43,12 +43,7 @@ public:
                                                        TLossFunctionUPtr loss);
 
     //! Construct a boosted tree object from its serialized version.
-    static TBoostedTreeUPtr
-    constructFromString(std::stringstream& jsonStringStream,
-                        core::CDataFrame& frame,
-                        TProgressCallback recordProgress = noopRecordProgress,
-                        TMemoryUsageCallback recordMemoryUsage = noopRecordMemoryUsage,
-                        TTrainingStateCallback recordTrainingState = noopRecordTrainingState);
+    static CBoostedTreeFactory constructFromString(std::stringstream& jsonStringStream);
 
     ~CBoostedTreeFactory();
     CBoostedTreeFactory(CBoostedTreeFactory&) = delete;
@@ -103,7 +98,7 @@ private:
     static const std::size_t MAXIMUM_NUMBER_TREES;
 
 private:
-    CBoostedTreeFactory(std::size_t numberThreads, TLossFunctionUPtr loss);
+    CBoostedTreeFactory(bool restoring, std::size_t numberThreads, TLossFunctionUPtr loss);
 
     //! Compute the row masks for the missing values for each feature.
     void initializeMissingFeatureMasks(const core::CDataFrame& frame) const;
@@ -139,6 +134,7 @@ private:
 private:
     TOptionalDouble m_MinimumFrequencyToOneHotEncode;
     TOptionalSize m_BayesianOptimisationRestarts;
+    bool m_Restoring = false;
     TBoostedTreeImplUPtr m_TreeImpl;
     TProgressCallback m_RecordProgress = noopRecordProgress;
     TMemoryUsageCallback m_RecordMemoryUsage = noopRecordMemoryUsage;

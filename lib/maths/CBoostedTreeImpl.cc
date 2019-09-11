@@ -111,7 +111,8 @@ void CBoostedTreeImpl::CLeafNodeStatistics::addRowDerivatives(const CEncodedData
 
 CBoostedTreeImpl::CBoostedTreeImpl(std::size_t numberThreads, CBoostedTree::TLossFunctionUPtr loss)
     : m_NumberThreads{numberThreads}, m_Loss{std::move(loss)},
-      m_BestHyperparameters{m_Lambda, m_Gamma, m_Eta, m_EtaGrowthRatePerTree, m_FeatureBagFraction, m_FeatureSampleProbabilities} {
+      m_BestHyperparameters{m_Lambda, m_Gamma, m_Eta, m_EtaGrowthRatePerTree,
+                            m_FeatureBagFraction} {
 }
 
 CBoostedTreeImpl::CBoostedTreeImpl() = default;
@@ -240,7 +241,22 @@ std::size_t CBoostedTreeImpl::columnHoldingDependentVariable() const {
 }
 
 std::size_t CBoostedTreeImpl::numberExtraColumnsForTrain() {
+    // We store the gradient and curvature of the loss function and the predicted
+    // value for the dependent variable of the regression.
     return 3;
+}
+
+std::size_t CBoostedTreeImpl::memoryUsage() const {
+    std::size_t mem{core::CMemory::dynamicSize(m_Loss)};
+    mem += core::CMemory::dynamicSize(m_FeatureDataTypes);
+    mem += core::CMemory::dynamicSize(m_Encoder);
+    mem += core::CMemory::dynamicSize(m_FeatureSampleProbabilities);
+    mem += core::CMemory::dynamicSize(m_MissingFeatureRowMasks);
+    mem += core::CMemory::dynamicSize(m_TrainingRowMasks);
+    mem += core::CMemory::dynamicSize(m_TestingRowMasks);
+    mem += core::CMemory::dynamicSize(m_BestForest);
+    mem += core::CMemory::dynamicSize(m_BayesianOptimization);
+    return mem;
 }
 
 std::size_t CBoostedTreeImpl::estimateMemoryUsage(std::size_t numberRows,
@@ -269,6 +285,42 @@ std::size_t CBoostedTreeImpl::estimateMemoryUsage(std::size_t numberRows,
            hyperparametersMemoryUsage + leafNodeStatisticsMemoryUsage +
            dataTypeMemoryUsage + featureSampleProbabilities + missingFeatureMaskMemoryUsage +
            trainTestMaskMemoryUsage + bayesianOptimisationMemoryUsage;
+}
+
+std::uint64_t CBoostedTreeImpl::checksum(std::uint64_t seed) const {
+    seed = CChecksum::calculate(seed, m_Rng);
+    seed = CChecksum::calculate(seed, m_NumberThreads);
+    seed = CChecksum::calculate(seed, m_DependentVariable);
+    seed = CChecksum::calculate(seed, m_Loss);
+    seed = CChecksum::calculate(seed, m_LambdaOverride);
+    seed = CChecksum::calculate(seed, m_GammaOverride);
+    seed = CChecksum::calculate(seed, m_EtaOverride);
+    seed = CChecksum::calculate(seed, m_MaximumNumberTreesOverride);
+    seed = CChecksum::calculate(seed, m_FeatureBagFractionOverride);
+    seed = CChecksum::calculate(seed, m_Lambda);
+    seed = CChecksum::calculate(seed, m_Gamma);
+    seed = CChecksum::calculate(seed, m_Eta);
+    seed = CChecksum::calculate(seed, m_EtaGrowthRatePerTree);
+    seed = CChecksum::calculate(seed, m_NumberFolds);
+    seed = CChecksum::calculate(seed, m_MaximumNumberTrees);
+    seed = CChecksum::calculate(seed, m_MaximumAttemptsToAddTree);
+    seed = CChecksum::calculate(seed, m_NumberSplitsPerFeature);
+    seed = CChecksum::calculate(seed, m_MaximumOptimisationRoundsPerHyperparameter);
+    seed = CChecksum::calculate(seed, m_RowsPerFeature);
+    seed = CChecksum::calculate(seed, m_FeatureBagFraction);
+    seed = CChecksum::calculate(seed, m_MaximumTreeSizeMultiplier);
+    seed = CChecksum::calculate(seed, m_FeatureDataTypes);
+    seed = CChecksum::calculate(seed, m_Encoder);
+    seed = CChecksum::calculate(seed, m_FeatureSampleProbabilities);
+    seed = CChecksum::calculate(seed, m_MissingFeatureRowMasks);
+    seed = CChecksum::calculate(seed, m_TrainingRowMasks);
+    seed = CChecksum::calculate(seed, m_TestingRowMasks);
+    seed = CChecksum::calculate(seed, m_BestForestTestLoss);
+    seed = CChecksum::calculate(seed, m_BestHyperparameters);
+    seed = CChecksum::calculate(seed, m_BestForest);
+    seed = CChecksum::calculate(seed, m_BayesianOptimization);
+    seed = CChecksum::calculate(seed, m_NumberRounds);
+    return CChecksum::calculate(seed, m_CurrentRound);
 }
 
 bool CBoostedTreeImpl::canTrain() const {
@@ -802,7 +854,7 @@ void CBoostedTreeImpl::captureBestHyperparameters(const TMeanVarAccumulator& los
     if (loss < m_BestForestTestLoss) {
         m_BestForestTestLoss = loss;
         m_BestHyperparameters = SHyperparameters{
-            m_Lambda, m_Gamma, m_Eta, m_EtaGrowthRatePerTree, m_FeatureBagFraction, m_FeatureSampleProbabilities};
+            m_Lambda, m_Gamma, m_Eta, m_EtaGrowthRatePerTree, m_FeatureBagFraction};
     }
 }
 
@@ -812,7 +864,6 @@ void CBoostedTreeImpl::restoreBestHyperparameters() {
     m_Eta = m_BestHyperparameters.s_Eta;
     m_EtaGrowthRatePerTree = m_BestHyperparameters.s_EtaGrowthRatePerTree;
     m_FeatureBagFraction = m_BestHyperparameters.s_FeatureBagFraction;
-    m_FeatureSampleProbabilities = m_BestHyperparameters.s_FeatureSampleProbabilities;
     LOG_TRACE(<< "lambda* = " << m_Lambda << ", gamma* = " << m_Gamma
               << ", eta* = " << m_Eta << ", eta growth rate per tree* = " << m_EtaGrowthRatePerTree
               << ", feature bag fraction* = " << m_FeatureBagFraction);
@@ -882,7 +933,6 @@ const std::string HYPERPARAM_GAMMA_TAG{"hyperparam_gamma"};
 const std::string HYPERPARAM_ETA_TAG{"hyperparam_eta"};
 const std::string HYPERPARAM_ETA_GROWTH_RATE_PER_TREE_TAG{"hyperparam_eta_growth_rate_per_tree"};
 const std::string HYPERPARAM_FEATURE_BAG_FRACTION_TAG{"hyperparam_feature_bag_fraction"};
-const std::string HYPERPARAM_FEATURE_SAMPLE_PROBABILITIES_TAG{"hyperparam_feature_sample_probabilities"};
 }
 
 void CBoostedTreeImpl::acceptPersistInserter(core::CStatePersistInserter& inserter) const {
@@ -947,30 +997,6 @@ void CBoostedTreeImpl::SHyperparameters::acceptPersistInserter(core::CStatePersi
                                  s_EtaGrowthRatePerTree, inserter);
     core::CPersistUtils::persist(HYPERPARAM_FEATURE_BAG_FRACTION_TAG,
                                  s_FeatureBagFraction, inserter);
-    core::CPersistUtils::persist(HYPERPARAM_FEATURE_SAMPLE_PROBABILITIES_TAG,
-                                 s_FeatureSampleProbabilities, inserter);
-}
-
-bool CBoostedTreeImpl::SHyperparameters::acceptRestoreTraverser(core::CStateRestoreTraverser& traverser) {
-    do {
-        const std::string& name = traverser.name();
-        RESTORE(HYPERPARAM_LAMBDA_TAG,
-                core::CPersistUtils::restore(HYPERPARAM_LAMBDA_TAG, s_Lambda, traverser))
-        RESTORE(HYPERPARAM_GAMMA_TAG,
-                core::CPersistUtils::restore(HYPERPARAM_GAMMA_TAG, s_Gamma, traverser))
-        RESTORE(HYPERPARAM_ETA_TAG,
-                core::CPersistUtils::restore(HYPERPARAM_ETA_TAG, s_Eta, traverser))
-        RESTORE(HYPERPARAM_ETA_GROWTH_RATE_PER_TREE_TAG,
-                core::CPersistUtils::restore(HYPERPARAM_ETA_GROWTH_RATE_PER_TREE_TAG,
-                                             s_EtaGrowthRatePerTree, traverser))
-        RESTORE(HYPERPARAM_FEATURE_BAG_FRACTION_TAG,
-                core::CPersistUtils::restore(HYPERPARAM_FEATURE_BAG_FRACTION_TAG,
-                                             s_FeatureBagFraction, traverser))
-        RESTORE(HYPERPARAM_FEATURE_SAMPLE_PROBABILITIES_TAG,
-                core::CPersistUtils::restore(HYPERPARAM_FEATURE_SAMPLE_PROBABILITIES_TAG,
-                                             s_FeatureSampleProbabilities, traverser))
-    } while (traverser.next());
-    return true;
 }
 
 bool CBoostedTreeImpl::CNode::acceptRestoreTraverser(core::CStateRestoreTraverser& traverser) {
@@ -989,6 +1015,25 @@ bool CBoostedTreeImpl::CNode::acceptRestoreTraverser(core::CStateRestoreTraverse
                 core::CPersistUtils::restore(NODE_VALUE_TAG, m_NodeValue, traverser))
         RESTORE(SPLIT_VALUE_TAG,
                 core::CPersistUtils::restore(SPLIT_VALUE_TAG, m_SplitValue, traverser))
+    } while (traverser.next());
+    return true;
+}
+
+bool CBoostedTreeImpl::SHyperparameters::acceptRestoreTraverser(core::CStateRestoreTraverser& traverser) {
+    do {
+        const std::string& name = traverser.name();
+        RESTORE(HYPERPARAM_LAMBDA_TAG,
+                core::CPersistUtils::restore(HYPERPARAM_LAMBDA_TAG, s_Lambda, traverser))
+        RESTORE(HYPERPARAM_GAMMA_TAG,
+                core::CPersistUtils::restore(HYPERPARAM_GAMMA_TAG, s_Gamma, traverser))
+        RESTORE(HYPERPARAM_ETA_TAG,
+                core::CPersistUtils::restore(HYPERPARAM_ETA_TAG, s_Eta, traverser))
+        RESTORE(HYPERPARAM_ETA_GROWTH_RATE_PER_TREE_TAG,
+                core::CPersistUtils::restore(HYPERPARAM_ETA_GROWTH_RATE_PER_TREE_TAG,
+                                             s_EtaGrowthRatePerTree, traverser))
+        RESTORE(HYPERPARAM_FEATURE_BAG_FRACTION_TAG,
+                core::CPersistUtils::restore(HYPERPARAM_FEATURE_BAG_FRACTION_TAG,
+                                             s_FeatureBagFraction, traverser))
     } while (traverser.next());
     return true;
 }
@@ -1014,8 +1059,6 @@ bool CBoostedTreeImpl::acceptRestoreTraverser(core::CStateRestoreTraverser& trav
         RESTORE(BEST_FOREST_TEST_LOSS_TAG,
                 core::CPersistUtils::restore(BEST_FOREST_TEST_LOSS_TAG,
                                              m_BestForestTestLoss, traverser))
-        RESTORE(RANDOM_NUMBER_GENERATOR_TAG, m_Rng.fromString(traverser.value()))
-
         RESTORE(CURRENT_ROUND_TAG,
                 core::CPersistUtils::restore(CURRENT_ROUND_TAG, m_CurrentRound, traverser))
         RESTORE(DEPENDENT_VARIABLE_TAG,
@@ -1060,6 +1103,7 @@ bool CBoostedTreeImpl::acceptRestoreTraverser(core::CStateRestoreTraverser& trav
                                              m_NumberSplitsPerFeature, traverser))
         RESTORE(NUMBER_THREADS_TAG,
                 core::CPersistUtils::restore(NUMBER_THREADS_TAG, m_NumberThreads, traverser))
+        RESTORE(RANDOM_NUMBER_GENERATOR_TAG, m_Rng.fromString(traverser.value()))
         RESTORE(ROWS_PER_FEATURE_TAG,
                 core::CPersistUtils::restore(ROWS_PER_FEATURE_TAG, m_RowsPerFeature, traverser))
         RESTORE(TESTING_ROW_MASKS_TAG,
@@ -1089,18 +1133,6 @@ bool CBoostedTreeImpl::acceptRestoreTraverser(core::CStateRestoreTraverser& trav
         RESTORE(LOSS_TAG, restoreLoss(m_Loss, traverser))
     } while (traverser.next());
     return true;
-}
-
-std::size_t CBoostedTreeImpl::memoryUsage() const {
-    std::size_t mem{core::CMemory::dynamicSize(m_Loss)};
-    mem += core::CMemory::dynamicSize(m_Encoder);
-    mem += core::CMemory::dynamicSize(m_FeatureSampleProbabilities);
-    mem += core::CMemory::dynamicSize(m_MissingFeatureRowMasks);
-    mem += core::CMemory::dynamicSize(m_TrainingRowMasks);
-    mem += core::CMemory::dynamicSize(m_TestingRowMasks);
-    mem += core::CMemory::dynamicSize(m_BestForest);
-    mem += core::CMemory::dynamicSize(m_BayesianOptimization);
-    return mem;
 }
 
 const double CBoostedTreeImpl::MINIMUM_RELATIVE_GAIN_PER_SPLIT{1e-7};

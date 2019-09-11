@@ -95,6 +95,10 @@ const std::string& CMse::name() const {
     return NAME;
 }
 
+std::uint64_t CMse::checksum() const {
+    return CChecksum::calculate(0, this->name());
+}
+
 const std::string CMse::NAME{"mse"};
 }
 
@@ -136,8 +140,8 @@ std::size_t CBoostedTree::columnHoldingPrediction(std::size_t numberColumns) con
     return predictionColumn(numberColumns);
 }
 
-namespace {
-const std::string BOOSTED_TREE_IMPL_TAG{"boosted_tree_impl"};
+std::uint64_t CBoostedTree::checksum() const {
+    return m_Impl->checksum();
 }
 
 bool CBoostedTree::acceptRestoreTraverser(core::CStateRestoreTraverser& traverser) {

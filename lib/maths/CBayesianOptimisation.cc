@@ -13,6 +13,7 @@
 #include <core/RestoreMacros.h>
 
 #include <maths/CBasicStatistics.h>
+#include <maths/CChecksum.h>
 #include <maths/CLbfgs.h>
 #include <maths/CLinearAlgebraEigen.h>
 #include <maths/CLinearAlgebraShims.h>
@@ -515,6 +516,19 @@ std::size_t CBayesianOptimisation::estimateMemoryUsage(std::size_t numberParamet
     return sizeof(CBayesianOptimisation) + boundaryMemoryUsage +
            functionMeanValuesMemoryUsage + errorVariancesMemoryUsage +
            kernelParametersMemoryUsage + minimumKernelCoordinateDistanceScale;
+}
+
+std::uint64_t CBayesianOptimisation::checksum(std::uint64_t seed) const {
+    seed = CChecksum::calculate(seed, m_Rng);
+    seed = CChecksum::calculate(seed, m_Restarts);
+    seed = CChecksum::calculate(seed, m_RangeShift);
+    seed = CChecksum::calculate(seed, m_RangeScale);
+    seed = CChecksum::calculate(seed, m_MinBoundary);
+    seed = CChecksum::calculate(seed, m_MaxBoundary);
+    seed = CChecksum::calculate(seed, m_FunctionMeanValues);
+    seed = CChecksum::calculate(seed, m_ErrorVariances);
+    seed = CChecksum::calculate(seed, m_KernelParameters);
+    return CChecksum::calculate(seed, m_MinimumKernelCoordinateDistanceScale);
 }
 
 const std::size_t CBayesianOptimisation::RESTARTS{10};

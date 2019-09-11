@@ -90,6 +90,9 @@ public:
     static std::size_t estimateMemoryUsage(std::size_t numberParameters,
                                            std::size_t numberRounds);
 
+    //! Get a checksum for this object.
+    std::uint64_t checksum(std::uint64_t seed) const;
+
     //! \name Test Interface
     //@{
     //! Get minus the data likelihood and its gradient as a function of the kernel

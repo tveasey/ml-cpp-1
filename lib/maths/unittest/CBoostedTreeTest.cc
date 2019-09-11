@@ -875,9 +875,6 @@ void CBoostedTreeTest::testPersistRestore() {
     std::size_t capacity{50};
     test::CRandomNumbers rng;
 
-    std::stringstream persistOnceSStream;
-    std::stringstream persistTwiceSStream;
-
     // Generate completely random data.
     TDoubleVecVec x(cols);
     for (std::size_t i = 0; i < cols; ++i) {
@@ -894,35 +891,55 @@ void CBoostedTreeTest::testPersistRestore() {
     }
     frame->finishWritingRows();
 
-    // persist
-    {
-        auto boostedTree = maths::CBoostedTreeFactory::constructFromParameters(
-                               1, std::make_unique<maths::boosted_tree::CMse>())
-                               .numberFolds(2)
-                               .maximumNumberTrees(2)
-                               .maximumOptimisationRoundsPerHyperparameter(3)
-                               .buildFor(*frame, cols - 1);
-        core::CJsonStatePersistInserter inserter(persistOnceSStream);
-        boostedTree->acceptPersistInserter(inserter);
-        persistOnceSStream.flush();
-    }
-    // restore
-    auto boostedTree =
-        maths::CBoostedTreeFactory::constructFromString(persistOnceSStream, *frame);
-    {
-        core::CJsonStatePersistInserter inserter(persistTwiceSStream);
-        boostedTree->acceptPersistInserter(inserter);
-        persistTwiceSStream.flush();
-    }
-    CPPUNIT_ASSERT_EQUAL(persistOnceSStream.str(), persistTwiceSStream.str());
-    LOG_DEBUG(<< "First string " << persistOnceSStream.str());
-    LOG_DEBUG(<< "Second string " << persistTwiceSStream.str());
+    TDoubleVec lambdaOverrides{-1.0, 2.0};
+    TDoubleVec gammaOverrides{-1.0, 5.0};
+    TDoubleVec etaOverrides{-1.0, 0.2};
+    TDoubleVec featureBagFractionOverrides{-1.0, 0.3};
+    std::string overrides[]{"no overrides", "overrides"};
+    std::string trained[]{"untrained", "trained"};
 
-    // and even run
-    CPPUNIT_ASSERT_NO_THROW(boostedTree->train());
-    CPPUNIT_ASSERT_NO_THROW(boostedTree->predict());
+    for (std::size_t i = 0; i < 2; ++i) {
+        LOG_DEBUG(<< overrides[i]);
 
-    // TODO test persist and restore produces same train result.
+        auto factory = std::make_unique<maths::CBoostedTreeFactory>(
+            maths::CBoostedTreeFactory::constructFromParameters(
+                1, std::make_unique<maths::boosted_tree::CMse>()));
+
+        (*factory).numberFolds(2).maximumNumberTrees(2).maximumOptimisationRoundsPerHyperparameter(3);
+        if (lambdaOverrides[i] >= 0.0) {
+            factory->lambda(lambdaOverrides[i]);
+        }
+        if (gammaOverrides[i] >= 0.0) {
+            factory->gamma(gammaOverrides[i]);
+        }
+        if (etaOverrides[i] >= 0.0) {
+            factory->eta(etaOverrides[i]);
+        }
+        if (featureBagFractionOverrides[i] >= 0.0) {
+            factory->featureBagFraction(featureBagFractionOverrides[i]);
+        }
+
+        auto regression = factory->buildFor(*frame, cols - 1);
+
+        for (std::size_t j = 0; j < 2; ++j) {
+            LOG_DEBUG(<< "  " << trained[j]);
+
+            std::stringstream persistStream;
+            {
+                core::CJsonStatePersistInserter inserter(persistStream);
+                regression->acceptPersistInserter(inserter);
+                persistStream.flush();
+            }
+
+            auto restoredRegression =
+                maths::CBoostedTreeFactory::constructFromString(persistStream).buildFor(*frame, cols - 1);
+
+            CPPUNIT_ASSERT_EQUAL(regression->checksum(), restoredRegression->checksum());
+
+            regression->train();
+            regression->predict();
+        }
+    }
 }
 
 void CBoostedTreeTest::testRestoreErrorHandling() {
@@ -965,8 +982,8 @@ void CBoostedTreeTest::testRestoreErrorHandling() {
 
     bool throwsExceptions{false};
     try {
-        auto boostedTree = maths::CBoostedTreeFactory::constructFromString(
-            errorInBayesianOptimisationState, *frame);
+        maths::CBoostedTreeFactory::constructFromString(errorInBayesianOptimisationState)
+            .buildFor(*frame, 2);
     } catch (const std::exception& e) {
         LOG_DEBUG(<< "got = " << e.what());
         throwsExceptions = true;
@@ -1004,11 +1021,8 @@ void CBoostedTreeTest::testRestoreErrorHandling() {
 
     throwsExceptions = false;
     try {
-        auto boostedTree = maths::CBoostedTreeFactory::constructFromString(
-            errorInBoostedTreeImplState, *frame,
-            ml::maths::CBoostedTreeFactory::TProgressCallback(),
-            ml::maths::CBoostedTreeFactory::TMemoryUsageCallback(),
-            ml::maths::CBoostedTreeFactory::TTrainingStateCallback());
+        maths::CBoostedTreeFactory::constructFromString(errorInBoostedTreeImplState)
+            .buildFor(*frame, 2);
     } catch (const std::exception& e) {
         LOG_DEBUG(<< "got = " << e.what());
         throwsExceptions = true;

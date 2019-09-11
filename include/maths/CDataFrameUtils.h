@@ -70,11 +70,16 @@ public:
 
     //! \brief Defines the data type of a collection of numbers.
     struct MATHS_EXPORT SDataType {
+        //! See CMemory.
+        static bool dynamicSizeAlwaysZero() { return true; }
+
         static const char EXTERNAL_DELIMITER;
         static const char INTERNAL_DELIMITER;
 
         std::string toDelimited() const;
         bool fromDelimited(const std::string& delimited);
+
+        std::uint64_t checksum() const;
 
         bool s_IsInteger;
         double s_Min;

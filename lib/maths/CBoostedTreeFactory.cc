@@ -35,23 +35,34 @@ const double MAIN_TRAINING_LOOP_TREE_SIZE_MULTIPLIER{10.0};
 CBoostedTreeFactory::TBoostedTreeUPtr
 CBoostedTreeFactory::buildFor(core::CDataFrame& frame, std::size_t dependentVariable) {
 
-    m_TreeImpl->m_DependentVariable = dependentVariable;
+    if (m_Restoring) {
 
-    this->initializeMissingFeatureMasks(frame);
-    std::tie(m_TreeImpl->m_TrainingRowMasks, m_TreeImpl->m_TestingRowMasks) =
-        this->crossValidationRowMasks();
+        if (dependentVariable != m_TreeImpl->m_DependentVariable) {
+            HANDLE_FATAL(<< "Internal error: expected dependent variable "
+                         << m_TreeImpl->m_DependentVariable << " got " << dependentVariable);
+        }
 
-    // We store the gradient and curvature of the loss function and the predicted
-    // value for the dependent variable of the regression.
-    frame.resizeColumns(m_TreeImpl->m_NumberThreads,
-                        frame.numberColumns() + this->numberExtraColumnsForTrain());
+        frame.resizeColumns(m_TreeImpl->m_NumberThreads,
+                            frame.numberColumns() + this->numberExtraColumnsForTrain());
 
-    this->selectFeaturesAndEncodeCategories(frame);
-    this->determineFeatureDataTypes(frame);
+    } else {
 
-    if (this->initializeFeatureSampleDistribution()) {
-        this->initializeHyperparameters(frame);
-        this->initializeHyperparameterOptimisation();
+        m_TreeImpl->m_DependentVariable = dependentVariable;
+
+        this->initializeMissingFeatureMasks(frame);
+        std::tie(m_TreeImpl->m_TrainingRowMasks, m_TreeImpl->m_TestingRowMasks) =
+            this->crossValidationRowMasks();
+
+        frame.resizeColumns(m_TreeImpl->m_NumberThreads,
+                            frame.numberColumns() + this->numberExtraColumnsForTrain());
+
+        this->selectFeaturesAndEncodeCategories(frame);
+        this->determineFeatureDataTypes(frame);
+
+        if (this->initializeFeatureSampleDistribution()) {
+            this->initializeHyperparameters(frame);
+            this->initializeHyperparameterOptimisation();
+        }
     }
 
     // TODO can only use factory to create one object since this is moved. This seems trappy.
@@ -317,35 +328,26 @@ void CBoostedTreeFactory::initializeHyperparameters(core::CDataFrame& frame) con
 
 CBoostedTreeFactory CBoostedTreeFactory::constructFromParameters(std::size_t numberThreads,
                                                                  TLossFunctionUPtr loss) {
-    return {numberThreads, std::move(loss)};
+    return {false, numberThreads, std::move(loss)};
 }
 
-CBoostedTreeFactory::TBoostedTreeUPtr
-CBoostedTreeFactory::constructFromString(std::stringstream& jsonStringStream,
-                                         core::CDataFrame& frame,
-                                         TProgressCallback recordProgress,
-                                         TMemoryUsageCallback recordMemoryUsage,
-                                         TTrainingStateCallback recordTrainingState) {
+CBoostedTreeFactory CBoostedTreeFactory::constructFromString(std::stringstream& jsonStringStream) {
+    CBoostedTreeFactory result{true, 1, nullptr};
     try {
-        TBoostedTreeUPtr treePtr{new CBoostedTree{
-            frame, std::move(recordProgress), std::move(recordMemoryUsage),
-            std::move(recordTrainingState), TBoostedTreeImplUPtr{new CBoostedTreeImpl{}}}};
         core::CJsonStateRestoreTraverser traverser(jsonStringStream);
-        if (treePtr->acceptRestoreTraverser(traverser) == false || traverser.haveBadState()) {
+        if (result.m_TreeImpl->acceptRestoreTraverser(traverser) == false ||
+            traverser.haveBadState()) {
             throw std::runtime_error{"failed to restore boosted tree"};
         }
-        frame.resizeColumns(treePtr->m_Impl->m_NumberThreads,
-                            frame.numberColumns() +
-                                treePtr->m_Impl->numberExtraColumnsForTrain());
-        return treePtr;
     } catch (const std::exception& e) {
         HANDLE_FATAL(<< "Input error: '" << e.what() << "'. Check logs for more details.");
     }
-    return nullptr;
+    return result;
 }
 
-CBoostedTreeFactory::CBoostedTreeFactory(std::size_t numberThreads, TLossFunctionUPtr loss)
-    : m_TreeImpl{std::make_unique<CBoostedTreeImpl>(numberThreads, std::move(loss))} {
+CBoostedTreeFactory::CBoostedTreeFactory(bool restoring, std::size_t numberThreads, TLossFunctionUPtr loss)
+    : m_Restoring{restoring},
+      m_TreeImpl{std::make_unique<CBoostedTreeImpl>(numberThreads, std::move(loss))} {
 }
 
 CBoostedTreeFactory::CBoostedTreeFactory(CBoostedTreeFactory&&) = default;

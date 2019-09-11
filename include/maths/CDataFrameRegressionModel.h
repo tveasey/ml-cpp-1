@@ -58,6 +58,9 @@ public:
     //! Get the column containing the model's prediction for the dependent variable.
     virtual std::size_t columnHoldingPrediction(std::size_t numberColumns) const = 0;
 
+    //! Get a checksum for this object.
+    virtual std::uint64_t checksum() const = 0;
+
 protected:
     CDataFrameRegressionModel(core::CDataFrame& frame,
                               TProgressCallback recordProgress,

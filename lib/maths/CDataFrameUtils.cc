@@ -127,6 +127,12 @@ bool CDataFrameUtils::SDataType::fromDelimited(const std::string& delimited) {
     return true;
 }
 
+std::uint64_t CDataFrameUtils::SDataType::checksum() const {
+    std::uint64_t seed{static_cast<std::uint64_t>(s_IsInteger)};
+    seed = CChecksum::calculate(seed, s_Min);
+    return CChecksum::calculate(seed, s_Max);
+}
+
 const char CDataFrameUtils::SDataType::INTERNAL_DELIMITER{':'};
 const char CDataFrameUtils::SDataType::EXTERNAL_DELIMITER{';'};
 

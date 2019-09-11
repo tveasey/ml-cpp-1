@@ -82,10 +82,11 @@ std::string jsonObjectToString(const rapidjson::GenericValue<rapidjson::UTF8<>>&
 
 std::unique_ptr<maths::CBoostedTree>
 createTreeFromJsonObject(std::unique_ptr<ml::core::CDataFrame>& frame,
+                         std::size_t dependentVariable,
                          const rapidjson::GenericValue<rapidjson::UTF8<>>& jsonObject) {
     std::stringstream jsonStateStream;
     jsonStateStream << jsonObjectToString(jsonObject);
-    return maths::CBoostedTreeFactory::constructFromString(jsonStateStream, *frame);
+    return maths::CBoostedTreeFactory::constructFromString(jsonStateStream).buildFor(*frame, );
 }
 
 auto outlierSpec(std::size_t rows = 110,
@@ -625,7 +626,6 @@ void CDataFrameAnalyzerTest::testRunBoostedTreeTraining() {
     CPPUNIT_ASSERT(core::CProgramCounters::counter(counter_t::E_DFTPMTimeToTrain) <= duration);
 }
 
-
 void CDataFrameAnalyzerTest::testRunBoostedTreeTrainingWithStateRecovery() {
 
     double lambda{1.0};
@@ -1101,6 +1101,8 @@ void CDataFrameAnalyzerTest::testRunBoostedTreeTrainingWithStateRecoveryFor(
     TStrVec fieldNames{"c1", "c2", "c3", "c4", "c5", ".", "."};
     TStrVec fieldValues{"", "", "", "", "", "0", ""};
     TDoubleVec weights{0.1, 2.0, 0.4, -0.5};
+    std::size_t dependentVariable{static_cast<std::size_t>(
+        std::find(fieldNames.begin(), fieldNames.end(), "c5") - fieldNames.begin())};
 
     auto f = [](const TDoubleVec& weights_, const TPoint& regressors) {
         double result{0.0};
@@ -1146,9 +1148,10 @@ void CDataFrameAnalyzerTest::testRunBoostedTreeTrainingWithStateRecoveryFor(
     std::vector<rapidjson::Document> persistedStates =
         stringToJsonDocumentVector(persistenceStream->str());
 
-    auto intermediateTree =
-        createTreeFromJsonObject(frame, persistedStates[intermediateIteration]);
-    auto finalTree = createTreeFromJsonObject(frame, persistedStates[finalIteration]);
+    auto intermediateTree = createTreeFromJsonObject(
+        frame, dependentVariable, persistedStates[intermediateIteration]);
+    auto finalTree = createTreeFromJsonObject(frame, dependentVariable,
+                                              persistedStates[finalIteration]);
 
     CPPUNIT_ASSERT(intermediateTree.get() != nullptr);
     intermediateTree->train();
