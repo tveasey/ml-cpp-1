@@ -625,6 +625,51 @@ void CDataFrameAnalyzerTest::testRunBoostedTreeTraining() {
     CPPUNIT_ASSERT(core::CProgramCounters::counter(counter_t::E_DFTPMTimeToTrain) <= duration);
 }
 
+
+void CDataFrameAnalyzerTest::testRunBoostedTreeTrainingWithStateRecovery() {
+
+    double lambda{1.0};
+    double gamma{10.0};
+    double eta{0.9};
+    std::size_t maximumNumberTrees{2};
+    double featureBagFraction{0.3};
+    std::size_t numberRoundsPerHyperparameter{5};
+
+    TSizeVec intermediateIterations;
+    std::size_t finalIteration{0};
+
+    test::CRandomNumbers rng;
+
+    LOG_DEBUG(<< "No hyperparameters to search")
+    this->testRunBoostedTreeTrainingWithStateRecoveryFor(
+        lambda, gamma, eta, maximumNumberTrees, featureBagFraction,
+        numberRoundsPerHyperparameter, 0, finalIteration);
+
+    LOG_DEBUG(<< "One hyperparameter to search")
+    lambda = -1.0;
+    gamma = 10.0;
+    finalIteration = 1 * numberRoundsPerHyperparameter - 1;
+    rng.generateUniformSamples(1, finalIteration - 1, 3, intermediateIterations);
+    for (auto intermediateIteration : intermediateIterations) {
+        LOG_DEBUG(<< "restart from " << intermediateIteration);
+        this->testRunBoostedTreeTrainingWithStateRecoveryFor(
+            lambda, gamma, eta, maximumNumberTrees, featureBagFraction,
+            numberRoundsPerHyperparameter, intermediateIteration, finalIteration);
+    }
+
+    LOG_DEBUG(<< "Two hyperparameters to search")
+    lambda = -1.0;
+    gamma = -1.0;
+    finalIteration = 2 * numberRoundsPerHyperparameter - 1;
+    rng.generateUniformSamples(finalIteration / 2, finalIteration - 1, 3, intermediateIterations);
+    for (auto intermediateIteration : intermediateIterations) {
+        LOG_DEBUG(<< "restart from " << intermediateIteration);
+        this->testRunBoostedTreeTrainingWithStateRecoveryFor(
+            lambda, gamma, eta, maximumNumberTrees, featureBagFraction,
+            numberRoundsPerHyperparameter, intermediateIteration, finalIteration);
+    }
+}
+
 void CDataFrameAnalyzerTest::testRunBoostedTreeTrainingWithParams() {
 
     // Test the regression hyperparameter settings are correctly propagated to the
@@ -1032,52 +1077,7 @@ CppUnit::Test* CDataFrameAnalyzerTest::suite() {
     return suiteOfTests;
 }
 
-void CDataFrameAnalyzerTest::testRunBoostedTreeTrainingWithStateRecovery() {
-
-    // no hyperparameter search
-    double lambda{1.0};
-    double gamma{10.0};
-    double eta{0.9};
-    std::size_t maximumNumberTrees{2};
-    double featureBagFraction{0.3};
-    std::size_t numberRoundsPerHyperparameter{5};
-
-    TSizeVec intermediateIterations;
-    std::size_t finalIteration{0};
-
-    test::CRandomNumbers rng;
-
-    LOG_DEBUG(<< "No hyperparameters to search")
-    testRunBoostedTreeTrainingWithStateRecoverySubroutine(
-        lambda, gamma, eta, maximumNumberTrees, featureBagFraction,
-        numberRoundsPerHyperparameter, 0, finalIteration);
-
-    LOG_DEBUG(<< "One hyperparameter to search")
-    lambda = -1.0;
-    gamma = 10.0;
-    finalIteration = 1 * numberRoundsPerHyperparameter - 1;
-    rng.generateUniformSamples(1, finalIteration - 1, 3, intermediateIterations);
-    for (auto intermediateIteration : intermediateIterations) {
-        LOG_DEBUG(<< "restart from " << intermediateIteration);
-        testRunBoostedTreeTrainingWithStateRecoverySubroutine(
-            lambda, gamma, eta, maximumNumberTrees, featureBagFraction,
-            numberRoundsPerHyperparameter, intermediateIteration, finalIteration);
-    }
-
-    LOG_DEBUG(<< "Two hyperparameters to search")
-    lambda = -1.0;
-    gamma = -1.0;
-    finalIteration = 2 * numberRoundsPerHyperparameter - 1;
-    rng.generateUniformSamples(finalIteration / 2, finalIteration - 1, 3, intermediateIterations);
-    for (auto intermediateIteration : intermediateIterations) {
-        LOG_DEBUG(<< "restart from " << intermediateIteration);
-        testRunBoostedTreeTrainingWithStateRecoverySubroutine(
-            lambda, gamma, eta, maximumNumberTrees, featureBagFraction,
-            numberRoundsPerHyperparameter, intermediateIteration, finalIteration);
-    }
-}
-
-void CDataFrameAnalyzerTest::testRunBoostedTreeTrainingWithStateRecoverySubroutine(
+void CDataFrameAnalyzerTest::testRunBoostedTreeTrainingWithStateRecoveryFor(
     double lambda,
     double gamma,
     double eta,
