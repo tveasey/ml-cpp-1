@@ -52,6 +52,7 @@ public:
     using TBayesinOptimizationUPtr = std::unique_ptr<maths::CBayesianOptimisation>;
     using TProgressCallback = CBoostedTree::TProgressCallback;
     using TMemoryUsageCallback = CBoostedTree::TMemoryUsageCallback;
+    using TTrainingStateCallback = CBoostedTree::TTrainingStateCallback;
     using TDoubleVec = std::vector<double>;
 
 public:
@@ -68,7 +69,8 @@ public:
     //! Train the model on the values in \p frame.
     void train(core::CDataFrame& frame,
                const TProgressCallback& recordProgress,
-               const TMemoryUsageCallback& recordMemoryUsage);
+               const TMemoryUsageCallback& recordMemoryUsage,
+               const TTrainingStateCallback& recordTrainStateCallback);
 
     //! Write the predictions of the best trained model to \p frame.
     //!
@@ -686,6 +688,7 @@ private:
     TNodeVec trainTree(core::CDataFrame& frame,
                        const core::CPackedBitVector& trainingRowMask,
                        const TDoubleVecVec& candidateSplits,
+                       const std::size_t maximumTreeSize,
                        const TMemoryUsageCallback& recordMemoryUsage) const;
 
     //! Get the number of features including category encoding.
@@ -735,7 +738,7 @@ private:
     //!
     //! \note This number will only be used if the regularised loss says its
     //! a good idea.
-    std::size_t maximumTreeSize(const core::CDataFrame& frame) const;
+    std::size_t maximumTreeSize(const core::CPackedBitVector& trainingRowMask) const;
 
     //! Get the maximum number of nodes to use in a tree.
     //!
@@ -746,6 +749,9 @@ private:
     //! Restore \p loss function pointer from the \p traverser.
     static bool restoreLoss(CBoostedTree::TLossFunctionUPtr& loss,
                             core::CStateRestoreTraverser& traverser);
+
+    //! Record the training state using the \p recordTrainState callback function
+    void recordState(const TTrainingStateCallback& recordTrainState) const;
 
 private:
     static const double INF;

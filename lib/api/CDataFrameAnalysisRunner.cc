@@ -7,11 +7,14 @@
 #include <api/CDataFrameAnalysisRunner.h>
 
 #include <core/CDataFrame.h>
+#include <core/CJsonStatePersistInserter.h>
 #include <core/CLogger.h>
-#include <core/CScopedFastLock.h>
+#include <core/CStateCompressor.h>
 
 #include <api/CDataFrameAnalysisSpecification.h>
 #include <api/CMemoryUsageEstimationResultJsonWriter.h>
+#include <api/CSingleStreamDataAdder.h>
+#include <api/ElasticsearchStateIndex.h>
 
 #include <boost/iterator/counting_iterator.hpp>
 
@@ -21,10 +24,6 @@
 namespace ml {
 namespace api {
 namespace {
-std::size_t memoryLimitWithSafetyMargin(const CDataFrameAnalysisSpecification& spec) {
-    return static_cast<std::size_t>(0.9 * static_cast<double>(spec.memoryLimit()) + 0.5);
-}
-
 std::size_t maximumNumberPartitions(const CDataFrameAnalysisSpecification& spec) {
     // We limit the maximum number of partitions to rows^(1/2) because very
     // large numbers of partitions are going to be slow and it is better to tell
@@ -67,7 +66,7 @@ void CDataFrameAnalysisRunner::computeAndSaveExecutionStrategy() {
 
     std::size_t numberRows{m_Spec.numberRows()};
     std::size_t numberColumns{m_Spec.numberColumns() + this->numberExtraColumns()};
-    std::size_t memoryLimit{memoryLimitWithSafetyMargin(m_Spec)};
+    std::size_t memoryLimit{m_Spec.memoryLimit()};
 
     LOG_TRACE(<< "memory limit = " << memoryLimit);
 
@@ -193,6 +192,25 @@ void CDataFrameAnalysisRunner::recordProgress(double fractionalProgress) {
 void CDataFrameAnalysisRunner::setToFinished() {
     m_Finished.store(true);
     m_FractionalProgress.store(MAXIMUM_FRACTIONAL_PROGRESS);
+}
+
+CDataFrameAnalysisRunner::TStatePersister CDataFrameAnalysisRunner::statePersister() {
+    return [this](std::function<void(core::CStatePersistInserter&)> persistFunction) -> void {
+        auto persister = m_Spec.persister();
+        if (persister != nullptr) {
+            core::CStateCompressor compressor(*persister);
+            auto persistStream = compressor.addStreamed(
+                ML_STATE_INDEX, getRegressionStateId(m_Spec.jobId()));
+            {
+                core::CJsonStatePersistInserter inserter{*persistStream};
+                persistFunction(inserter);
+            }
+            if (compressor.streamComplete(persistStream, true) == false ||
+                persistStream->bad()) {
+                LOG_ERROR(<< "Failed to complete last persistence stream");
+            }
+        }
+    };
 }
 
 CDataFrameAnalysisRunnerFactory::TRunnerUPtr

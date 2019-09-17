@@ -264,7 +264,7 @@ void CBoostedTreeTest::testLinear() {
         meanModelRSquared.add(modelRSquared[i][0]);
     }
     LOG_DEBUG(<< "mean R^2 = " << maths::CBasicStatistics::mean(meanModelRSquared));
-    CPPUNIT_ASSERT(maths::CBasicStatistics::mean(meanModelRSquared) > 0.97);
+    CPPUNIT_ASSERT(maths::CBasicStatistics::mean(meanModelRSquared) > 0.96);
 }
 
 void CBoostedTreeTest::testNonLinear() {
@@ -326,12 +326,12 @@ void CBoostedTreeTest::testNonLinear() {
             0.0, modelBias[i][0],
             7.0 * std::sqrt(noiseVariance / static_cast<double>(trainRows)));
         // Good R^2...
-        CPPUNIT_ASSERT(modelRSquared[i][0] > 0.93);
+        CPPUNIT_ASSERT(modelRSquared[i][0] > 0.92);
 
         meanModelRSquared.add(modelRSquared[i][0]);
     }
     LOG_DEBUG(<< "mean R^2 = " << maths::CBasicStatistics::mean(meanModelRSquared));
-    CPPUNIT_ASSERT(maths::CBasicStatistics::mean(meanModelRSquared) > 0.95);
+    CPPUNIT_ASSERT(maths::CBasicStatistics::mean(meanModelRSquared) > 0.94);
 }
 
 void CBoostedTreeTest::testThreading() {
@@ -1015,7 +1015,7 @@ void CBoostedTreeTest::testRestoreErrorHandling() {
 
     std::stringstream errorInBayesianOptimisationState;
     errorInBayesianOptimisationState
-        << "{\"boosted_tree_impl\":{\"bayesian_optimization\":"
+        << "{\"bayesian_optimization\":"
            "{\"min_boundary\":{\"dense_vector\":\"-9.191737e-1:-2.041179:-3.506558:1.025:2e-1\"},"
            "\"max_boundary\":{\"dense_vector\":\"3.685997:2.563991:-1.203973:a:8e-1\"},"
            "\"error_variances\":\"\",\"kernel_parameters\":{\"dense_vector\":\"1:1:1:1:1:1\"},"
@@ -1036,7 +1036,7 @@ void CBoostedTreeTest::testRestoreErrorHandling() {
            "\"hyperparam_eta\":\"0\",\"hyperparam_eta_growth_rate_per_tree\":\"0\","
            "\"hyperparam_feature_bag_fraction\":\"0\",\"hyperparam_feature_sample_probabilities\":\"\"},"
            "\"eta_override\":\"false;0\",\"feature_bag_fraction_override\":\"false;0\",\"gamma_override\":\"false;0\","
-           "\"lambda_override\":\"false;0\",\"maximum_number_trees_override\":\"true;2\",\"loss\":\"mse\"}}";
+           "\"lambda_override\":\"false;0\",\"maximum_number_trees_override\":\"true;2\",\"loss\":\"mse\"}";
     errorInBayesianOptimisationState.flush();
 
     bool throwsExceptions{false};
@@ -1054,7 +1054,7 @@ void CBoostedTreeTest::testRestoreErrorHandling() {
 
     std::stringstream errorInBoostedTreeImplState;
     errorInBoostedTreeImplState
-        << "{\"boosted_tree_impl\":{\"bayesian_optimization\":"
+        << "{\"bayesian_optimization\":"
            "{\"min_boundary\":{\"dense_vector\":\"-9.191737e-1:-2.041179:-3.506558:1.025:2e-1\"},"
            "\"max_boundary\":{\"dense_vector\":\"3.685997:2.563991:-1.203973:0.1:8e-1\"},"
            "\"error_variances\":\"\",\"kernel_parameters\":{\"dense_vector\":\"1:1:1:1:1:1\"},"
@@ -1075,13 +1075,16 @@ void CBoostedTreeTest::testRestoreErrorHandling() {
            "\"hyperparam_eta\":\"0\",\"hyperparam_eta_growth_rate_per_tree\":\"0\","
            "\"hyperparam_feature_bag_fraction\":\"0\",\"hyperparam_feature_sample_probabilities\":\"\"},"
            "\"eta_override\":\"false;0\",\"feature_bag_fraction_override\":\"false;0\",\"gamma_override\":\"false;0\","
-           "\"lambda_override\":\"false;0\",\"maximum_number_trees_override\":\"true;2\",\"loss\":\"mse\"}}";
+           "\"lambda_override\":\"false;0\",\"maximum_number_trees_override\":\"true;2\",\"loss\":\"mse\"}";
     errorInBoostedTreeImplState.flush();
 
     throwsExceptions = false;
     try {
         auto boostedTree = maths::CBoostedTreeFactory::constructFromString(
-            errorInBoostedTreeImplState, *frame);
+            errorInBoostedTreeImplState, *frame,
+            ml::maths::CBoostedTreeFactory::TProgressCallback(),
+            ml::maths::CBoostedTreeFactory::TMemoryUsageCallback(),
+            ml::maths::CBoostedTreeFactory::TTrainingStateCallback());
     } catch (const std::exception& e) {
         LOG_DEBUG(<< "got = " << e.what());
         throwsExceptions = true;

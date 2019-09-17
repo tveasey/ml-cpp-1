@@ -55,8 +55,8 @@ CBoostedTreeFactory::buildFor(core::CDataFrame& frame, std::size_t dependentVari
     }
 
     // TODO can only use factory to create one object since this is moved. This seems trappy.
-    return TBoostedTreeUPtr{new CBoostedTree{
-        frame, m_RecordProgress, m_RecordMemoryUsage, std::move(m_TreeImpl)}};
+    return TBoostedTreeUPtr{new CBoostedTree{frame, m_RecordProgress, m_RecordMemoryUsage,
+                                             m_RecordTrainingState, std::move(m_TreeImpl)}};
 }
 
 std::size_t CBoostedTreeFactory::numberHyperparameterTuningRounds() const {
@@ -98,8 +98,9 @@ void CBoostedTreeFactory::initializeHyperparameterOptimisation() const {
         boundingBox.emplace_back(MIN_FEATURE_BAG_FRACTION, MAX_FEATURE_BAG_FRACTION);
     }
 
-    m_TreeImpl->m_BayesianOptimization =
-        std::make_unique<CBayesianOptimisation>(std::move(boundingBox));
+    m_TreeImpl->m_BayesianOptimization = std::make_unique<CBayesianOptimisation>(
+        std::move(boundingBox),
+        m_BayesianOptimisationRestarts.value_or(CBayesianOptimisation::RESTARTS));
     m_TreeImpl->m_NumberRounds = this->numberHyperparameterTuningRounds();
     m_TreeImpl->m_CurrentRound = 0; // for first start
 }
@@ -169,9 +170,12 @@ void CBoostedTreeFactory::selectFeaturesAndEncodeCategories(const core::CDataFra
     LOG_TRACE(<< "candidate regressors = " << core::CContainerPrinter::print(regressors));
 
     m_TreeImpl->m_Encoder = std::make_unique<CDataFrameCategoryEncoder>(
-        m_TreeImpl->m_NumberThreads, frame, m_TreeImpl->allTrainingRowsMask(),
-        regressors, m_TreeImpl->m_DependentVariable,
-        m_TreeImpl->m_RowsPerFeature, m_MinimumFrequencyToOneHotEncode);
+        CMakeDataFrameCategoryEncoder{m_TreeImpl->m_NumberThreads, frame,
+                                      m_TreeImpl->m_DependentVariable}
+            .minimumRowsPerFeature(m_TreeImpl->m_RowsPerFeature)
+            .minimumFrequencyToOneHotEncode(m_MinimumFrequencyToOneHotEncode)
+            .rowMask(m_TreeImpl->allTrainingRowsMask())
+            .columnMask(std::move(regressors)));
 }
 
 void CBoostedTreeFactory::determineFeatureDataTypes(const core::CDataFrame& frame) const {
@@ -320,18 +324,22 @@ CBoostedTreeFactory CBoostedTreeFactory::constructFromParameters(std::size_t num
 }
 
 CBoostedTreeFactory::TBoostedTreeUPtr
-CBoostedTreeFactory::constructFromString(std::stringstream& jsonStringStream,
+CBoostedTreeFactory::constructFromString(std::istream& jsonStringStream,
                                          core::CDataFrame& frame,
                                          TProgressCallback recordProgress,
-                                         TMemoryUsageCallback recordMemoryUsage) {
+                                         TMemoryUsageCallback recordMemoryUsage,
+                                         TTrainingStateCallback recordTrainingState) {
     try {
         TBoostedTreeUPtr treePtr{new CBoostedTree{
             frame, std::move(recordProgress), std::move(recordMemoryUsage),
-            TBoostedTreeImplUPtr{new CBoostedTreeImpl{}}}};
+            std::move(recordTrainingState), TBoostedTreeImplUPtr{new CBoostedTreeImpl{}}}};
         core::CJsonStateRestoreTraverser traverser(jsonStringStream);
         if (treePtr->acceptRestoreTraverser(traverser) == false || traverser.haveBadState()) {
             throw std::runtime_error{"failed to restore boosted tree"};
         }
+        frame.resizeColumns(treePtr->m_Impl->m_NumberThreads,
+                            frame.numberColumns() +
+                                treePtr->m_Impl->numberExtraColumnsForTrain());
         return treePtr;
     } catch (const std::exception& e) {
         HANDLE_FATAL(<< "Input error: '" << e.what() << "'. Check logs for more details.");
@@ -340,8 +348,7 @@ CBoostedTreeFactory::constructFromString(std::stringstream& jsonStringStream,
 }
 
 CBoostedTreeFactory::CBoostedTreeFactory(std::size_t numberThreads, TLossFunctionUPtr loss)
-    : m_MinimumFrequencyToOneHotEncode{CDataFrameCategoryEncoder::MINIMUM_FREQUENCY_TO_ONE_HOT_ENCODE},
-      m_TreeImpl{std::make_unique<CBoostedTreeImpl>(numberThreads, std::move(loss))} {
+    : m_TreeImpl{std::make_unique<CBoostedTreeImpl>(numberThreads, std::move(loss))} {
 }
 
 CBoostedTreeFactory::CBoostedTreeFactory(CBoostedTreeFactory&&) = default;
@@ -430,6 +437,11 @@ CBoostedTreeFactory::maximumOptimisationRoundsPerHyperparameter(std::size_t roun
     return *this;
 }
 
+CBoostedTreeFactory& CBoostedTreeFactory::bayesianOptimisationRestarts(std::size_t restarts) {
+    m_BayesianOptimisationRestarts = std::max(restarts, std::size_t{1});
+    return *this;
+}
+
 CBoostedTreeFactory& CBoostedTreeFactory::rowsPerFeature(std::size_t rowsPerFeature) {
     if (m_TreeImpl->m_RowsPerFeature == 0) {
         LOG_WARN(<< "Must have at least one training example per feature");
@@ -446,6 +458,11 @@ CBoostedTreeFactory& CBoostedTreeFactory::progressCallback(TProgressCallback cal
 
 CBoostedTreeFactory& CBoostedTreeFactory::memoryUsageCallback(TMemoryUsageCallback callback) {
     m_RecordMemoryUsage = std::move(callback);
+    return *this;
+}
+
+CBoostedTreeFactory& CBoostedTreeFactory::trainingStateCallback(TTrainingStateCallback callback) {
+    m_RecordTrainingState = std::move(callback);
     return *this;
 }
 
@@ -469,6 +486,9 @@ std::size_t CBoostedTreeFactory::estimateMemoryUsage(std::size_t numberRows,
 
 std::size_t CBoostedTreeFactory::numberExtraColumnsForTrain() const {
     return m_TreeImpl->numberExtraColumnsForTrain();
+}
+
+void CBoostedTreeFactory::noopRecordTrainingState(std::function<void(core::CStatePersistInserter&)>) {
 }
 
 void CBoostedTreeFactory::noopRecordProgress(double) {
