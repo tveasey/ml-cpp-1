@@ -71,6 +71,10 @@ CArgMinLoss CLoss::makeMinimizer(const boosted_tree_detail::CArgMinLossImpl& imp
     return {impl};
 }
 
+std::unique_ptr<CLoss> CMse::clone() const {
+    return std::make_unique<CMse>(*this);
+}
+
 double CMse::value(double prediction, double actual) const {
     return CTools::pow2(prediction - actual);
 }

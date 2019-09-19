@@ -88,6 +88,8 @@ private:
 class MATHS_EXPORT CLoss {
 public:
     virtual ~CLoss() = default;
+    //! Clone the loss.
+    virtual std::unique_ptr<CLoss> clone() const = 0;
     //! The value of the loss function.
     virtual double value(double prediction, double actual) const = 0;
     //! The slope of the loss function.
@@ -108,6 +110,7 @@ protected:
 //! \brief The MSE loss function.
 class MATHS_EXPORT CMse final : public CLoss {
 public:
+    std::unique_ptr<CLoss> clone() const override;
     double value(double prediction, double actual) const override;
     double gradient(double prediction, double actual) const override;
     double curvature(double prediction, double actual) const override;

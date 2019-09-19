@@ -10,6 +10,7 @@
 #include <core/CDataFrame.h>
 
 #include <maths/CBoostedTree.h>
+#include <maths/CLinearAlgebra.h>
 #include <maths/ImportExport.h>
 
 #include <boost/optional.hpp>
@@ -60,10 +61,14 @@ public:
     CBoostedTreeFactory& minimumFrequencyToOneHotEncode(double frequency);
     //! Set the number of folds to use for estimating the generalisation error.
     CBoostedTreeFactory& numberFolds(std::size_t numberFolds);
-    //! Set the lambda regularisation parameter.
-    CBoostedTreeFactory& lambda(double lambda);
-    //! Set the gamma regularisation parameter.
+    //! Set the alpha regularisation parameter: sum of tree depth factors.
+    CBoostedTreeFactory& alpha(double alpha);
+    //! Set the gamma regularisation parameter: tree size.
     CBoostedTreeFactory& gamma(double gamma);
+    //! Set the lambda regularisation parameter: sum weights squared.
+    CBoostedTreeFactory& lambda(double lambda);
+    //! Set the target maximum tree depth.
+    CBoostedTreeFactory& maxTreeDepth(double maxTreeDepth);
     //! Set the amount we'll shrink the weights on each each iteration.
     CBoostedTreeFactory& eta(double eta);
     //! Set the maximum number of trees in the ensemble.
@@ -93,10 +98,14 @@ public:
     TBoostedTreeUPtr buildFor(core::CDataFrame& frame, std::size_t dependentVariable);
 
 private:
+    using TDoubleDoublePr = std::pair<double, double>;
     using TOptionalDouble = boost::optional<double>;
     using TOptionalSize = boost::optional<std::size_t>;
+    using TVector = CVectorNx1<double, 3>;
+    using TOptionalVector = boost::optional<TVector>;
     using TPackedBitVectorVec = std::vector<core::CPackedBitVector>;
     using TBoostedTreeImplUPtr = std::unique_ptr<CBoostedTreeImpl>;
+    using TScaleRegularization = std::function<void(double)>;
 
 private:
     static const double MINIMUM_ETA;
@@ -121,10 +130,25 @@ private:
     //! Initialize the regressors sample distribution.
     bool initializeFeatureSampleDistribution() const;
 
-    //! Read overrides for hyperparameters and if necessary estimate the initial
-    //! values for \f$\lambda\f$ and \f$\gamma\f$ which match the gain from an
-    //! overfit tree.
-    void initializeHyperparameters(core::CDataFrame& frame) const;
+    //! Set the initial values for the various hyperparameters.
+    void initializeHyperparameters(core::CDataFrame& frame);
+
+    //! Estimate a good central value for the regularisation hyperparameters
+    //! search bounding box.
+    void initializeUnsetRegularizationHyperparameters(core::CDataFrame& frame);
+
+    //! Estimate the reduction in gain we might expect from a base learner.
+    //!
+    //! \return A pair comprising the gain (in the loss function) per node and
+    //! the gain per unit weight.
+    TDoubleDoublePr estimateTreeGainMagnitude(core::CDataFrame& frame,
+                                              const core::CPackedBitVector& trainingRowMask) const;
+
+    //! Get the regularizer value at the point the model starts to overfit.
+    TOptionalVector
+    candidateRegularizerSearchInterval(core::CDataFrame& frame,
+                                       core::CPackedBitVector trainingRowMask,
+                                       const TScaleRegularization& scale) const;
 
     //! Initialize the state for hyperparameter optimisation.
     void initializeHyperparameterOptimisation() const;
@@ -139,7 +163,12 @@ private:
 private:
     TOptionalDouble m_MinimumFrequencyToOneHotEncode;
     TOptionalSize m_BayesianOptimisationRestarts;
+    std::size_t m_NumberThreads;
+    TLossFunctionUPtr m_Loss;
     TBoostedTreeImplUPtr m_TreeImpl;
+    TVector m_AlphaSearchInterval;
+    TVector m_GammaSearchInterval;
+    TVector m_LambdaSearchInterval;
     TProgressCallback m_RecordProgress = noopRecordProgress;
     TMemoryUsageCallback m_RecordMemoryUsage = noopRecordMemoryUsage;
     TTrainingStateCallback m_RecordTrainingState = noopRecordTrainingState;
