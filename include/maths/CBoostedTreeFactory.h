@@ -137,18 +137,15 @@ private:
     //! search bounding box.
     void initializeUnsetRegularizationHyperparameters(core::CDataFrame& frame);
 
-    //! Estimate the reduction in gain we might expect from a base learner.
-    //!
-    //! \return A pair comprising the gain (in the loss function) per node and
-    //! the gain per unit weight.
-    TDoubleDoublePr estimateTreeGainMagnitude(core::CDataFrame& frame,
-                                              const core::CPackedBitVector& trainingRowMask) const;
+    //! Estimate the reduction in gain from a split and the total curvature of
+    //! the loss function at a split.
+    TDoubleDoublePr estimateTreeGainAndCurvature(core::CDataFrame& frame,
+                                                 const core::CPackedBitVector& trainingRowMask) const;
 
     //! Get the regularizer value at the point the model starts to overfit.
-    TOptionalVector
-    candidateRegularizerSearchInterval(core::CDataFrame& frame,
-                                       core::CPackedBitVector trainingRowMask,
-                                       const TScaleRegularization& scale) const;
+    TOptionalVector candidateRegularizerSearchInterval(core::CDataFrame& frame,
+                                                       core::CPackedBitVector trainingRowMask,
+                                                       TScaleRegularization scale) const;
 
     //! Initialize the state for hyperparameter optimisation.
     void initializeHyperparameterOptimisation() const;

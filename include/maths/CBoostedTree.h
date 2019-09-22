@@ -23,17 +23,41 @@ namespace maths {
 namespace boosted_tree_detail {
 class MATHS_EXPORT CArgMinLossImpl {
 public:
+    CArgMinLossImpl(double lambda);
     virtual ~CArgMinLossImpl() = default;
 
     virtual std::unique_ptr<CArgMinLossImpl> clone() const = 0;
     virtual void add(double prediction, double actual) = 0;
     virtual void merge(const CArgMinLossImpl& other) = 0;
     virtual double value() const = 0;
+
+protected:
+    double lambda() const;
+
+private:
+    double m_Lambda;
 };
 
 //! \brief Finds the value to add to a set of predictions which minimises the MSE.
 class MATHS_EXPORT CArgMinMseImpl final : public CArgMinLossImpl {
 public:
+    CArgMinMseImpl(double lambda);
+    std::unique_ptr<CArgMinLossImpl> clone() const override;
+    void add(double prediction, double actual) override;
+    void merge(const CArgMinLossImpl& other) override;
+    double value() const override;
+
+private:
+    using TMeanAccumulator = CBasicStatistics::SSampleMean<double>::TAccumulator;
+
+private:
+    TMeanAccumulator m_MeanError;
+};
+
+//! \brief Finds the value to add to a set of predictions which minimises the log MSE.
+class MATHS_EXPORT CArgMinLogMseImpl final : public CArgMinLossImpl {
+public:
+    CArgMinLogMseImpl(double lambda);
     std::unique_ptr<CArgMinLossImpl> clone() const override;
     void add(double prediction, double actual) override;
     void merge(const CArgMinLossImpl& other) override;
@@ -99,7 +123,7 @@ public:
     //! Returns true if the loss curvature is constant.
     virtual bool isCurvatureConstant() const = 0;
     //! Get an object which computes the leaf value that minimises loss.
-    virtual CArgMinLoss minimizer() const = 0;
+    virtual CArgMinLoss minimizer(double lambda) const = 0;
     //! Get the name of the loss function
     virtual const std::string& name() const = 0;
 
@@ -115,7 +139,34 @@ public:
     double gradient(double prediction, double actual) const override;
     double curvature(double prediction, double actual) const override;
     bool isCurvatureConstant() const override;
-    CArgMinLoss minimizer() const override;
+    CArgMinLoss minimizer(double lambda) const override;
+    const std::string& name() const override;
+
+public:
+    static const std::string NAME;
+};
+
+//! \brief The log MSE loss function.
+//!
+//! DESCRIPTION:\n
+//! Formally, the log MSE error definition we use is \f$(\log(1+p) - \log(1+a))^2\f$.
+//! However, we approximate this by a quadratic which has its the minimum p = a and
+//! matches the value and derivative of log MSE loss function. For example, if the
+//! current prediction for the i'th training point is \f$p_i\f$, the loss is defined
+//! as
+//! <pre class="fragment">
+//!   \f$\displaystyle l_i(p) = c_i + w_i(p - a_i)^2\f$
+//! </pre>
+//! where \f$w_i = \frac{\log(1+p_i) - \log(1+a_i)}{(1+p_i)(p_i-a_i)}\f$ and \f$c_i\f$
+//! is choosen so \f$l_i(p_i) = (\log(1+p_i) - \log(1+a_i))^2\f$.
+class MATHS_EXPORT CLogMse final : public CLoss {
+public:
+    std::unique_ptr<CLoss> clone() const override;
+    double value(double prediction, double actual) const override;
+    double gradient(double prediction, double actual) const override;
+    double curvature(double prediction, double actual) const override;
+    bool isCurvatureConstant() const override;
+    CArgMinLoss minimizer(double lambda) const override;
     const std::string& name() const override;
 
 public:

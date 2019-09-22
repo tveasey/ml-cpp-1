@@ -103,14 +103,14 @@ public:
     std::size_t memoryUsage() const;
 
 private:
-    using TDoubleDoublePrVec = std::vector<std::pair<double, double>>;
+    using TSizeDoublePr = std::pair<std::size_t, double>;
+    using TDoubleDoublePr = std::pair<double, double>;
+    using TDoubleDoublePrVec = std::vector<TDoubleDoublePr>;
     using TOptionalDouble = boost::optional<double>;
     using TOptionalSize = boost::optional<std::size_t>;
-    using TVector = CDenseVector<double>;
     using TDoubleVecVec = std::vector<TDoubleVec>;
     using TSizeVec = std::vector<std::size_t>;
-    using TSizeDoublePr = std::pair<std::size_t, double>;
-    using TDoubleDoubleDoubleTr = std::tuple<double, double, double>;
+    using TVector = CDenseVector<double>;
     using TRowItr = core::CDataFrame::TRowItr;
     using TPackedBitVectorVec = std::vector<core::CPackedBitVector>;
     using TDataFrameCategoryEncoderUPtr = std::unique_ptr<CDataFrameCategoryEncoder>;
@@ -187,8 +187,8 @@ private:
         std::string print() const {
             return "(alpha = " + toString(m_Alpha) +
                    ", max depth = " + toString(m_MaxTreeDepth) +
-                   ", lambda = " + toString(m_Lambda) +
-                   ", gamma = " + toString(m_Gamma) + ")";
+                   ", gamma = " + toString(m_Gamma) +
+                   ", lambda = " + toString(m_Lambda) + ")";
         }
 
         //! Persist by passing information to \p inserter.
@@ -281,16 +281,26 @@ private:
         //! Set the node value to \p value.
         void value(double value) { m_NodeValue = value; }
 
+        //! Get the gain of the split.
+        double gain() const { return m_Gain; }
+
+        //! Get the total curvature at the rows below this node.
+        double curvature() const { return m_Curvature; }
+
         //! Split this node and add its child nodes to \p tree.
         std::pair<std::size_t, std::size_t> split(std::size_t splitFeature,
                                                   double splitValue,
                                                   bool assignMissingToLeft,
+                                                  double gain,
+                                                  double curvature,
                                                   TNodeVec& tree) {
             m_SplitFeature = splitFeature;
             m_SplitValue = splitValue;
             m_AssignMissingToLeft = assignMissingToLeft;
             m_LeftChild = static_cast<std::int32_t>(tree.size());
             m_RightChild = static_cast<std::int32_t>(tree.size() + 1);
+            m_Gain = gain;
+            m_Curvature = curvature;
             tree.resize(tree.size() + 2);
             return {m_LeftChild, m_RightChild};
         }
@@ -384,6 +394,8 @@ private:
         std::int32_t m_LeftChild = -1;
         std::int32_t m_RightChild = -1;
         double m_NodeValue = 0.0;
+        double m_Gain = 0.0;
+        double m_Curvature = 0.0;
     };
 
     //! \brief Maintains a collection of statistics about a leaf of the regression
@@ -470,6 +482,10 @@ private:
         //! Get the gain in loss of the best split of this leaf.
         double gain() const { return this->bestSplitStatistics().s_Gain; }
 
+        double curvature() const {
+            return this->bestSplitStatistics().s_Curvature;
+        }
+
         //! Get the best (feature, feature value) split.
         TSizeDoublePr bestSplit() const {
             const auto& split = this->bestSplitStatistics();
@@ -527,13 +543,13 @@ private:
     private:
         //! \brief Statistics relating to a split of the node.
         struct SSplitStatistics : private boost::less_than_comparable<SSplitStatistics> {
-            SSplitStatistics(double gain, std::size_t feature, double splitAt, bool assignMissingToLeft)
-                : s_Gain{gain}, s_Feature{feature}, s_SplitAt{splitAt},
+            SSplitStatistics(double gain, double curvature, std::size_t feature, double splitAt, bool assignMissingToLeft)
+                : s_Gain{gain}, s_Curvature{curvature}, s_Feature{feature}, s_SplitAt{splitAt},
                   s_AssignMissingToLeft{assignMissingToLeft} {}
 
             bool operator<(const SSplitStatistics& rhs) const {
                 return COrderings::lexicographical_compare(
-                    s_Gain, s_Feature, rhs.s_Gain, rhs.s_Feature);
+                    s_Gain, s_Curvature, s_Feature, rhs.s_Gain, rhs.s_Curvature, rhs.s_Feature);
             }
 
             std::string print() const {
@@ -544,6 +560,7 @@ private:
             }
 
             double s_Gain;
+            double s_Curvature;
             std::size_t s_Feature;
             double s_SplitAt;
             bool s_AssignMissingToLeft;
@@ -662,9 +679,8 @@ private:
 
     //! Compute the sum loss for the predictions from \p frame and the leaf
     //! count and squared weight sum from \p forest.
-    TDoubleDoubleDoubleTr regularisedLoss(const core::CDataFrame& frame,
-                                          const core::CPackedBitVector& trainingRowMask,
-                                          const TNodeVecVec& forest) const;
+    TDoubleDoublePr gainAndCurvatureAtPercentile(double percentile,
+                                                 const TNodeVecVec& forest) const;
 
     //! Train the forest and compute loss moments on each fold.
     TMeanVarAccumulator crossValidateForest(core::CDataFrame& frame,

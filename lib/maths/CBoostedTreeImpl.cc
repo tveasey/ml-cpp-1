@@ -158,7 +158,7 @@ CBoostedTreeImpl::CLeafNodeStatistics::computeBestSplitStatistics() const {
     //   3. Tree size: gamma * "node count"
     //   4. Sum square weights: lambda * sum{"leaf weight" ^ 2)}
 
-    SSplitStatistics result{-INF, m_FeatureBag.size(), INF, true};
+    SSplitStatistics result{-INF, 0.0, m_FeatureBag.size(), INF, true};
 
     for (auto i : m_FeatureBag) {
         double g{std::accumulate(m_Gradients[i].begin(), m_Gradients[i].end(), 0.0) +
@@ -202,12 +202,12 @@ CBoostedTreeImpl::CLeafNodeStatistics::computeBestSplitStatistics() const {
 
         double penaltyForDepth{m_Regularization.penaltyForDepth(m_Depth)};
         double penaltyForDepthPlusOne{m_Regularization.penaltyForDepth(m_Depth + 1)};
-        double gain{0.5 * (maximumGain - CTools::pow2(g) / (h + m_Regularization.lambda())) -
-                    m_Regularization.gamma() -
-                    m_Regularization.alpha() *
-                        (2.0 * penaltyForDepthPlusOne - penaltyForDepth};
+        double gain{
+            0.5 * (maximumGain - CTools::pow2(g) / (h + m_Regularization.lambda())) -
+            m_Regularization.gamma() -
+            m_Regularization.alpha() * (2.0 * penaltyForDepthPlusOne - penaltyForDepth)};
 
-        SSplitStatistics candidate{gain, i, splitAt, assignMissingToLeft};
+        SSplitStatistics candidate{gain, h, i, splitAt, assignMissingToLeft};
         LOG_TRACE(<< "candidate split: " << candidate.print());
 
         if (candidate > result) {
@@ -391,40 +391,32 @@ core::CPackedBitVector CBoostedTreeImpl::allTrainingRowsMask() const {
     return ~m_MissingFeatureRowMasks[m_DependentVariable];
 }
 
-CBoostedTreeImpl::TDoubleDoubleDoubleTr
-CBoostedTreeImpl::regularisedLoss(const core::CDataFrame& frame,
-                                  const core::CPackedBitVector& trainingRowMask,
-                                  const TNodeVecVec& forest) const {
+CBoostedTreeImpl::TDoubleDoublePr
+CBoostedTreeImpl::gainAndCurvatureAtPercentile(double percentile,
+                                               const TNodeVecVec& forest) const {
 
-    auto results = frame.readRows(
-        m_NumberThreads, 0, frame.numberRows(),
-        core::bindRetrievableState(
-            [&](double& loss, TRowItr beginRows, TRowItr endRows) {
-                for (auto row = beginRows; row != endRows; ++row) {
-                    loss += m_Loss->value(readPrediction(*row),
-                                          readActual(*row, m_DependentVariable));
-                }
-            },
-            0.0),
-        &trainingRowMask);
+    TDoubleVec gains;
+    TDoubleVec curvatures;
 
-    double loss{0.0};
-    for (const auto& result : results.first) {
-        loss += result.s_FunctionState;
-    }
-
-    double leafCount{0.0};
-    double sumSquareLeafWeights{0.0};
     for (const auto& tree : forest) {
         for (const auto& node : tree) {
-            if (node.isLeaf()) {
-                leafCount += 1.0;
-                sumSquareLeafWeights += CTools::pow2(node.value());
+            if (node.isLeaf() == false) {
+                gains.push_back(node.gain());
+                curvatures.push_back(node.curvature());
             }
         }
     }
 
-    return {loss, leafCount, 0.5 * sumSquareLeafWeights};
+    if (gains.size() == 0) {
+        return {0.0, 0.0};
+    }
+
+    std::size_t index{static_cast<std::size_t>(
+        percentile * static_cast<double>(gains.size()) / 100.0 + 0.5)};
+    std::nth_element(gains.begin(), gains.begin() + index, gains.end());
+    std::nth_element(curvatures.begin(), curvatures.begin() + index, curvatures.end());
+
+    return {gains[index], curvatures[index]};
 }
 
 CBoostedTreeImpl::TMeanVarAccumulator
@@ -666,8 +658,9 @@ CBoostedTreeImpl::trainTree(core::CDataFrame& frame,
         bool assignMissingToLeft{leaf->assignMissingToLeft()};
 
         std::size_t leftChildId, rightChildId;
-        std::tie(leftChildId, rightChildId) = tree[leaf->id()].split(
-            splitFeature, splitValue, assignMissingToLeft, tree);
+        std::tie(leftChildId, rightChildId) =
+            tree[leaf->id()].split(splitFeature, splitValue, assignMissingToLeft,
+                                   leaf->gain(), leaf->curvature(), tree);
 
         TSizeVec featureBag{this->featureBag()};
 
@@ -747,7 +740,7 @@ void CBoostedTreeImpl::refreshPredictionsAndLossDerivatives(core::CDataFrame& fr
                         .add(prediction, actual);
                 }
             },
-            TArgMinLossVec(tree.size(), m_Loss->minimizer())),
+            TArgMinLossVec(tree.size(), m_Loss->minimizer(m_Regularization.lambda()))),
         &trainingRowMask);
 
     auto leafValues = std::move(result.first[0].s_FunctionState);
@@ -873,7 +866,7 @@ bool CBoostedTreeImpl::selectNextHyperparameters(const TMeanVarAccumulator& loss
     double meanLoss{CBasicStatistics::mean(lossMoments)};
     double lossVariance{CBasicStatistics::variance(lossMoments)};
 
-    LOG_TRACE(<< "round = " << m_CurrentRound
+    LOG_DEBUG(<< "round = " << m_CurrentRound << " loss = " << meanLoss
               << ": regularization = " << m_Regularization.print() << ", eta = " << m_Eta
               << ", eta growth rate per tree = " << m_EtaGrowthRatePerTree
               << ", feature bag fraction = " << m_FeatureBagFraction);
@@ -930,10 +923,10 @@ void CBoostedTreeImpl::captureBestHyperparameters(const TMeanVarAccumulator& los
 }
 
 void CBoostedTreeImpl::restoreBestHyperparameters() {
+    m_Regularization = m_BestHyperparameters.s_Regularization;
     m_Eta = m_BestHyperparameters.s_Eta;
     m_EtaGrowthRatePerTree = m_BestHyperparameters.s_EtaGrowthRatePerTree;
     m_FeatureBagFraction = m_BestHyperparameters.s_FeatureBagFraction;
-    m_Regularization = m_BestHyperparameters.s_Regularization;
     LOG_TRACE(<< "regularization* = " << m_Regularization.print() << ", eta* = " << m_Eta
               << ", eta growth rate per tree* = " << m_EtaGrowthRatePerTree
               << ", feature bag fraction* = " << m_FeatureBagFraction);
