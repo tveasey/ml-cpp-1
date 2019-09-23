@@ -69,6 +69,8 @@ public:
     CBoostedTreeFactory& lambda(double lambda);
     //! Set the target maximum tree depth.
     CBoostedTreeFactory& maxTreeDepth(double maxTreeDepth);
+    //! Set the fractional relative tolerance in the target maximum tree depth.
+    CBoostedTreeFactory& maxTreeDepthTolarance(double maxTreeDepthTolarance);
     //! Set the amount we'll shrink the weights on each each iteration.
     CBoostedTreeFactory& eta(double eta);
     //! Set the maximum number of trees in the ensemble.

@@ -309,13 +309,13 @@ void CBoostedTreeFactory::initializeUnsetRegularizationHyperparameters(core::CDa
 
     double log2MaxTreeSize{std::log2(
         static_cast<double>(m_TreeImpl->maximumTreeSize(allTrainingRowsMask)))};
-    m_TreeImpl->m_Regularization.maxTreeDepthTolerance(
-        m_TreeImpl->m_RegularizationOverride.maxDepthTolerance().value_or(
-            0.5 * (MIN_MAX_DEPTH_TOLERANCE + MAX_MAX_DEPTH_TOLERANCE)));
     m_TreeImpl->m_Regularization.maxTreeDepth(
         m_TreeImpl->m_RegularizationOverride.maxTreeDepth().value_or(log2MaxTreeSize));
-    LOG_TRACE(<< "max depth = " << m_TreeImpl->m_Regularization.maxTreeDepth() << ", max depth tolerance = "
-              << m_TreeImpl->m_Regularization.maxTreeDepthTolerance());
+    m_TreeImpl->m_Regularization.maxTreeDepthTolerance(
+        m_TreeImpl->m_RegularizationOverride.maxTreeDepthTolerance().value_or(
+            0.5 * (MIN_MAX_DEPTH_TOLERANCE + MAX_MAX_DEPTH_TOLERANCE)));
+    LOG_TRACE(<< "max depth = " << m_TreeImpl->m_Regularization.maxTreeDepth()
+              << ", tol = " << m_TreeImpl->m_Regularization.maxTreeDepthTolerance());
 
     double gainPerNode;
     double totalCurvaturePerNode;
@@ -326,17 +326,10 @@ void CBoostedTreeFactory::initializeUnsetRegularizationHyperparameters(core::CDa
 
         TVector fallbackInterval{{MIN_REGULARIZER_SCALE, 1.0, MAX_REGULARIZER_SCALE}};
         fallbackInterval *= m_TreeImpl->m_Eta;
-
-        double maxTreeDepthTolerance{m_TreeImpl->m_Regularization.maxTreeDepthTolerance()};
-        m_TreeImpl->m_Regularization.maxTreeDepthTolerance(5.0 * maxTreeDepthTolerance);
-
         auto interval = this->candidateRegularizerSearchInterval(
             frame, allTrainingRowsMask, [this, gainPerNode](double scale) {
                 m_TreeImpl->m_Regularization.alpha(scale * gainPerNode);
             });
-
-        m_TreeImpl->m_Regularization.maxTreeDepthTolerance(maxTreeDepthTolerance);
-
         m_AlphaSearchInterval = interval.value_or(fallbackInterval) * gainPerNode;
         LOG_TRACE(<< "alpha search interval = ["
                   << m_AlphaSearchInterval.toDelimited() << "]");
@@ -610,6 +603,15 @@ CBoostedTreeFactory& CBoostedTreeFactory::maxTreeDepth(double maxTreeDepth) {
         maxTreeDepth = 2.0;
     }
     m_TreeImpl->m_RegularizationOverride.maxTreeDepth(maxTreeDepth);
+    return *this;
+}
+
+CBoostedTreeFactory& CBoostedTreeFactory::maxTreeDepthTolarance(double maxTreeDepthTolarance) {
+    if (maxTreeDepthTolarance < 0.01) {
+        LOG_WARN(<< "Minimum tree depth tolerance must be at least 0.01");
+        maxTreeDepthTolarance = 0.01;
+    }
+    m_TreeImpl->m_RegularizationOverride.maxTreeDepthTolerance(maxTreeDepthTolarance);
     return *this;
 }
 

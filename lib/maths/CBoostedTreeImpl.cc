@@ -152,11 +152,10 @@ void CBoostedTreeImpl::CLeafNodeStatistics::addRowDerivatives(const CEncodedData
 CBoostedTreeImpl::CLeafNodeStatistics::SSplitStatistics
 CBoostedTreeImpl::CLeafNodeStatistics::computeBestSplitStatistics() const {
 
-    // We have four possible regularisation terms we'll use:
-    //   1. Tree depth: alpha * sum{exp(("depth" - d_t) / s)}
-    //   2. Leaf training data: beta * sum{h / "leaf sum curvature"}
-    //   3. Tree size: gamma * "node count"
-    //   4. Sum square weights: lambda * sum{"leaf weight" ^ 2)}
+    // We have three possible regularisation terms we'll use:
+    //   1. Tree size: gamma * "node count"
+    //   2. Sum square weights: lambda * sum{"leaf weight" ^ 2)}
+    //   3. Tree depth: alpha * sum{exp(("depth" - d_t) / s)}
 
     SSplitStatistics result{-INF, 0.0, m_FeatureBag.size(), INF, true};
 
