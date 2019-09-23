@@ -30,6 +30,9 @@ const std::size_t BEST_REGULARIZER_INDEX{1};
 const std::size_t MAX_REGULARIZER_INDEX{2};
 const double MIN_REGULARIZER_SCALE{0.1};
 const double MAX_REGULARIZER_SCALE{10.0};
+const double MIN_MAX_DEPTH{3.0};
+const double MIN_MAX_DEPTH_TOLERANCE{0.05};
+const double MAX_MAX_DEPTH_TOLERANCE{0.25};
 const double MIN_ETA_SCALE{0.3};
 const double MAX_ETA_SCALE{3.0};
 const double MIN_ETA_GROWTH_RATE_SCALE{0.5};
@@ -99,9 +102,12 @@ void CBoostedTreeFactory::initializeHyperparameterOptimisation() const {
                                  std::log(m_GammaSearchInterval(MAX_REGULARIZER_INDEX)));
     }
     if (m_TreeImpl->m_RegularizationOverride.maxTreeDepth() == boost::none) {
-        boundingBox.emplace_back(m_TreeImpl->m_Regularization.maxTreeDepth() - 2.0,
-                                 m_TreeImpl->m_Regularization.maxTreeDepth() +
-                                     std::log2(MAIN_TRAINING_LOOP_TREE_SIZE_MULTIPLIER) + 1.0);
+        boundingBox.emplace_back(
+            MIN_MAX_DEPTH, m_TreeImpl->m_Regularization.maxTreeDepth() +
+                               std::log2(MAIN_TRAINING_LOOP_TREE_SIZE_MULTIPLIER) + 1.0);
+    }
+    if (m_TreeImpl->m_RegularizationOverride.maxTreeDepthTolerance() == boost::none) {
+        boundingBox.emplace_back(MIN_MAX_DEPTH_TOLERANCE, MAX_MAX_DEPTH_TOLERANCE);
     }
     if (m_TreeImpl->m_EtaOverride == boost::none) {
         double rate{m_TreeImpl->m_EtaGrowthRatePerTree - 1.0};
@@ -266,15 +272,10 @@ void CBoostedTreeFactory::initializeHyperparameters(core::CDataFrame& frame) {
         m_TreeImpl->m_FeatureBagFraction = *(m_TreeImpl->m_FeatureBagFractionOverride);
     }
 
-    if (m_TreeImpl->m_RegularizationOverride.maxTreeDepthTolerance() == boost::none) {
-        m_TreeImpl->m_RegularizationOverride.maxTreeDepthTolerance(0.1);
-    }
-
     m_TreeImpl->m_Regularization
         .alpha(m_TreeImpl->m_RegularizationOverride.alpha().value_or(0.0))
         .gamma(m_TreeImpl->m_RegularizationOverride.gamma().value_or(0.0))
-        .lambda(m_TreeImpl->m_RegularizationOverride.lambda().value_or(0.0))
-        .maxTreeDepthTolerance(*m_TreeImpl->m_RegularizationOverride.maxTreeDepthTolerance());
+        .lambda(m_TreeImpl->m_RegularizationOverride.lambda().value_or(0.0));
 
     if (m_TreeImpl->m_RegularizationOverride.countNotSet() > 0) {
         this->initializeUnsetRegularizationHyperparameters(frame);
@@ -308,9 +309,13 @@ void CBoostedTreeFactory::initializeUnsetRegularizationHyperparameters(core::CDa
 
     double log2MaxTreeSize{std::log2(
         static_cast<double>(m_TreeImpl->maximumTreeSize(allTrainingRowsMask)))};
+    m_TreeImpl->m_Regularization.maxTreeDepthTolerance(
+        m_TreeImpl->m_RegularizationOverride.maxDepthTolerance().value_or(
+            0.5 * (MIN_MAX_DEPTH_TOLERANCE + MAX_MAX_DEPTH_TOLERANCE)));
     m_TreeImpl->m_Regularization.maxTreeDepth(
         m_TreeImpl->m_RegularizationOverride.maxTreeDepth().value_or(log2MaxTreeSize));
-    LOG_TRACE(<< "maximum depth = " << log2MaxTreeSize);
+    LOG_TRACE(<< "max depth = " << m_TreeImpl->m_Regularization.maxTreeDepth() << ", max depth tolerance = "
+              << m_TreeImpl->m_Regularization.maxTreeDepthTolerance());
 
     double gainPerNode;
     double totalCurvaturePerNode;
@@ -379,7 +384,6 @@ void CBoostedTreeFactory::initializeUnsetRegularizationHyperparameters(core::CDa
         ((m_TreeImpl->m_RegularizationOverride.alpha() != boost::none ? 0.0 : 1.0) +
          (m_TreeImpl->m_RegularizationOverride.gamma() != boost::none ? 0.0 : 1.0) +
          (m_TreeImpl->m_RegularizationOverride.lambda() != boost::none ? 0.0 : 1.0))};
-    LOG_TRACE(<< "scale = " << scale);
 
     if (m_TreeImpl->m_RegularizationOverride.alpha() == boost::none) {
         m_AlphaSearchInterval *= scale;

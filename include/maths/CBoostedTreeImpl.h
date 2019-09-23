@@ -187,6 +187,7 @@ private:
         std::string print() const {
             return "(alpha = " + toString(m_Alpha) +
                    ", max depth = " + toString(m_MaxTreeDepth) +
+                   ", max depth tolerance = " + toString(m_MaxTreeDepthTolerance) +
                    ", gamma = " + toString(m_Gamma) +
                    ", lambda = " + toString(m_Lambda) + ")";
         }

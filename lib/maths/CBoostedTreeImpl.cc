@@ -855,6 +855,9 @@ bool CBoostedTreeImpl::selectNextHyperparameters(const TMeanVarAccumulator& loss
     if (m_RegularizationOverride.maxTreeDepth() == boost::none) {
         parameters(i++) = m_Regularization.maxTreeDepth();
     }
+    if (m_RegularizationOverride.maxTreeDepthTolerance() == boost::none) {
+        parameters(i++) = m_Regularization.maxTreeDepthTolerance();
+    }
     if (m_EtaOverride == boost::none) {
         parameters(i++) = std::log(m_Eta);
         parameters(i++) = m_EtaGrowthRatePerTree;
@@ -866,7 +869,7 @@ bool CBoostedTreeImpl::selectNextHyperparameters(const TMeanVarAccumulator& loss
     double meanLoss{CBasicStatistics::mean(lossMoments)};
     double lossVariance{CBasicStatistics::variance(lossMoments)};
 
-    LOG_DEBUG(<< "round = " << m_CurrentRound << " loss = " << meanLoss
+    LOG_TRACE(<< "round = " << m_CurrentRound << " loss = " << meanLoss
               << ": regularization = " << m_Regularization.print() << ", eta = " << m_Eta
               << ", eta growth rate per tree = " << m_EtaGrowthRatePerTree
               << ", feature bag fraction = " << m_FeatureBagFraction);
@@ -897,6 +900,9 @@ bool CBoostedTreeImpl::selectNextHyperparameters(const TMeanVarAccumulator& loss
     }
     if (m_RegularizationOverride.maxTreeDepth() == boost::none) {
         m_Regularization.maxTreeDepth(parameters(i++));
+    }
+    if (m_RegularizationOverride.maxTreeDepthTolerance() == boost::none) {
+        m_Regularization.maxTreeDepthTolerance(parameters(i++));
     }
     if (m_EtaOverride == boost::none) {
         m_Eta = std::exp(parameters(i++));
