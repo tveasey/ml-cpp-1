@@ -43,7 +43,7 @@ public:
                                                        TLossFunctionUPtr loss);
 
     //! Construct a boosted tree object from its serialized version.
-    static CBoostedTreeFactory constructFromString(std::stringstream& jsonStringStream);
+    static TBoostedTreeUPtr constructFromString(std::istream& jsonStringStream);
 
     ~CBoostedTreeFactory();
     CBoostedTreeFactory(CBoostedTreeFactory&) = delete;
