@@ -120,24 +120,24 @@ private:
     using TNodeVec = std::vector<CNode>;
     using TNodeVecVec = std::vector<TNodeVec>;
 
-    //! \brief Holds the parameters associated with the different types of regulariser
+    //! \brief Holds the parameters associated with the different types of regularizer
     //! terms available.
     template<typename T>
     class CRegularization final {
     public:
-        //! Set the multiplier of the tree depth regularizer.
+        //! Set the multiplier of the tree depth penalty.
         CRegularization& alpha(double alpha) {
             m_Alpha = alpha;
             return *this;
         }
 
-        //! Set the multiplier of the tree size regularizer.
+        //! Set the multiplier of the tree size penalty.
         CRegularization& gamma(double gamma) {
             m_Gamma = gamma;
             return *this;
         }
 
-        //! Set the multiplier of the square leaf weight regularizer.
+        //! Set the multiplier of the square leaf weight penalty.
         CRegularization& lambda(double lambda) {
             m_Lambda = lambda;
             return *this;
@@ -162,13 +162,13 @@ private:
                    (m_MaxTreeDepthTolerance == T{} ? 1 : 0);
         }
 
-        //! Multiplier of the tree depth regularizer.
+        //! Multiplier of the tree depth penalty.
         T alpha() const { return m_Alpha; }
 
-        //! Multiplier of the tree size regularizer.
+        //! Multiplier of the tree size penalty.
         T gamma() const { return m_Gamma; }
 
-        //! Multiplier of the square leaf weight regularizer.
+        //! Multiplier of the square leaf weight penalty.
         T lambda() const { return m_Lambda; }
 
         //! Maximum depth tree depth.
@@ -678,8 +678,8 @@ private:
     //! the dependent variable.
     core::CPackedBitVector allTrainingRowsMask() const;
 
-    //! Compute the sum loss for the predictions from \p frame and the leaf
-    //! count and squared weight sum from \p forest.
+    //! Compute the \p percentile percentile gain per split and the sum of row
+    //! curvatures per internal node of \p forest.
     TDoubleDoublePr gainAndCurvatureAtPercentile(double percentile,
                                                  const TNodeVecVec& forest) const;
 
@@ -805,6 +805,7 @@ private:
     TBayesinOptimizationUPtr m_BayesianOptimization;
     std::size_t m_NumberRounds = 1;
     std::size_t m_CurrentRound = 0;
+    mutable core::CLoopProgress m_TrainingProgress;
 
     friend class CBoostedTreeFactory;
 };

@@ -28,6 +28,7 @@ namespace {
 const std::size_t MIN_REGULARIZER_INDEX{0};
 const std::size_t BEST_REGULARIZER_INDEX{1};
 const std::size_t MAX_REGULARIZER_INDEX{2};
+const std::size_t INITIAL_REGULARIZER_SEARCH_ITERATIONS{8};
 const double MIN_REGULARIZER_SCALE{0.1};
 const double MAX_REGULARIZER_SCALE{10.0};
 const double MIN_MAX_DEPTH{3.0};
@@ -45,23 +46,38 @@ const double MAIN_TRAINING_LOOP_TREE_SIZE_MULTIPLIER{10.0};
 CBoostedTreeFactory::TBoostedTreeUPtr
 CBoostedTreeFactory::buildFor(core::CDataFrame& frame, std::size_t dependentVariable) {
 
-    m_TreeImpl->m_DependentVariable = dependentVariable;
+    if (m_Restored) {
 
-    this->initializeMissingFeatureMasks(frame);
-    std::tie(m_TreeImpl->m_TrainingRowMasks, m_TreeImpl->m_TestingRowMasks) =
-        this->crossValidationRowMasks();
+        if (dependentVariable != m_TreeImpl->m_DependentVariable) {
+            HANDLE_FATAL(<< "Internal error: expected dependent variable "
+                         << m_TreeImpl->m_DependentVariable << " got " << dependentVariable);
+        }
 
-    // We store the gradient and curvature of the loss function and the predicted
-    // value for the dependent variable of the regression.
-    frame.resizeColumns(m_TreeImpl->m_NumberThreads,
-                        frame.numberColumns() + this->numberExtraColumnsForTrain());
+        this->resumeRestoredTrainingProgressMonitoring();
 
-    this->selectFeaturesAndEncodeCategories(frame);
-    this->determineFeatureDataTypes(frame);
+        frame.resizeColumns(m_TreeImpl->m_NumberThreads,
+                            frame.numberColumns() + this->numberExtraColumnsForTrain());
 
-    if (this->initializeFeatureSampleDistribution()) {
-        this->initializeHyperparameters(frame);
-        this->initializeHyperparameterOptimisation();
+    } else {
+
+        m_TreeImpl->m_DependentVariable = dependentVariable;
+
+        this->initializeTrainingProgressMonitoring();
+
+        this->initializeMissingFeatureMasks(frame);
+        std::tie(m_TreeImpl->m_TrainingRowMasks, m_TreeImpl->m_TestingRowMasks) =
+            this->crossValidationRowMasks();
+
+        frame.resizeColumns(m_TreeImpl->m_NumberThreads,
+                            frame.numberColumns() + this->numberExtraColumnsForTrain());
+
+        this->selectFeaturesAndEncodeCategories(frame);
+        this->determineFeatureDataTypes(frame);
+
+        if (this->initializeFeatureSampleDistribution()) {
+            this->initializeHyperparameters(frame);
+            this->initializeHyperparameterOptimisation();
+        }
     }
 
     auto treeImpl = std::make_unique<CBoostedTreeImpl>(m_NumberThreads, m_Loss->clone());
@@ -90,16 +106,16 @@ void CBoostedTreeFactory::initializeHyperparameterOptimisation() const {
 
     CBayesianOptimisation::TDoubleDoublePrVec boundingBox;
     if (m_TreeImpl->m_RegularizationOverride.alpha() == boost::none) {
-        boundingBox.emplace_back(std::log(m_AlphaSearchInterval(MIN_REGULARIZER_INDEX)),
-                                 std::log(m_AlphaSearchInterval(MAX_REGULARIZER_INDEX)));
+        boundingBox.emplace_back(m_LogAlphaSearchInterval(MIN_REGULARIZER_INDEX),
+                                 m_LogAlphaSearchInterval(MAX_REGULARIZER_INDEX));
     }
     if (m_TreeImpl->m_RegularizationOverride.lambda() == boost::none) {
-        boundingBox.emplace_back(std::log(m_LambdaSearchInterval(MIN_REGULARIZER_INDEX)),
-                                 std::log(m_LambdaSearchInterval(MAX_REGULARIZER_INDEX)));
+        boundingBox.emplace_back(m_LogLambdaSearchInterval(MIN_REGULARIZER_INDEX),
+                                 m_LogLambdaSearchInterval(MAX_REGULARIZER_INDEX));
     }
     if (m_TreeImpl->m_RegularizationOverride.gamma() == boost::none) {
-        boundingBox.emplace_back(std::log(m_GammaSearchInterval(MIN_REGULARIZER_INDEX)),
-                                 std::log(m_GammaSearchInterval(MAX_REGULARIZER_INDEX)));
+        boundingBox.emplace_back(m_LogGammaSearchInterval(MIN_REGULARIZER_INDEX),
+                                 m_LogGammaSearchInterval(MAX_REGULARIZER_INDEX));
     }
     if (m_TreeImpl->m_RegularizationOverride.maxTreeDepth() == boost::none) {
         boundingBox.emplace_back(
@@ -198,6 +214,7 @@ void CBoostedTreeFactory::selectFeaturesAndEncodeCategories(const core::CDataFra
             .minimumFrequencyToOneHotEncode(m_MinimumFrequencyToOneHotEncode)
             .rowMask(m_TreeImpl->allTrainingRowsMask())
             .columnMask(std::move(regressors)));
+    m_TreeImpl->m_TrainingProgress.increment(1);
 }
 
 void CBoostedTreeFactory::determineFeatureDataTypes(const core::CDataFrame& frame) const {
@@ -296,14 +313,15 @@ void CBoostedTreeFactory::initializeHyperparameters(core::CDataFrame& frame) {
 void CBoostedTreeFactory::initializeUnsetRegularizationHyperparameters(core::CDataFrame& frame) {
 
     // The strategy here is to:
-    //   1) Get an estimate of the magnitude of the change in the loss term for
-    //      a single tree,
-    //   2) Use this to upper bound the size of alpha, gamma and lambda, that is
+    //   1) Get percentile estimates of the gain in the loss function and its sum
+    //      curvature from the splits selected in a single tree with regulizers
+    //      zeroed,
+    //   2) Use these to upper bound the size of alpha, gamma and lambda, that is
     //      find values we expect to underfit the data,
-    //   3) Decrease each regularizer an look for turning point in the test loss,
-    //      i.e. the point at which we transition to overfit.
-    // We'll search intervals in the vicinity of this point in the main optimisation
-    // loop.
+    //   3) Decrease each regularizer and look for a turning point in the test
+    //      loss, i.e. the point at which we transition overfit.
+    // We'll search intervals in the vicinity of these values in the hyperparameter
+    // optimisation loop.
 
     core::CPackedBitVector allTrainingRowsMask{m_TreeImpl->allTrainingRowsMask()};
 
@@ -317,6 +335,8 @@ void CBoostedTreeFactory::initializeUnsetRegularizationHyperparameters(core::CDa
     LOG_TRACE(<< "max depth = " << m_TreeImpl->m_Regularization.maxTreeDepth()
               << ", tol = " << m_TreeImpl->m_Regularization.maxTreeDepthTolerance());
 
+    core::CPackedBitVector allTrainingRowsMask{m_TreeImpl->allTrainingRowsMask()};
+
     double gainPerNode;
     double totalCurvaturePerNode;
     std::tie(gainPerNode, totalCurvaturePerNode) =
@@ -324,16 +344,26 @@ void CBoostedTreeFactory::initializeUnsetRegularizationHyperparameters(core::CDa
 
     if (m_TreeImpl->m_RegularizationOverride.alpha() == boost::none) {
         if (gainPerNode > 0.0) {
-            TVector fallbackInterval{{MIN_REGULARIZER_SCALE, 1.0, MAX_REGULARIZER_SCALE}};
-            fallbackInterval *= m_TreeImpl->m_Eta;
-            auto interval = this->candidateRegularizerSearchInterval(
-                frame, allTrainingRowsMask, [this, gainPerNode](double scale) {
-                    m_TreeImpl->m_Regularization.alpha(scale * gainPerNode);
-                });
-            m_TreeImpl->m_Regularization.alpha(0.0);
-            m_AlphaSearchInterval = interval.value_or(fallbackInterval) * gainPerNode;
-            LOG_TRACE(<< "alpha search interval = ["
-                    << m_AlphaSearchInterval.toDelimited() << "]");
+            TVector fallbackInterval{{std::log(MIN_REGULARIZER_SCALE), 0.0,
+                                      std::log(MAX_REGULARIZER_SCALE)}};
+            fallbackInterval += TVector{std::log(m_TreeImpl->m_Eta)};
+
+            double logInitialAlpha{std::log(gainPerNode)};
+            auto applyAlphaStep = [logInitialAlpha](CBoostedTreeImpl& tree,
+                                                    double stepSize, std::size_t step) {
+                tree.m_Regularization.alpha(
+                    std::exp(logInitialAlpha + static_cast<double>(step) * stepSize));
+            };
+            m_LogGammaSearchInterval =
+                TVector{std::log(gainPerNode)} +
+                this->testLossNewtonLineSearch(frame, allTrainingRowsMask, applyAlphaStep,
+                                               std::log(MIN_REGULARIZER_SCALE),
+                                               std::log(MAX_REGULARIZER_SCALE))
+                    .value_or(fallbackInterval);
+            LOG_TRACE(<< "log alpha search interval = ["
+                      << m_LogAlphaSearchInterval.toDelimited() << "]");
+
+            tree.m_Regularization.alpha(std::exp(m_LogAlphaSearchInterval(MIN_REGULARIZER_INDEX));
         } else {
             m_TreeImpl->m_RegularizationOverride.alpha(0.0);
         }
@@ -341,16 +371,28 @@ void CBoostedTreeFactory::initializeUnsetRegularizationHyperparameters(core::CDa
 
     if (m_TreeImpl->m_RegularizationOverride.gamma() == boost::none) {
         if (gainPerNode > 0.0) {
-            TVector fallbackInterval{{MIN_REGULARIZER_SCALE, 1.0, MAX_REGULARIZER_SCALE}};
-            fallbackInterval *= m_TreeImpl->m_Eta;
-            auto interval = this->candidateRegularizerSearchInterval(
-                frame, allTrainingRowsMask, [this, gainPerNode](double scale) {
-                    m_TreeImpl->m_Regularization.gamma(scale * gainPerNode);
-                });
-            m_TreeImpl->m_Regularization.gamma(0.0);
-            m_GammaSearchInterval = interval.value_or(fallbackInterval) * gainPerNode;
-            LOG_TRACE(<< "gamma search interval = ["
-                    << m_GammaSearchInterval.toDelimited() << "]");
+            TVector fallbackInterval{{std::log(MIN_REGULARIZER_SCALE), 0.0,
+                                      std::log(MAX_REGULARIZER_SCALE)}};
+            fallbackInterval += TVector{std::log(m_TreeImpl->m_Eta)};
+
+            double logInitialGamma{std::log(gainPerNode)};
+            auto applyGammaStep = [logInitialGamma](CBoostedTreeImpl& tree,
+                                                    double stepSize, std::size_t step) {
+                tree.m_Regularization.gamma(
+                    std::exp(logInitialGamma + static_cast<double>(step) * stepSize));
+            };
+            tree.m_Regularization.gamma(0.0);
+            m_LogGammaSearchInterval =
+                TVector{std::log(gainPerNode)} +
+                this->testLossNewtonLineSearch(frame, allTrainingRowsMask, applyGammaStep,
+                                               std::log(MIN_REGULARIZER_SCALE),
+                                               std::log(MAX_REGULARIZER_SCALE))
+                    .value_or(fallbackInterval);
+            LOG_TRACE(<< "log gamma search interval = ["
+                      << m_LogGammaSearchInterval.toDelimited() << "]");
+
+            m_TreeImpl->m_Regularization.gamma(
+                std::exp(m_LogGammaSearchInterval(MIN_REGULARIZER_INDEX)));
         } else {
             m_TreeImpl->m_RegularizationOverride.gamma(0.0);
         }
@@ -358,39 +400,52 @@ void CBoostedTreeFactory::initializeUnsetRegularizationHyperparameters(core::CDa
 
     if (m_TreeImpl->m_RegularizationOverride.lambda() == boost::none) {
         if (totalCurvaturePerNode > 0.0) {
-            TVector fallbackInterval{{MIN_REGULARIZER_SCALE, 1.0, MAX_REGULARIZER_SCALE}};
-            m_TreeImpl->m_Regularization.gamma(m_GammaSearchInterval(MIN_REGULARIZER_INDEX));
-            auto interval = this->candidateRegularizerSearchInterval(
-                frame, allTrainingRowsMask, [this, totalCurvaturePerNode](double scale) {
-                    m_TreeImpl->m_Regularization.lambda(scale * totalCurvaturePerNode);
-                });
-            m_LambdaSearchInterval = interval.value_or(fallbackInterval) * totalCurvaturePerNode;
-            LOG_TRACE(<< "lambda search interval = ["
-                    << m_LambdaSearchInterval.toDelimited() << "]");
+            TVector fallbackInterval{{std::log(MIN_REGULARIZER_SCALE), 0.0,
+                                      std::log(MAX_REGULARIZER_SCALE)}};
+
+            double logInitialLambda{std::log(totalCurvaturePerNode)};
+            auto applyLambdaStep = [logInitialLambda](CBoostedTreeImpl& tree,
+                                                      double stepSize, std::size_t step) {
+                tree.m_Regularization.lambda(std::exp(
+                    logInitialLambda + static_cast<double>(step) * stepSize));
+            };
+            m_LogLambdaSearchInterval =
+                TVector{std::log(totalCurvaturePerNode)} +
+                this->testLossNewtonLineSearch(frame, allTrainingRowsMask, applyLambdaStep,
+                                               std::log(MIN_REGULARIZER_SCALE),
+                                               std::log(MAX_REGULARIZER_SCALE))
+                    .value_or(fallbackInterval);
+            LOG_TRACE(<< "log lambda search interval = ["
+                      << m_LogLambdaSearchInterval.toDelimited() << "]");
         } else {
             m_TreeImpl->m_RegularizationOverride.lambda(0.0);
         }
     }
 
-    double numberFreeParameters{
-        (m_TreeImpl->m_RegularizationOverride.alpha() != boost::none ? 0.0 : 1.0) +
-         (m_TreeImpl->m_RegularizationOverride.gamma() != boost::none ? 0.0 : 1.0) +
-         (m_TreeImpl->m_RegularizationOverride.lambda() != boost::none ? 0.0 : 1.0)};
+    // If we aren't supplied a fixed value for a parameter, we find its "best"
+    // value forcing the other regularizers to zero. Therefore, we divide here
+    // by the number of unspecified parameters so the sum of the regularization
+    // terms is about the same in the first loop.
     double scale{
-        static_cast<double>(m_TreeImpl->m_NumberFolds - 1) /
-        static_cast<double>(m_TreeImpl->m_NumberFolds) / numberFreeParameters};
+        1.0 /
+        ((m_TreeImpl->m_RegularizationOverride.alpha() == boost::none ? 1.0 : 0.0) +
+         (m_TreeImpl->m_RegularizationOverride.gamma() == boost::none ? 1.0 : 0.0) +
+         (m_TreeImpl->m_RegularizationOverride.lambda() == boost::none ? 1.0 : 0.0))};
 
     if (m_TreeImpl->m_RegularizationOverride.alpha() == boost::none) {
-        m_AlphaSearchInterval *= scale;
-        m_TreeImpl->m_Regularization.alpha(m_AlphaSearchInterval(BEST_REGULARIZER_INDEX));
+        m_LogAlphaSearchInterval += TVector{std::log(scale)};
+        m_TreeImpl->m_Regularization.alpha(
+            std::exp(m_AlphaSearchInterval(BEST_REGULARIZER_INDEX)));
     }
     if (m_TreeImpl->m_RegularizationOverride.gamma() == boost::none) {
-        m_GammaSearchInterval *= scale;
-        m_TreeImpl->m_Regularization.gamma(m_GammaSearchInterval(BEST_REGULARIZER_INDEX));
+        m_LogGammaSearchInterval += TVector{std::log(scale)};
+        m_TreeImpl->m_Regularization.gamma(
+            std::exp(m_LogGammaSearchInterval(BEST_REGULARIZER_INDEX)));
     }
     if (m_TreeImpl->m_RegularizationOverride.lambda() == boost::none) {
-        m_LambdaSearchInterval *= scale;
-        m_TreeImpl->m_Regularization.lambda(m_LambdaSearchInterval(BEST_REGULARIZER_INDEX));
+        m_LogLambdaSearchInterval += TVector{std::log(scale)};
+        m_TreeImpl->m_Regularization.lambda(
+            std::exp(m_LogLambdaSearchInterval(BEST_REGULARIZER_INDEX)));
     }
 
     if (m_TreeImpl->m_RegularizationOverride.alpha() != boost::none &&
@@ -420,9 +475,11 @@ CBoostedTreeFactory::estimateTreeGainAndCurvature(core::CDataFrame& frame,
 }
 
 CBoostedTreeFactory::TOptionalVector
-CBoostedTreeFactory::candidateRegularizerSearchInterval(core::CDataFrame& frame,
-                                                        core::CPackedBitVector trainingRowMask,
-                                                        TScaleRegularization scaleRegularization) const {
+CBoostedTreeFactory::testLossNewtonLineSearch(core::CDataFrame& frame,
+                                              core::CPackedBitVector trainingRowMask,
+                                              const TApplyRegularizerStep& applyRegularizerStep,
+                                              double returnedIntervalLeftEndOffset,
+                                              double returnedIntervalRightEndOffset) const {
 
     // This uses a quadratic approximation to the test loss function w.r.t.
     // the scaled regularization hyperparameter from which it estimates the
@@ -450,102 +507,103 @@ CBoostedTreeFactory::candidateRegularizerSearchInterval(core::CDataFrame& frame,
     double maximumTreeSizeMultiplier{MAIN_TRAINING_LOOP_TREE_SIZE_MULTIPLIER};
     std::swap(maximumTreeSizeMultiplier, m_TreeImpl->m_MaximumTreeSizeMultiplier);
 
-    std::size_t maxIterations{8};
-    double multiplier{std::exp(-std::log(1024.0) / static_cast<double>(maxIterations))};
+    double stepSize{-std::log(1024.0) /
+                    static_cast<double>(INITIAL_REGULARIZER_SEARCH_ITERATIONS)};
 
     CLeastSquaresOnlineRegression<2, double> leastSquaresQuadraticTestLoss;
-    TDoubleVec testLosses(maxIterations);
+    TDoubleVec testLosses(INITIAL_REGULARIZER_SEARCH_ITERATIONS);
 
-    double scale{1.0};
-    for (std::size_t i = 0; i < maxIterations; ++i) {
-        scaleRegularization(scale);
-        scale *= multiplier;
+    for (std::size_t i = 0; i < INITIAL_REGULARIZER_SEARCH_ITERATIONS; ++i) {
+        applyRegularizerStep(*m_TreeImpl, stepSize, i);
         auto forest = m_TreeImpl->trainForest(frame, trainingRowMask, m_RecordMemoryUsage);
         double testLoss{m_TreeImpl->meanLoss(frame, testRowMask, forest)};
-        leastSquaresQuadraticTestLoss.add(static_cast<double>(i), testLoss);
+        leastSquaresQuadraticTestLoss.add(static_cast<double>(i) * stepSize, testLoss);
         testLosses[i] = testLoss;
+        m_TreeImpl->m_TrainingProgress.increment();
     }
     LOG_TRACE(<< "test losses = " << core::CContainerPrinter::print(testLosses));
 
     std::swap(maximumTreeSizeMultiplier, m_TreeImpl->m_MaximumTreeSizeMultiplier);
 
     CLeastSquaresOnlineRegression<2, double>::TArray params;
-    bool successful{leastSquaresQuadraticTestLoss.parameters(params)};
+    if (leastSquaresQuadraticTestLoss.parameters(params) == false) {
+        return TOptionalVector{};
+    }
+
     double gradient{params[1]};
     double curvature{params[2]};
     LOG_TRACE(<< "[intercept, slope, curvature] = "
               << core::CContainerPrinter::print(params));
 
-    // Find the scale at the minimum of the least squares quadratic fit
-    // to the test loss in the search interval.
-    double leftEndpoint{0.0};
-    double rightEndpoint{static_cast<double>(maxIterations - 1)};
+    // Find the scale at the minimum of the least squares quadratic fit to
+    // the test loss in the search interval. Note step size is negative.
+    double leftEndpoint{static_cast<double>(INITIAL_REGULARIZER_SEARCH_ITERATIONS - 1) * stepSize};
+    double rightEndpoint{0.0};
     double stationaryPoint{-gradient / 2.0 / curvature};
-    double distanceToLeftEndpoint{std::fabs(leftEndpoint - stationaryPoint)};
-    double distanceToRightEndpoint{std::fabs(rightEndpoint - stationaryPoint)};
-    double logBestRegularizerScale{
-        curvature < 0.0
-            ? (distanceToLeftEndpoint > distanceToRightEndpoint ? leftEndpoint : rightEndpoint)
-            : CTools::truncate(stationaryPoint, leftEndpoint, rightEndpoint)};
-    double bestRegularizerScale{std::pow(0.5, logBestRegularizerScale)};
+    double bestRegularizer{[&] {
+        if (curvature < 0.0) {
+            // Stationary point is a maximum so use furthest point in interval.
+            double distanceToLeftEndpoint{std::fabs(leftEndpoint - stationaryPoint)};
+            double distanceToRightEndpoint{std::fabs(rightEndpoint - stationaryPoint)};
+            return distanceToLeftEndpoint > distanceToRightEndpoint ? leftEndpoint : rightEndpoint;
+        }
+        // Stationary point is a minimum so use nearest point in the interval.
+        return CTools::truncate(stationaryPoint, leftEndpoint, rightEndpoint);
+    }()};
+    LOG_TRACE(<< "best regularizer = " << bestRegularizer);
 
-    // Find an interval with a high probability of containing the optimal
-    // regularisation parameter if the interval we searched has a minimum.
-    TVector interval{{MIN_REGULARIZER_SCALE, 1.0, MAX_REGULARIZER_SCALE}};
+    TVector interval{{returnedIntervalLeftEndOffset, 0.0, returnedIntervalRightEndOffset}};
     if (curvature > 0.0) {
+        // Find a short interval with a high probability of containing the optimal
+        // regularisation parameter if we found a minimum. In particular, we solve
+        // curvature * (x - best)^2 = 3 sigma where sigma is the standard deviation
+        // of the test loss residuals to get the interval endpoints. We don't
+        // extrapolate the loss function outside the line segment we searched so
+        // don't truncate if an endpoint lies outside the searched interval.
         TMeanVarAccumulator residualMoments;
-        for (std::size_t i = 0; i < maxIterations; ++i) {
+        for (std::size_t i = 0; i < INITIAL_REGULARIZER_SEARCH_ITERATIONS; ++i) {
             residualMoments.add(testLosses[i] - leastSquaresQuadraticTestLoss.predict(
-                                                    static_cast<double>(i)));
+                                                    static_cast<double>(i) * stepSize));
         }
-        double margin{2.0 * std::sqrt(CBasicStatistics::variance(residualMoments)) / curvature};
-        if (logBestRegularizerScale - margin >= leftEndpoint) {
+        double sigma{std::sqrt(CBasicStatistics::variance(residualMoments))};
+        double threeSigmaInterval{std::sqrt(3.0 * sigma / curvature)};
+        if (bestRegularizer - threeSigmaInterval >= leftEndpoint) {
             interval(MIN_REGULARIZER_INDEX) =
-                std::max(std::pow(0.5, margin), MIN_REGULARIZER_SCALE);
+                std::max(-threeSigmaInterval, returnedIntervalLeftEndOffset);
         }
-        if (logBestRegularizerScale + margin <= rightEndpoint) {
+        if (bestRegularizer + threeSigmaInterval <= rightEndpoint) {
             interval(MAX_REGULARIZER_INDEX) =
-                std::min(std::pow(2.0, margin), MAX_REGULARIZER_SCALE);
+                std::min(threeSigmaInterval, returnedIntervalRightEndOffset);
         }
     }
-    interval *= bestRegularizerScale;
+    interval += TVector{bestRegularizer};
 
-    return successful ? TOptionalVector{interval} : TOptionalVector{};
+    return TOptionalVector{interval};
 }
 
 CBoostedTreeFactory CBoostedTreeFactory::constructFromParameters(std::size_t numberThreads,
                                                                  TLossFunctionUPtr loss) {
-    return {numberThreads, std::move(loss)};
+    return {false, numberThreads, std::move(loss)};
 }
 
-CBoostedTreeFactory::TBoostedTreeUPtr
-CBoostedTreeFactory::constructFromString(std::istream& jsonStringStream,
-                                         core::CDataFrame& frame,
-                                         TProgressCallback recordProgress,
-                                         TMemoryUsageCallback recordMemoryUsage,
-                                         TTrainingStateCallback recordTrainingState) {
+CBoostedTreeFactory CBoostedTreeFactory::constructFromString(std::istream& jsonStringStream) {
+    CBoostedTreeFactory result{true, 1, nullptr};
     try {
-        TBoostedTreeUPtr treePtr{new CBoostedTree{
-            frame, std::move(recordProgress), std::move(recordMemoryUsage),
-            std::move(recordTrainingState), TBoostedTreeImplUPtr{new CBoostedTreeImpl{}}}};
         core::CJsonStateRestoreTraverser traverser(jsonStringStream);
-        if (treePtr->acceptRestoreTraverser(traverser) == false || traverser.haveBadState()) {
+        if (result.m_TreeImpl->acceptRestoreTraverser(traverser) == false ||
+            traverser.haveBadState()) {
             throw std::runtime_error{"failed to restore boosted tree"};
         }
-        frame.resizeColumns(treePtr->m_Impl->m_NumberThreads,
-                            frame.numberColumns() +
-                                treePtr->m_Impl->numberExtraColumnsForTrain());
-        return treePtr;
     } catch (const std::exception& e) {
-        HANDLE_FATAL(<< "Input error: '" << e.what() << "'. Check logs for more details.");
+        throw std::runtime_error{std::string{"Input error: '"} + e.what() + "'"};
     }
-    return nullptr;
+    return result;
 }
 
 CBoostedTreeFactory::CBoostedTreeFactory(std::size_t numberThreads, TLossFunctionUPtr loss)
     : m_NumberThreads{numberThreads}, m_Loss{loss->clone()},
       m_TreeImpl{std::make_unique<CBoostedTreeImpl>(numberThreads, std::move(loss))},
-      m_AlphaSearchInterval{0.0}, m_GammaSearchInterval{0.0}, m_LambdaSearchInterval{0.0} {
+      m_LogAlphaSearchInterval{0.0}, m_LogGammaSearchInterval{0.0}, m_LogLambdaSearchInterval{0.0} {
 }
 
 CBoostedTreeFactory::CBoostedTreeFactory(CBoostedTreeFactory&&) = default;
@@ -710,6 +768,35 @@ std::size_t CBoostedTreeFactory::estimateMemoryUsage(std::size_t numberRows,
 
 std::size_t CBoostedTreeFactory::numberExtraColumnsForTrain() const {
     return m_TreeImpl->numberExtraColumnsForTrain();
+}
+
+void CBoostedTreeFactory::initializeTrainingProgressMonitoring() {
+
+    // The base unit is the cost of training on one fold.
+    //
+    // This comprises:
+    //  - The cost of category encoding and feature selection which we count as
+    //    one unit,
+    //  - INITIAL_REGULARIZER_SEARCH_ITERATIONS units per regularization parameter
+    //    which isn't user defined,
+    //  - The main optimisation loop which costs number folds units per iteration,
+    //  - The cost of the final train which we count as number folds units.
+
+    std::size_t totalNumberSteps{1};
+    if (m_TreeImpl->m_RegularizationOverride.gamma() == boost::none) {
+        totalNumberSteps += INITIAL_REGULARIZER_SEARCH_ITERATIONS;
+    }
+    if (m_TreeImpl->m_RegularizationOverride.lambda() == boost::none) {
+        totalNumberSteps += INITIAL_REGULARIZER_SEARCH_ITERATIONS;
+    }
+    totalNumberSteps += (this->numberHyperparameterTuningRounds() + 1) *
+                        m_TreeImpl->m_NumberFolds;
+    m_TreeImpl->m_TrainingProgress = core::CLoopProgress{totalNumberSteps, m_RecordProgress};
+}
+
+void CBoostedTreeFactory::resumeRestoredTrainingProgressMonitoring() {
+    m_TreeImpl->m_TrainingProgress.progressCallback(m_RecordProgress);
+    m_TreeImpl->m_TrainingProgress.resumeRestored();
 }
 
 void CBoostedTreeFactory::noopRecordTrainingState(std::function<void(core::CStatePersistInserter&)>) {

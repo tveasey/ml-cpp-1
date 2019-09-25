@@ -44,12 +44,9 @@ public:
                                                        TLossFunctionUPtr loss);
 
     //! Construct a boosted tree object from its serialized version.
-    static TBoostedTreeUPtr
-    constructFromString(std::istream& jsonStringStream,
-                        core::CDataFrame& frame,
-                        TProgressCallback recordProgress = noopRecordProgress,
-                        TMemoryUsageCallback recordMemoryUsage = noopRecordMemoryUsage,
-                        TTrainingStateCallback recordTrainingState = noopRecordTrainingState);
+    //!
+    //! \warning Throws runtime error on fail to restore.
+    static CBoostedTreeFactory constructFromString(std::istream& jsonStringStream);
 
     ~CBoostedTreeFactory();
     CBoostedTreeFactory(CBoostedTreeFactory&) = delete;
@@ -107,14 +104,15 @@ private:
     using TOptionalVector = boost::optional<TVector>;
     using TPackedBitVectorVec = std::vector<core::CPackedBitVector>;
     using TBoostedTreeImplUPtr = std::unique_ptr<CBoostedTreeImpl>;
-    using TScaleRegularization = std::function<void(double)>;
+    using TApplyRegularizerStep =
+        std::function<void(CBoostedTreeImpl&, double, std::size_t)>;
 
 private:
     static const double MINIMUM_ETA;
     static const std::size_t MAXIMUM_NUMBER_TREES;
 
 private:
-    CBoostedTreeFactory(std::size_t numberThreads, TLossFunctionUPtr loss);
+    CBoostedTreeFactory(bool restored, std::size_t numberThreads, TLossFunctionUPtr loss);
 
     //! Compute the row masks for the missing values for each feature.
     void initializeMissingFeatureMasks(const core::CDataFrame& frame) const;
@@ -144,16 +142,29 @@ private:
     TDoubleDoublePr estimateTreeGainAndCurvature(core::CDataFrame& frame,
                                                  const core::CPackedBitVector& trainingRowMask) const;
 
-    //! Get the regularizer value at the point the model starts to overfit.
-    TOptionalVector candidateRegularizerSearchInterval(core::CDataFrame& frame,
-                                                       core::CPackedBitVector trainingRowMask,
-                                                       TScaleRegularization scale) const;
+    //! Perform a line search for the test loss w.r.t. a single regularization
+    //! hyperparameter and apply Newton's method to find the minimum. The plan
+    //! is to find a value near where the model starts to overfit.
+    //!
+    //! \return The interval to search during the main hyperparameter optimisation
+    //! loop or null if this couldn't be found.
+    TOptionalVector testLossNewtonLineSearch(core::CDataFrame& frame,
+                                             core::CPackedBitVector trainingRowMask,
+                                             const TApplyRegularizerStep& applyRegularizerStep,
+                                             double returnedIntervalLeftEndOffset,
+                                             double returnedIntervalRightEndOffset) const;
 
     //! Initialize the state for hyperparameter optimisation.
     void initializeHyperparameterOptimisation() const;
 
     //! Get the number of hyperparameter tuning rounds to use.
     std::size_t numberHyperparameterTuningRounds() const;
+
+    //! Setup monitoring for training progress.
+    void initializeTrainingProgressMonitoring();
+
+    //! Refresh progress monitoring after restoring from saved training state.
+    void resumeRestoredTrainingProgressMonitoring();
 
     static void noopRecordProgress(double);
     static void noopRecordMemoryUsage(std::int64_t);
@@ -162,12 +173,13 @@ private:
 private:
     TOptionalDouble m_MinimumFrequencyToOneHotEncode;
     TOptionalSize m_BayesianOptimisationRestarts;
+    bool m_Restored = false;
     std::size_t m_NumberThreads;
     TLossFunctionUPtr m_Loss;
     TBoostedTreeImplUPtr m_TreeImpl;
-    TVector m_AlphaSearchInterval;
-    TVector m_GammaSearchInterval;
-    TVector m_LambdaSearchInterval;
+    TVector m_LogAlphaSearchInterval;
+    TVector m_LogGammaSearchInterval;
+    TVector m_LogLambdaSearchInterval;
     TProgressCallback m_RecordProgress = noopRecordProgress;
     TMemoryUsageCallback m_RecordMemoryUsage = noopRecordMemoryUsage;
     TTrainingStateCallback m_RecordTrainingState = noopRecordTrainingState;
