@@ -31,7 +31,7 @@ const std::size_t MAX_REGULARIZER_INDEX{2};
 const std::size_t INITIAL_REGULARIZER_SEARCH_ITERATIONS{8};
 const double MIN_REGULARIZER_SCALE{0.1};
 const double MAX_REGULARIZER_SCALE{10.0};
-const double MIN_MAX_DEPTH{3.0};
+const double MIN_MAX_DEPTH{2.0};
 const double MIN_MAX_DEPTH_TOLERANCE{0.05};
 const double MAX_MAX_DEPTH_TOLERANCE{0.25};
 const double MIN_ETA_SCALE{0.3};
@@ -135,6 +135,8 @@ void CBoostedTreeFactory::initializeHyperparameterOptimisation() const {
     if (m_TreeImpl->m_FeatureBagFractionOverride == boost::none) {
         boundingBox.emplace_back(MIN_FEATURE_BAG_FRACTION, MAX_FEATURE_BAG_FRACTION);
     }
+    LOG_TRACE(<< "hyperparameter search bounding box = "
+              << core::CContainerPrinter::print(boundingBox));
 
     m_TreeImpl->m_BayesianOptimization = std::make_unique<CBayesianOptimisation>(
         std::move(boundingBox),
@@ -335,8 +337,6 @@ void CBoostedTreeFactory::initializeUnsetRegularizationHyperparameters(core::CDa
     LOG_TRACE(<< "max depth = " << m_TreeImpl->m_Regularization.maxTreeDepth()
               << ", tol = " << m_TreeImpl->m_Regularization.maxTreeDepthTolerance());
 
-    core::CPackedBitVector allTrainingRowsMask{m_TreeImpl->allTrainingRowsMask()};
-
     double gainPerNode;
     double totalCurvaturePerNode;
     std::tie(gainPerNode, totalCurvaturePerNode) =
@@ -354,7 +354,7 @@ void CBoostedTreeFactory::initializeUnsetRegularizationHyperparameters(core::CDa
                 tree.m_Regularization.alpha(
                     std::exp(logInitialAlpha + static_cast<double>(step) * stepSize));
             };
-            m_LogGammaSearchInterval =
+            m_LogAlphaSearchInterval =
                 TVector{std::log(gainPerNode)} +
                 this->testLossNewtonLineSearch(frame, allTrainingRowsMask, applyAlphaStep,
                                                std::log(MIN_REGULARIZER_SCALE),
@@ -363,7 +363,8 @@ void CBoostedTreeFactory::initializeUnsetRegularizationHyperparameters(core::CDa
             LOG_TRACE(<< "log alpha search interval = ["
                       << m_LogAlphaSearchInterval.toDelimited() << "]");
 
-            tree.m_Regularization.alpha(std::exp(m_LogAlphaSearchInterval(MIN_REGULARIZER_INDEX));
+            m_TreeImpl->m_Regularization.alpha(
+                std::exp(m_LogAlphaSearchInterval(MIN_REGULARIZER_INDEX)));
         } else {
             m_TreeImpl->m_RegularizationOverride.alpha(0.0);
         }
@@ -435,7 +436,7 @@ void CBoostedTreeFactory::initializeUnsetRegularizationHyperparameters(core::CDa
     if (m_TreeImpl->m_RegularizationOverride.alpha() == boost::none) {
         m_LogAlphaSearchInterval += TVector{std::log(scale)};
         m_TreeImpl->m_Regularization.alpha(
-            std::exp(m_AlphaSearchInterval(BEST_REGULARIZER_INDEX)));
+            std::exp(m_LogAlphaSearchInterval(BEST_REGULARIZER_INDEX)));
     }
     if (m_TreeImpl->m_RegularizationOverride.gamma() == boost::none) {
         m_LogGammaSearchInterval += TVector{std::log(scale)};
@@ -600,9 +601,9 @@ CBoostedTreeFactory CBoostedTreeFactory::constructFromString(std::istream& jsonS
     return result;
 }
 
-CBoostedTreeFactory::CBoostedTreeFactory(std::size_t numberThreads, TLossFunctionUPtr loss)
-    : m_NumberThreads{numberThreads}, m_Loss{loss->clone()},
-      m_TreeImpl{std::make_unique<CBoostedTreeImpl>(numberThreads, std::move(loss))},
+CBoostedTreeFactory::CBoostedTreeFactory(bool restored, std::size_t numberThreads, TLossFunctionUPtr loss)
+    : m_Restored{restored}, m_TreeImpl{std::make_unique<CBoostedTreeImpl>(numberThreads,
+                                                                          std::move(loss))},
       m_LogAlphaSearchInterval{0.0}, m_LogGammaSearchInterval{0.0}, m_LogLambdaSearchInterval{0.0} {
 }
 
@@ -658,20 +659,20 @@ CBoostedTreeFactory& CBoostedTreeFactory::lambda(double lambda) {
 }
 
 CBoostedTreeFactory& CBoostedTreeFactory::maxTreeDepth(double maxTreeDepth) {
-    if (maxTreeDepth < 2.0) {
+    if (maxTreeDepth < MIN_MAX_DEPTH) {
         LOG_WARN(<< "Minimum tree depth must be at least two");
-        maxTreeDepth = 2.0;
+        maxTreeDepth = MIN_MAX_DEPTH;
     }
     m_TreeImpl->m_RegularizationOverride.maxTreeDepth(maxTreeDepth);
     return *this;
 }
 
-CBoostedTreeFactory& CBoostedTreeFactory::maxTreeDepthTolarance(double maxTreeDepthTolarance) {
-    if (maxTreeDepthTolarance < 0.01) {
+CBoostedTreeFactory& CBoostedTreeFactory::maxTreeDepthTolerance(double maxTreeDepthTolerance) {
+    if (maxTreeDepthTolerance < 0.01) {
         LOG_WARN(<< "Minimum tree depth tolerance must be at least 0.01");
-        maxTreeDepthTolarance = 0.01;
+        maxTreeDepthTolerance = 0.01;
     }
-    m_TreeImpl->m_RegularizationOverride.maxTreeDepthTolerance(maxTreeDepthTolarance);
+    m_TreeImpl->m_RegularizationOverride.maxTreeDepthTolerance(maxTreeDepthTolerance);
     return *this;
 }
 
