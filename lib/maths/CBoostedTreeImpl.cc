@@ -307,7 +307,7 @@ void CBoostedTreeImpl::CLeafNodeStatistics::addRowDerivatives(
 
     for (std::size_t i = 0; i < m_CandidateSplits.size(); ++i) {
         double featureValue{row[i]};
-        if (CDataFrameUtils::isMissing(featureValue)) {
+        if (core::CDataFrame::isMissing(featureValue)) {
             splitAggregateDerivatives.s_MissingDerivatives[i].add(1, gradient, curvature);
         } else {
             const auto& featureCandidateSplits = m_CandidateSplits[i];

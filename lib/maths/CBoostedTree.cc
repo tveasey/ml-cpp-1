@@ -322,7 +322,7 @@ CBoostedTreeNode::TNodeIndex CBoostedTreeNode::leafIndex(const CEncodedDataFrame
         return index;
     }
     double value{row[m_SplitFeature]};
-    bool missing{CDataFrameUtils::isMissing(value)};
+    bool missing{core::CDataFrame::isMissing(value)};
     return (missing && m_AssignMissingToLeft) || (missing == false && value < m_SplitValue)
                ? tree[m_LeftChild.get()].leafIndex(row, tree, m_LeftChild.get())
                : tree[m_RightChild.get()].leafIndex(row, tree, m_RightChild.get());

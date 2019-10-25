@@ -263,7 +263,7 @@ public:
     //! Check if we should assign \p row to the left leaf.
     bool assignToLeft(const CEncodedDataFrameRowRef& row) const {
         double value{row[m_SplitFeature]};
-        bool missing{CDataFrameUtils::isMissing(value)};
+        bool missing{core::CDataFrame::isMissing(value)};
         return (missing && m_AssignMissingToLeft) ||
                (missing == false && value < m_SplitValue);
     }

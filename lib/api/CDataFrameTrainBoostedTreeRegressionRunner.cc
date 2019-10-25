@@ -60,7 +60,7 @@ void CDataFrameTrainBoostedTreeRegressionRunner::writeOneRow(
     writer.Key(this->predictionFieldName());
     writer.Double(row[columnHoldingPrediction]);
     writer.Key(IS_TRAINING_FIELD_NAME);
-    writer.Bool(maths::CDataFrameUtils::isMissing(row[columnHoldingDependentVariable]) == false);
+    writer.Bool(core::CDataFrame::isMissing(row[columnHoldingDependentVariable]) == false);
     writer.EndObject();
 }
 

@@ -335,9 +335,6 @@ public:
                                           const core::CPackedBitVector& rowMask,
                                           TSizeVec columnMask);
 
-    //! Check if a data frame value is missing.
-    static bool isMissing(double value);
-
 private:
     static TSizeDoublePrVecVecVec
     categoricalMicWithColumnDataFrameInMemory(const CColumnValue& target,

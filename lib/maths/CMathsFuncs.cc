@@ -7,8 +7,6 @@
 #include <maths/CMathsFuncs.h>
 #include <maths/CMathsFuncsForMatrixAndVectorTypes.h>
 
-#include <maths/CMathsFuncsForMatrixAndVectorTypes.h>
-
 #include <cmath>
 
 namespace ml {

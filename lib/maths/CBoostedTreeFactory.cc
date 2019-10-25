@@ -168,7 +168,7 @@ void CBoostedTreeFactory::initializeMissingFeatureMasks(const core::CDataFrame& 
         for (auto row = beginRows; row != endRows; ++row) {
             for (std::size_t i = 0; i < row->numberColumns(); ++i) {
                 double value{(*row)[i]};
-                if (CDataFrameUtils::isMissing(value)) {
+                if (core::CDataFrame::isMissing(value)) {
                     m_TreeImpl->m_MissingFeatureRowMasks[i].extend(
                         false, row->index() -
                                    m_TreeImpl->m_MissingFeatureRowMasks[i].size());

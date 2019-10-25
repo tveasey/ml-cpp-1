@@ -16,6 +16,7 @@
 #include <boost/unordered_map.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <iterator>
@@ -463,6 +464,9 @@ public:
 
     //! Get the value to use for a missing element in a data frame.
     static double valueOfMissing();
+
+    //! Check if \p value is missing.
+    static bool isMissing(double value) { return std::isfinite(value) == false; }
 
 private:
     using TStrSizeUMap = boost::unordered_map<std::string, std::size_t>;

@@ -679,8 +679,8 @@ void CDataFrameUtilsTest::testMicWithColumn() {
         for (std::size_t j : {0, 1, 2}) {
             maths::CMic mic;
             for (const auto& row : rows) {
-                if (maths::CDataFrameUtils::isMissing(row[j]) == false &&
-                    maths::CDataFrameUtils::isMissing(row[3]) == false) {
+                if (core::CDataFrame::isMissing(row[j]) == false &&
+                    core::CDataFrame::isMissing(row[3]) == false) {
                     mic.add(row[j], row[3]);
                 }
             }

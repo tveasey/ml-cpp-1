@@ -734,17 +734,17 @@ void CDataFrameAnalyzerTrainingTest::testCategoricalFieldsEmptyAsMissing() {
 
     auto missing = []() {
         return [](double actual) {
-            return maths::CDataFrameUtils::isMissing(actual);
+            return core::CDataFrame::isMissing(actual);
         };
     };
 
-    auto assertRow = [&](const std::size_t row_i,
+    auto assertRow = [&](const std::size_t rowi,
                          const std::vector<std::function<bool(double)>>& matchers,
                          const TRowRef& row) {
-        CPPUNIT_ASSERT_EQUAL_MESSAGE("row " + std::to_string(row_i),
+        CPPUNIT_ASSERT_EQUAL_MESSAGE("row " + std::to_string(rowi),
                                      matchers.size(), row.numberColumns());
         for (std::size_t i = 0; i < row.numberColumns(); ++i) {
-            CPPUNIT_ASSERT_MESSAGE("row " + std::to_string(row_i) +
+            CPPUNIT_ASSERT_MESSAGE("row " + std::to_string(rowi) +
                                        ", column " + std::to_string(i),
                                    matchers[i](row[i]));
         }

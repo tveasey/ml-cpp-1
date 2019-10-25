@@ -112,7 +112,7 @@ void CDataFrameTrainBoostedTreeClassifierRunner::writeOneRow(
     writer.Key(this->predictionFieldName());
     writer.String(categoryValues[predictedCategoryId]);
     writer.Key(IS_TRAINING_FIELD_NAME);
-    writer.Bool(maths::CDataFrameUtils::isMissing(actualCategoryId) == false);
+    writer.Bool(core::CDataFrame::isMissing(actualCategoryId) == false);
 
     if (m_NumTopClasses > 0) {
         TSizeVec categoryIds(probabilityOfCategory.size());

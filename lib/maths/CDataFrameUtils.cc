@@ -155,7 +155,7 @@ bool CDataFrameUtils::standardizeColumns(std::size_t numberThreads, core::CDataF
         [](TMeanVarAccumulatorVec& moments_, TRowItr beginRows, TRowItr endRows) {
             for (auto row = beginRows; row != endRows; ++row) {
                 for (std::size_t i = 0; i < row->numberColumns(); ++i) {
-                    if (isMissing((*row)[i]) == false) {
+                    if (core::CDataFrame::isMissing((*row)[i]) == false) {
                         moments_[i].add((*row)[i]);
                     }
                 }
@@ -224,7 +224,7 @@ CDataFrameUtils::columnDataTypes(std::size_t numberThreads,
                     CEncodedDataFrameRowRef encodedRow{encoder->encode(*row)};
                     for (auto i : columnMask) {
                         double value{encodedRow[i]};
-                        if (isMissing(value) == false) {
+                        if (core::CDataFrame::isMissing(value) == false) {
                             types[i].first.add(value);
                             types[i].second = types[i].second &&
                                               (std::modf(value, &integerPart) == 0.0);
@@ -235,7 +235,7 @@ CDataFrameUtils::columnDataTypes(std::size_t numberThreads,
                 for (auto row = beginRows; row != endRows; ++row) {
                     for (auto i : columnMask) {
                         double value{(*row)[i]};
-                        if (isMissing(value) == false) {
+                        if (core::CDataFrame::isMissing(value) == false) {
                             types[i].first.add(value);
                             types[i].second = types[i].second &&
                                               (std::modf(value, &integerPart) == 0.0);
@@ -286,7 +286,7 @@ bool CDataFrameUtils::columnQuantiles(std::size_t numberThreads,
                 for (auto row = beginRows; row != endRows; ++row) {
                     CEncodedDataFrameRowRef encodedRow{encoder->encode(*row)};
                     for (std::size_t i = 0; i < columnMask.size(); ++i) {
-                        if (isMissing(encodedRow[columnMask[i]]) == false) {
+                        if (core::CDataFrame::isMissing(encodedRow[columnMask[i]]) == false) {
                             quantiles[i].add(encodedRow[columnMask[i]], weight(*row));
                         }
                     }
@@ -294,7 +294,7 @@ bool CDataFrameUtils::columnQuantiles(std::size_t numberThreads,
             } else {
                 for (auto row = beginRows; row != endRows; ++row) {
                     for (std::size_t i = 0; i < columnMask.size(); ++i) {
-                        if (isMissing((*row)[columnMask[i]]) == false) {
+                        if (core::CDataFrame::isMissing((*row)[columnMask[i]]) == false) {
                             quantiles[i].add((*row)[columnMask[i]], weight(*row));
                         }
                     }
@@ -517,7 +517,7 @@ CDataFrameUtils::meanValueOfTargetForCategories(const CColumnValue& target,
         [&](TMeanAccumulatorVecVec& means_, TRowItr beginRows, TRowItr endRows) {
             for (auto row = beginRows; row != endRows; ++row) {
                 for (std::size_t i : columnMask) {
-                    if (isMissing(target(*row)) == false) {
+                    if (core::CDataFrame::isMissing(target(*row)) == false) {
                         std::size_t category{static_cast<std::size_t>((*row)[i])};
                         means_[i].resize(std::max(means_[i].size(), category + 1));
                         means_[i][category].add(target(*row));
@@ -620,10 +620,6 @@ CDataFrameUtils::metricMicWithColumn(const CColumnValue& target,
                   std::min(NUMBER_SAMPLES_TO_COMPUTE_MIC, frame.numberRows()));
 }
 
-bool CDataFrameUtils::isMissing(double x) {
-    return CMathsFuncs::isFinite(x) == false;
-}
-
 CDataFrameUtils::TSizeDoublePrVecVecVec CDataFrameUtils::categoricalMicWithColumnDataFrameInMemory(
     const CColumnValue& target,
     const core::CDataFrame& frame,
@@ -662,7 +658,7 @@ CDataFrameUtils::TSizeDoublePrVecVecVec CDataFrameUtils::categoricalMicWithColum
                     for (auto row = beginRows; row != endRows; ++row) {
                         std::size_t category{static_cast<std::size_t>((*row)[i])};
                         if (frequencies[i][category] >= minimumFrequency &&
-                            isMissing(target(*row)) == false) {
+                            core::CDataFrame::isMissing(target(*row)) == false) {
                             sampler.sample(*row);
                         }
                     }
@@ -727,7 +723,7 @@ CDataFrameUtils::TSizeDoublePrVecVecVec CDataFrameUtils::categoricalMicWithColum
         frame.readRows(1, 0, frame.numberRows(),
                        [&](TRowItr beginRows, TRowItr endRows) {
                            for (auto row = beginRows; row != endRows; ++row) {
-                               if (isMissing(target(*row)) == false) {
+                               if (core::CDataFrame::isMissing(target(*row)) == false) {
                                    sampler.sample(*row);
                                }
                            }
@@ -781,9 +777,9 @@ CDataFrameUtils::metricMicWithColumnDataFrameInMemory(const CColumnValue& target
             core::bindRetrievableState(
                 [&](std::size_t& missing, TRowItr beginRows, TRowItr endRows) {
                     for (auto row = beginRows; row != endRows; ++row) {
-                        if (isMissing((*row)[i])) {
+                        if (core::CDataFrame::isMissing((*row)[i])) {
                             ++missing;
-                        } else if (isMissing(target(*row)) == false) {
+                        } else if (core::CDataFrame::isMissing(target(*row)) == false) {
                             sampler.sample(*row);
                         }
                     }
@@ -833,9 +829,9 @@ CDataFrameUtils::metricMicWithColumnDataFrameOnDisk(const CColumnValue& target,
             [&](TSizeVec& missing, TRowItr beginRows, TRowItr endRows) {
                 for (auto row = beginRows; row != endRows; ++row) {
                     for (std::size_t i = 0; i < row->numberColumns(); ++i) {
-                        missing[i] += isMissing((*row)[i]) ? 1 : 0;
+                        missing[i] += core::CDataFrame::isMissing((*row)[i]) ? 1 : 0;
                     }
-                    if (isMissing(target(*row)) == false) {
+                    if (core::CDataFrame::isMissing(target(*row)) == false) {
                         sampler.sample(*row);
                     }
                 }
@@ -859,7 +855,7 @@ CDataFrameUtils::metricMicWithColumnDataFrameOnDisk(const CColumnValue& target,
         CMic mic;
         mic.reserve(samples.size());
         for (const auto& sample : samples) {
-            if (isMissing(sample[i]) == false) {
+            if (core::CDataFrame::isMissing(sample[i]) == false) {
                 mic.add(sample[i], target(sample));
             }
         }
