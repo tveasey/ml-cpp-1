@@ -237,7 +237,7 @@ in the file:
 ```
 
 Still pretty complicated I agree, and the observant amongst you will
-have noticed it's not actually compliant `XML` (lokk at those numeric
+have noticed it's not actually compliant `XML` (look at those numeric
 values used as tags, tsk!) let's fix those, fix the formatting and hone
 in on something interesting.
 
