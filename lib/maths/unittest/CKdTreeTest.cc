@@ -4,8 +4,6 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 
-#include "CKdTreeTest.h"
-
 #include <core/CLogger.h>
 
 #include <maths/CBasicStatistics.h>
@@ -16,7 +14,11 @@
 
 #include <test/CRandomNumbers.h>
 
+#include <boost/test/unit_test.hpp>
+
 #include <vector>
+
+BOOST_AUTO_TEST_SUITE(CKdTreeTest)
 
 using namespace ml;
 
@@ -88,7 +90,7 @@ std::string print(const POINT& t) {
 }
 }
 
-void CKdTreeTest::testBuild() {
+BOOST_AUTO_TEST_CASE(testBuild) {
 
     const std::size_t numberTests{200};
 
@@ -105,7 +107,7 @@ void CKdTreeTest::testBuild() {
 
         maths::CKdTree<TVector2> kdTree;
         kdTree.build(points);
-        CPPUNIT_ASSERT(kdTree.checkInvariants());
+        BOOST_TEST_REQUIRE(kdTree.checkInvariants());
     }
 
     for (std::size_t i = 0u; i < numberTests; ++i) {
@@ -119,11 +121,11 @@ void CKdTreeTest::testBuild() {
 
         maths::CKdTree<TVector5> kdTree;
         kdTree.build(points);
-        CPPUNIT_ASSERT(kdTree.checkInvariants());
+        BOOST_TEST_REQUIRE(kdTree.checkInvariants());
     }
 }
 
-void CKdTreeTest::testBuildWithMove() {
+BOOST_AUTO_TEST_CASE(testBuildWithMove) {
 
     test::CRandomNumbers rng;
 
@@ -155,10 +157,10 @@ void CKdTreeTest::testBuildWithMove() {
         }
     }
     LOG_DEBUG(<< "move count = " << moveCounts[1] - moveCounts[0]);
-    CPPUNIT_ASSERT(moveCounts[1] > moveCounts[0] + points.size());
+    BOOST_TEST_REQUIRE(moveCounts[1] > moveCounts[0] + points.size());
 }
 
-void CKdTreeTest::testNearestNeighbour() {
+BOOST_AUTO_TEST_CASE(testNearestNeighbour) {
 
     const std::size_t numberTests{200};
 
@@ -175,7 +177,7 @@ void CKdTreeTest::testNearestNeighbour() {
 
         maths::CKdTree<TVector2> kdTree;
         kdTree.build(points);
-        CPPUNIT_ASSERT(kdTree.checkInvariants());
+        BOOST_TEST_REQUIRE(kdTree.checkInvariants());
 
         rng.generateUniformSamples(-150.0, 150.0, 2 * 10, samples);
 
@@ -184,27 +186,23 @@ void CKdTreeTest::testNearestNeighbour() {
             tests.emplace_back(&samples[j], &samples[j + 2]);
         }
 
-        if (i % 10 == 0) {
-            LOG_DEBUG(<< "*** Test " << i << " ***");
-        }
+        LOG_TRACE(<< "*** Test " << i << " ***");
         for (std::size_t j = 0u; j < tests.size(); ++j) {
             TDoubleVector2PrVec expectedNearest;
             nearestNeightbours(1, points, tests[j], expectedNearest);
 
             const TVector2* nearest = kdTree.nearestNeighbour(tests[j]);
-            CPPUNIT_ASSERT(nearest);
-            if (i % 10 == 0) {
-                LOG_DEBUG(<< "Expected nearest = " << expectedNearest[0].second
-                          << ", expected distance = " << expectedNearest[0].first);
-                LOG_DEBUG(<< "Nearest          = " << *nearest << ", actual distance   = "
-                          << (tests[j] - *nearest).euclidean());
-            }
-            CPPUNIT_ASSERT_EQUAL(print(expectedNearest[0].second), print(*nearest));
+            BOOST_TEST_REQUIRE(nearest);
+            LOG_TRACE(<< "Expected nearest = " << expectedNearest[0].second
+                      << ", expected distance = " << expectedNearest[0].first);
+            LOG_TRACE(<< "Nearest          = " << *nearest << ", actual distance   = "
+                      << (tests[j] - *nearest).euclidean());
+            BOOST_REQUIRE_EQUAL(print(expectedNearest[0].second), print(*nearest));
         }
     }
 }
 
-void CKdTreeTest::testNearestNeighbours() {
+BOOST_AUTO_TEST_CASE(testNearestNeighbours) {
 
     const std::size_t numberTests{200};
 
@@ -221,7 +219,7 @@ void CKdTreeTest::testNearestNeighbours() {
 
         maths::CKdTree<TVector5> kdTree;
         kdTree.build(points);
-        CPPUNIT_ASSERT(kdTree.checkInvariants());
+        BOOST_TEST_REQUIRE(kdTree.checkInvariants());
 
         rng.generateUniformSamples(-100.0, 100.0, 5 * 10, samples);
 
@@ -230,32 +228,27 @@ void CKdTreeTest::testNearestNeighbours() {
             tests.emplace_back(&samples[j], &samples[j + 5]);
         }
 
-        if (i % 10 == 0) {
-            LOG_DEBUG(<< "*** Test " << i << " ***");
-        }
+        LOG_TRACE(<< "*** Test " << i << " ***");
         for (std::size_t j = 0u; j < tests.size(); ++j) {
             TDoubleVector5PrVec expectedNeighbours;
             nearestNeightbours(2 * j, points, tests[j], expectedNeighbours);
 
             TVector5Vec neighbours;
             kdTree.nearestNeighbours(2 * j, tests[j], neighbours);
-            CPPUNIT_ASSERT_EQUAL(expectedNeighbours.size(), neighbours.size());
+            BOOST_REQUIRE_EQUAL(expectedNeighbours.size(), neighbours.size());
             for (std::size_t k = 0u; k < expectedNeighbours.size(); ++k) {
-                if (i % 10 == 0) {
-                    LOG_DEBUG(<< "Expected nearest = " << expectedNeighbours[k].second
-                              << ", expected distance = "
-                              << expectedNeighbours[k].first);
-                    LOG_DEBUG(<< "Nearest          = " << neighbours[k] << ", actual distance   = "
-                              << (tests[j] - neighbours[k]).euclidean());
-                }
-                CPPUNIT_ASSERT_EQUAL(print(expectedNeighbours[k].second),
-                                     print(neighbours[k]));
+                LOG_TRACE(<< "Expected nearest = " << expectedNeighbours[k].second
+                          << ", expected distance = " << expectedNeighbours[k].first);
+                LOG_TRACE(<< "Nearest          = " << neighbours[k] << ", actual distance   = "
+                          << (tests[j] - neighbours[k]).euclidean());
+                BOOST_REQUIRE_EQUAL(print(expectedNeighbours[k].second),
+                                    print(neighbours[k]));
             }
         }
     }
 }
 
-void CKdTreeTest::testRequestingEveryPoint() {
+BOOST_AUTO_TEST_CASE(testRequestingEveryPoint) {
 
     test::CRandomNumbers rng;
 
@@ -271,29 +264,14 @@ void CKdTreeTest::testRequestingEveryPoint() {
 
     maths::CKdTree<TVector5> kdTree;
     kdTree.build(points);
-    CPPUNIT_ASSERT(kdTree.checkInvariants());
+    BOOST_TEST_REQUIRE(kdTree.checkInvariants());
 
     TVector5Vec neighbours;
     kdTree.nearestNeighbours(5, TVector5{0.0}, neighbours);
     std::stable_sort(neighbours.begin(), neighbours.end());
 
-    CPPUNIT_ASSERT_EQUAL(kdTree.size(), neighbours.size());
-    CPPUNIT_ASSERT_EQUAL(expected, core::CContainerPrinter::print(neighbours));
+    BOOST_REQUIRE_EQUAL(kdTree.size(), neighbours.size());
+    BOOST_REQUIRE_EQUAL(expected, core::CContainerPrinter::print(neighbours));
 }
 
-CppUnit::Test* CKdTreeTest::suite() {
-    CppUnit::TestSuite* suiteOfTests = new CppUnit::TestSuite("CKdTreeTest");
-
-    suiteOfTests->addTest(new CppUnit::TestCaller<CKdTreeTest>(
-        "CKdTreeTest::testBuild", &CKdTreeTest::testBuild));
-    suiteOfTests->addTest(new CppUnit::TestCaller<CKdTreeTest>(
-        "CKdTreeTest::testBuildWithMove", &CKdTreeTest::testBuildWithMove));
-    suiteOfTests->addTest(new CppUnit::TestCaller<CKdTreeTest>(
-        "CKdTreeTest::testNearestNeighbour", &CKdTreeTest::testNearestNeighbour));
-    suiteOfTests->addTest(new CppUnit::TestCaller<CKdTreeTest>(
-        "CKdTreeTest::testNearestNeighbours", &CKdTreeTest::testNearestNeighbours));
-    suiteOfTests->addTest(new CppUnit::TestCaller<CKdTreeTest>(
-        "CKdTreeTest::testRequestingEveryPoint", &CKdTreeTest::testRequestingEveryPoint));
-
-    return suiteOfTests;
-}
+BOOST_AUTO_TEST_SUITE_END()

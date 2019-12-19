@@ -17,7 +17,15 @@
 #include <string>
 #include <vector>
 
-class CProgramCountersTest;
+namespace CProgramCountersTest {
+class CTestFixture;
+class CProgramCountersTestRunner;
+struct testCounters;
+struct testUnknownCounter;
+struct testMissingCounter;
+struct testCacheCounters;
+struct testPersist;
+}
 
 namespace ml {
 namespace counter_t {
@@ -116,10 +124,13 @@ enum ECounterTypes {
     //! The time in ms to train the model
     E_DFTPMTimeToTrain = 26,
 
+    //! The trained forest total number of trees
+    E_DFTPMTrainedForestNumberTrees = 27,
+
     // Add any new values here
 
     //! This MUST be last, increment the value for every new enum added
-    E_LastEnumCounter = 27
+    E_LastEnumCounter = 28
 };
 
 static constexpr size_t NUM_COUNTERS = static_cast<size_t>(E_LastEnumCounter);
@@ -217,7 +228,8 @@ private:
         std::atomic_uint_fast64_t m_Counter;
 
         //! Befriend the test suite
-        friend class ::CProgramCountersTest;
+        friend class CProgramCountersTest::CProgramCountersTestRunner;
+        friend struct CProgramCountersTest::testCounters;
     };
 
 private:
@@ -323,15 +335,22 @@ private:
           "The upfront estimate of the peak memory training the predictive model would use"},
          {counter_t::E_DFTPMPeakMemoryUsage, "E_DFTPMPeakMemoryUsage",
           "The peak memory training the predictive model used"},
-         {counter_t::E_DFTPMTimeToTrain, "E_DFTPMTimeToTrain",
-          "The time it took to train the predictive model"}}};
+         {counter_t::E_DFTPMTimeToTrain, "E_DFTPMTimeToTrain", "The time it took to train the predictive model"},
+         {counter_t::E_DFTPMTrainedForestNumberTrees, "E_DFTPMTrainedForestNumberTrees",
+          "The total number of trees in the trained forest"}}};
 
     //! Enabling printing out the current counters.
     friend CORE_EXPORT std::ostream& operator<<(std::ostream& o,
                                                 const CProgramCounters& counters);
 
     //! Befriend the test suite
-    friend class ::CProgramCountersTest;
+    friend class CProgramCountersTest::CTestFixture;
+    friend class CProgramCountersTest::CProgramCountersTestRunner;
+    friend struct CProgramCountersTest::testCounters;
+    friend struct CProgramCountersTest::testUnknownCounter;
+    friend struct CProgramCountersTest::testMissingCounter;
+    friend struct CProgramCountersTest::testCacheCounters;
+    friend struct CProgramCountersTest::testPersist;
 };
 
 } // core

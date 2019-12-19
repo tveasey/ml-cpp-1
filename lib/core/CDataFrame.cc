@@ -12,6 +12,7 @@
 #include <core/CLogger.h>
 #include <core/CMemory.h>
 #include <core/CPackedBitVector.h>
+#include <core/CStringUtils.h>
 #include <core/Concurrency.h>
 
 #include <algorithm>
@@ -21,6 +22,13 @@
 
 namespace ml {
 namespace core {
+namespace {
+core::CFloatStorage truncateToFloatRange(double value) {
+    double largest{static_cast<double>(std::numeric_limits<float>::max())};
+    return std::min(std::max(value, -largest), largest);
+}
+}
+
 namespace data_frame_detail {
 
 CRowRef::CRowRef(std::size_t index, TFloatVecItr beginColumns, TFloatVecItr endColumns, std::int32_t docHash)
@@ -56,7 +64,7 @@ CRowIterator::CRowIterator(std::size_t numberColumns,
                            std::size_t index,
                            TFloatVecItr rowItr,
                            TInt32VecCItr docHashItr,
-                           TPopMaskedRowFunc popMaskedRow)
+                           const TOptionalPopMaskedRow& popMaskedRow)
     : m_NumberColumns{numberColumns}, m_RowCapacity{rowCapacity}, m_Index{index},
       m_RowItr{rowItr}, m_DocHashItr{docHashItr}, m_PopMaskedRow{popMaskedRow} {
 }
@@ -78,8 +86,8 @@ CRowPtr CRowIterator::operator->() const {
 }
 
 CRowIterator& CRowIterator::operator++() {
-    if (m_PopMaskedRow != nullptr) {
-        std::size_t nextIndex{m_PopMaskedRow()};
+    if (m_PopMaskedRow != boost::none) {
+        std::size_t nextIndex{(*m_PopMaskedRow)()};
         m_RowItr += m_RowCapacity * (nextIndex - m_Index);
         m_DocHashItr += nextIndex - m_Index;
         m_Index = nextIndex;
@@ -117,6 +125,8 @@ CDataFrame::CDataFrame(bool inMainMemory,
     : m_InMainMemory{inMainMemory}, m_NumberColumns{numberColumns},
       m_RowCapacity{numberColumns}, m_SliceCapacityInRows{sliceCapacityInRows},
       m_ReadAndWriteToStoreSyncStrategy{readAndWriteToStoreSyncStrategy}, m_WriteSliceToStore{writeSliceToStore},
+      m_ColumnNames(numberColumns), m_CategoricalColumnValues(numberColumns),
+      m_EmptyIsMissing(numberColumns, false),
       m_ColumnIsCategorical(numberColumns, false) {
 }
 
@@ -156,6 +166,9 @@ void CDataFrame::reserve(std::size_t numberThreads, std::size_t rowCapacity) {
 
 void CDataFrame::resizeColumns(std::size_t numberThreads, std::size_t numberColumns) {
     this->reserve(numberThreads, numberColumns);
+    m_ColumnNames.resize(numberColumns);
+    m_CategoricalColumnValues.resize(numberColumns);
+    m_EmptyIsMissing.resize(numberColumns, false);
     m_ColumnIsCategorical.resize(numberColumns, false);
     m_NumberColumns = numberColumns;
 }
@@ -176,8 +189,7 @@ CDataFrame::TRowFuncVecBoolPr CDataFrame::readRows(std::size_t numberThreads,
     return numberThreads > 1
                ? this->parallelApplyToAllRows(numberThreads, beginRows, endRows,
                                               std::move(reader), rowMask, false)
-               : this->sequentialApplyToAllRows(beginRows, endRows,
-                                                std::move(reader), rowMask, false);
+               : this->sequentialApplyToAllRows(beginRows, endRows, reader, rowMask, false);
 }
 
 CDataFrame::TRowFuncVecBoolPr CDataFrame::writeColumns(std::size_t numberThreads,
@@ -196,8 +208,78 @@ CDataFrame::TRowFuncVecBoolPr CDataFrame::writeColumns(std::size_t numberThreads
     return numberThreads > 1
                ? this->parallelApplyToAllRows(numberThreads, beginRows, endRows,
                                               std::move(writer), rowMask, true)
-               : this->sequentialApplyToAllRows(beginRows, endRows,
-                                                std::move(writer), rowMask, true);
+               : this->sequentialApplyToAllRows(beginRows, endRows, writer, rowMask, true);
+}
+
+void CDataFrame::parseAndWriteRow(const TStrCRng& columnValues, const std::string* hash) {
+
+    auto stringToValue = [this](bool isCategorical, TStrSizeUMap& categoryLookup,
+                                TStrVec& categories, bool emptyIsMissing,
+                                const std::string& columnValue) {
+        if (isCategorical) {
+            if (columnValue.empty() && emptyIsMissing) {
+                return core::CFloatStorage{valueOfMissing()};
+            }
+
+            // This encodes in a format suitable for efficient storage. The
+            // actual encoding approach is chosen when the analysis runs.
+            std::size_t id;
+            if (categories.size() == MAX_CATEGORICAL_CARDINALITY) {
+                auto itr = categoryLookup.find(columnValue);
+                id = itr != categoryLookup.end()
+                         ? itr->second
+                         : static_cast<std::int64_t>(MAX_CATEGORICAL_CARDINALITY);
+            } else {
+                // We can represent up to float mantissa bits - 1 distinct
+                // categories so can faithfully store categorical fields with
+                // up to around 17M distinct values. For higher cardinalities
+                // one would need to use some form of dimension reduction such
+                // as hashing anyway.
+                std::size_t newId{categories.size()};
+                id = categoryLookup.emplace(columnValue, newId).first->second;
+                if (id == newId) {
+                    categories.push_back(columnValue);
+                }
+            }
+            return core::CFloatStorage{static_cast<double>(id)};
+        }
+
+        // Use NaN to indicate missing or bad values in the data frame. This
+        // needs handling with care from an analysis perspective. If analyses
+        // can deal with missing values they need to treat NaNs as missing
+        // otherwise we must impute or exit with failure.
+
+        double value;
+        if (columnValue.empty()) {
+            ++m_MissingValueCount;
+            return core::CFloatStorage{valueOfMissing()};
+        } else if (core::CStringUtils::stringToTypeSilent(columnValue, value) == false) {
+            ++m_BadValueCount;
+            return core::CFloatStorage{valueOfMissing()};
+        }
+
+        // Tuncation is very unlikely since the values will typically be
+        // standardised.
+        return truncateToFloatRange(value);
+    };
+
+    // This is only used when writing rows so is resized lazily.
+    if (m_CategoricalColumnValueLookup.size() != m_NumberColumns) {
+        m_CategoricalColumnValueLookup.resize(m_NumberColumns);
+    }
+
+    this->writeRow([&](TFloatVecItr columns, std::int32_t& docHash) {
+        for (std::size_t i = 0; i < columnValues.size(); ++i, ++columns) {
+            *columns = stringToValue(
+                m_ColumnIsCategorical[i], m_CategoricalColumnValueLookup[i],
+                m_CategoricalColumnValues[i], m_EmptyIsMissing[i], columnValues[i]);
+        }
+        docHash = 0;
+        if (hash != nullptr &&
+            core::CStringUtils::stringToTypeSilent(*hash, docHash) == false) {
+            ++m_BadDocHashCount;
+        }
+    });
 }
 
 void CDataFrame::writeRow(const TWriteFunc& writeRow) {
@@ -207,6 +289,36 @@ void CDataFrame::writeRow(const TWriteFunc& writeRow) {
             m_ReadAndWriteToStoreSyncStrategy, m_WriteSliceToStore);
     }
     (*m_Writer)(writeRow);
+}
+
+void CDataFrame::columnNames(TStrVec columnNames) {
+    if (columnNames.size() != m_NumberColumns) {
+        HANDLE_FATAL(<< "Internal error: expected '" << m_NumberColumns << "' column names values but got "
+                     << CContainerPrinter::print(columnNames));
+    } else {
+        m_ColumnNames = std::move(columnNames);
+    }
+}
+
+void CDataFrame::emptyIsMissing(TBoolVec emptyIsMissing) {
+    if (emptyIsMissing.size() != m_NumberColumns) {
+        HANDLE_FATAL(<< "Internal error: expected '" << m_NumberColumns
+                     << "' 'empty is missing' column indicator values but got "
+                     << CContainerPrinter::print(emptyIsMissing));
+    } else {
+        m_EmptyIsMissing = std::move(emptyIsMissing);
+    }
+}
+
+void CDataFrame::categoricalColumns(TStrVec categoricalColumnNames) {
+    std::sort(categoricalColumnNames.begin(), categoricalColumnNames.end());
+    for (std::size_t i = 0; i < m_ColumnNames.size(); ++i) {
+        auto categorical = std::lower_bound(categoricalColumnNames.begin(),
+                                            categoricalColumnNames.end(),
+                                            m_ColumnNames[i]);
+        m_ColumnIsCategorical[i] = categorical != categoricalColumnNames.end() &&
+                                   *categorical == m_ColumnNames[i];
+    }
 }
 
 void CDataFrame::categoricalColumns(TBoolVec columnIsCategorical) {
@@ -233,6 +345,25 @@ void CDataFrame::finishWritingRows() {
         }
         LOG_TRACE(<< "# slices = " << m_Slices.size());
     }
+
+    // Recover memory from categorical field parsing.
+
+    for (std::size_t i = 0; i < m_CategoricalColumnValues.size(); ++i) {
+        if (m_CategoricalColumnValues[i].size() >= MAX_CATEGORICAL_CARDINALITY) {
+            LOG_WARN(<< "Failed to represent all distinct values of " << m_ColumnNames[i]);
+        }
+        m_CategoricalColumnValues.shrink_to_fit();
+    }
+    m_CategoricalColumnValueLookup.clear();
+    m_CategoricalColumnValueLookup.shrink_to_fit();
+}
+
+const CDataFrame::TStrVec& CDataFrame::columnNames() const {
+    return m_ColumnNames;
+}
+
+const CDataFrame::TStrVecVec& CDataFrame::categoricalColumnValues() const {
+    return m_CategoricalColumnValues;
 }
 
 const CDataFrame::TBoolVec& CDataFrame::columnIsCategorical() const {
@@ -240,7 +371,14 @@ const CDataFrame::TBoolVec& CDataFrame::columnIsCategorical() const {
 }
 
 std::size_t CDataFrame::memoryUsage() const {
-    return CMemory::dynamicSize(m_Slices) + CMemory::dynamicSize(m_Writer);
+    std::size_t memory{CMemory::dynamicSize(m_ColumnNames)};
+    memory += CMemory::dynamicSize(m_CategoricalColumnValues);
+    memory += CMemory::dynamicSize(m_CategoricalColumnValueLookup);
+    memory += CMemory::dynamicSize(m_EmptyIsMissing);
+    memory += CMemory::dynamicSize(m_ColumnIsCategorical);
+    memory += CMemory::dynamicSize(m_Slices);
+    memory += CMemory::dynamicSize(m_Writer);
+    return memory;
 }
 
 std::uint64_t CDataFrame::checksum() const {
@@ -270,7 +408,7 @@ CDataFrame::TRowFuncVecBoolPr
 CDataFrame::parallelApplyToAllRows(std::size_t numberThreads,
                                    std::size_t beginRows,
                                    std::size_t endRows,
-                                   TRowFunc func,
+                                   TRowFunc&& func,
                                    const CPackedBitVector* rowMask,
                                    bool commitResult) const {
 
@@ -312,14 +450,10 @@ CDataFrame::parallelApplyToAllRows(std::size_t numberThreads,
                     return;
                 }
 
-                TPopMaskedRowFunc popMaskedRow;
+                TOptionalPopMaskedRow popMaskedRow;
                 if (rowMask != nullptr) {
                     beginSliceRows = *maskedRow;
-                    popMaskedRow = [endSliceRows, &maskedRow, endMaskedRows]() mutable {
-                        return ++maskedRow == endMaskedRows
-                                   ? endSliceRows
-                                   : std::min(*maskedRow, endSliceRows);
-                    };
+                    popMaskedRow = CPopMaskedRow{endSliceRows, maskedRow, endMaskedRows};
                 }
 
                 this->applyToRowsOfOneSlice(func_, beginSliceRows, endSliceRows,
@@ -342,7 +476,7 @@ CDataFrame::parallelApplyToAllRows(std::size_t numberThreads,
 CDataFrame::TRowFuncVecBoolPr
 CDataFrame::sequentialApplyToAllRows(std::size_t beginRows,
                                      std::size_t endRows,
-                                     TRowFunc func,
+                                     TRowFunc& func,
                                      const CPackedBitVector* rowMask,
                                      bool commitResult) const {
 
@@ -391,14 +525,10 @@ CDataFrame::sequentialApplyToAllRows(std::size_t beginRows,
                 defaultAsyncExecutor(),
                 [ =, &func, readSlice_ = std::move(readSlice) ]() mutable {
 
-                    TPopMaskedRowFunc popMaskedRow;
+                    TOptionalPopMaskedRow popMaskedRow;
                     if (rowMask != nullptr) {
                         beginSliceRows = *maskedRow;
-                        popMaskedRow = [endSliceRows, maskedRow, endMaskedRows]() mutable {
-                            return ++maskedRow == endMaskedRows
-                                       ? endSliceRows
-                                       : std::min(*maskedRow, endSliceRows);
-                        };
+                        popMaskedRow = CPopMaskedRow{endSliceRows, maskedRow, endMaskedRows};
                     }
 
                     this->applyToRowsOfOneSlice(func, beginSliceRows, endSliceRows,
@@ -430,14 +560,10 @@ CDataFrame::sequentialApplyToAllRows(std::size_t beginRows,
                 return {{std::move(func)}, false};
             }
 
-            TPopMaskedRowFunc popMaskedRow;
+            TOptionalPopMaskedRow popMaskedRow;
             if (rowMask != nullptr) {
                 beginSliceRows = *maskedRow;
-                popMaskedRow = [endSliceRows, &maskedRow, endMaskedRows]() mutable {
-                    return ++maskedRow == endMaskedRows
-                               ? endSliceRows
-                               : std::min(*maskedRow, endSliceRows);
-                };
+                popMaskedRow = CPopMaskedRow{endSliceRows, maskedRow, endMaskedRows};
             }
 
             this->applyToRowsOfOneSlice(func, beginSliceRows, endSliceRows,
@@ -456,7 +582,7 @@ CDataFrame::sequentialApplyToAllRows(std::size_t beginRows,
 void CDataFrame::applyToRowsOfOneSlice(TRowFunc& func,
                                        std::size_t firstRowToRead,
                                        std::size_t endRowsToRead,
-                                       TPopMaskedRowFunc popMaskedRow,
+                                       const TOptionalPopMaskedRow& popMaskedRow,
                                        const CDataFrameRowSliceHandle& slice) const {
 
     LOG_TRACE(<< "Applying function to rows [" << firstRowToRead << ","
@@ -501,6 +627,9 @@ bool CDataFrame::maskedRowsInSlice(ITR& maskedRow,
     }
     return maskedRow != endMaskedRows && *maskedRow < endSliceRows;
 }
+
+const std::size_t CDataFrame::MAX_CATEGORICAL_CARDINALITY{
+    1 << (std::numeric_limits<float>::digits)};
 
 CDataFrame::CDataFrameRowSliceWriter::CDataFrameRowSliceWriter(
     std::size_t numberRows,

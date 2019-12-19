@@ -24,6 +24,8 @@
 namespace ml {
 namespace api {
 namespace {
+using TBoolVec = std::vector<bool>;
+
 std::size_t maximumNumberPartitions(const CDataFrameAnalysisSpecification& spec) {
     // We limit the maximum number of partitions to rows^(1/2) because very
     // large numbers of partitions are going to be slow and it is better to tell
@@ -36,11 +38,15 @@ const std::size_t MAXIMUM_FRACTIONAL_PROGRESS{std::size_t{1}
 }
 
 CDataFrameAnalysisRunner::CDataFrameAnalysisRunner(const CDataFrameAnalysisSpecification& spec)
-    : m_Spec{spec}, m_Finished{false}, m_FractionalProgress{0} {
+    : m_Spec{spec}, m_Finished{false}, m_FractionalProgress{0}, m_Memory{0} {
 }
 
 CDataFrameAnalysisRunner::~CDataFrameAnalysisRunner() {
     this->waitToFinish();
+}
+
+TBoolVec CDataFrameAnalysisRunner::columnsForWhichEmptyIsMissing(const TStrVec& fieldNames) const {
+    return TBoolVec(fieldNames.size(), false);
 }
 
 void CDataFrameAnalysisRunner::estimateMemoryUsage(CMemoryUsageEstimationResultJsonWriter& writer) const {
@@ -84,7 +90,8 @@ void CDataFrameAnalysisRunner::computeAndSaveExecutionStrategy() {
         if (memoryUsage <= memoryLimit) {
             break;
         }
-        // if we are not allowed to spill over to disk then only one partition is possible
+        // If we are not allowed to spill over to disk then only one partition
+        // is possible.
         if (m_Spec.diskUsageAllowed() == false) {
             LOG_TRACE(<< "stop partition number computation since disk usage is turned off");
             break;
@@ -134,14 +141,14 @@ std::size_t CDataFrameAnalysisRunner::maximumNumberRowsPerPartition() const {
     return m_MaximumNumberRowsPerPartition;
 }
 
-void CDataFrameAnalysisRunner::run(const TStrVec& featureNames, core::CDataFrame& frame) {
+void CDataFrameAnalysisRunner::run(core::CDataFrame& frame) {
     if (m_Runner.joinable()) {
         LOG_INFO(<< "Already running analysis");
     } else {
         m_FractionalProgress.store(0.0);
         m_Finished.store(false);
-        m_Runner = std::thread([&featureNames, &frame, this]() {
-            this->runImpl(featureNames, frame);
+        m_Runner = std::thread([&frame, this]() {
+            this->runImpl(frame);
             this->setToFinished();
         });
     }
@@ -175,6 +182,20 @@ CDataFrameAnalysisRunner::TProgressRecorder CDataFrameAnalysisRunner::progressRe
     };
 }
 
+CDataFrameAnalysisRunner::TMemoryMonitor
+CDataFrameAnalysisRunner::memoryMonitor(counter_t::ECounterTypes counter) {
+    return [counter, this](std::int64_t delta) {
+        std::int64_t memory{m_Memory.fetch_add(delta)};
+        if (memory >= 0) {
+            core::CProgramCounters::counter(counter).max(memory);
+        } else {
+            // Something has gone wrong with memory estimation. Trap this case
+            // to avoid underflowing the peak memory usage statistic.
+            LOG_WARN(<< "Memory estimate " << memory << " is negative!");
+        }
+    };
+}
+
 std::size_t CDataFrameAnalysisRunner::estimateMemoryUsage(std::size_t totalNumberRows,
                                                           std::size_t partitionNumberRows,
                                                           std::size_t numberColumns) const {
@@ -200,7 +221,7 @@ CDataFrameAnalysisRunner::TStatePersister CDataFrameAnalysisRunner::statePersist
         if (persister != nullptr) {
             core::CStateCompressor compressor(*persister);
             auto persistStream = compressor.addStreamed(
-                ML_STATE_INDEX, getRegressionStateId(m_Spec.jobId()));
+                ML_STATE_INDEX, getStateId(m_Spec.jobId(), m_Spec.analysisName()));
             {
                 core::CJsonStatePersistInserter inserter{*persistStream};
                 persistFunction(inserter);
@@ -213,6 +234,12 @@ CDataFrameAnalysisRunner::TStatePersister CDataFrameAnalysisRunner::statePersist
     };
 }
 
+CDataFrameAnalysisRunner::TInferenceModelDefinitionUPtr
+CDataFrameAnalysisRunner::inferenceModelDefinition(const TStrVec& /*fieldNames*/,
+                                                   const TStrVecVec& /*categoryNames*/) const {
+    return TInferenceModelDefinitionUPtr();
+}
+
 CDataFrameAnalysisRunnerFactory::TRunnerUPtr
 CDataFrameAnalysisRunnerFactory::make(const CDataFrameAnalysisSpecification& spec) const {
     auto result = this->makeImpl(spec);
@@ -222,8 +249,8 @@ CDataFrameAnalysisRunnerFactory::make(const CDataFrameAnalysisSpecification& spe
 
 CDataFrameAnalysisRunnerFactory::TRunnerUPtr
 CDataFrameAnalysisRunnerFactory::make(const CDataFrameAnalysisSpecification& spec,
-                                      const rapidjson::Value& params) const {
-    auto result = this->makeImpl(spec, params);
+                                      const rapidjson::Value& jsonParameters) const {
+    auto result = this->makeImpl(spec, jsonParameters);
     result->computeAndSaveExecutionStrategy();
     return result;
 }

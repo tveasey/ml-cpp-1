@@ -18,8 +18,6 @@
 
 #include <stdio.h> // fileno() is not C++ so need the C header
 
-class CLoggerTest;
-
 namespace ml {
 namespace core {
 
@@ -91,6 +89,9 @@ public:
     //! Reconfigure to either a named pipe or a properties file.
     //! If both are supplied the named pipe takes precedence.
     bool reconfigure(const std::string& pipeName, const std::string& propertiesFile);
+
+    //! Reconfigure to use provided stream.
+    bool reconfigure(boost::shared_ptr<std::ostream> streamPtr);
 
     //! Tell the logger to log to a named pipe rather than a file.
     bool reconfigureLogToNamedPipe(const std::string& pipeName);
@@ -183,9 +184,6 @@ private:
 
     //! The default handler for fatal errors.
     TFatalErrorHandler m_FatalErrorHandler;
-
-    //! friend class for testing
-    friend class ::CLoggerTest;
 };
 
 CORE_EXPORT std::ostream& operator<<(std::ostream& strm, CLogger::ELevel level);

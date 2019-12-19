@@ -10,8 +10,9 @@
 #include <core/CLogger.h>
 
 #include <api/CDataFrameAnalysisConfigReader.h>
-#include <api/CDataFrameBoostedTreeRunner.h>
 #include <api/CDataFrameOutliersRunner.h>
+#include <api/CDataFrameTrainBoostedTreeClassifierRunner.h>
+#include <api/CDataFrameTrainBoostedTreeRegressionRunner.h>
 #include <api/CMemoryUsageEstimationResultJsonWriter.h>
 
 #include <rapidjson/document.h>
@@ -41,12 +42,16 @@ const std::string CDataFrameAnalysisSpecification::NAME("name");
 const std::string CDataFrameAnalysisSpecification::PARAMETERS("parameters");
 
 namespace {
-using TRunnerFactoryUPtrVec = ml::api::CDataFrameAnalysisSpecification::TRunnerFactoryUPtrVec;
+using TBoolVec = std::vector<bool>;
+using TRunnerFactoryUPtrVec = CDataFrameAnalysisSpecification::TRunnerFactoryUPtrVec;
 
 TRunnerFactoryUPtrVec analysisFactories() {
     TRunnerFactoryUPtrVec factories;
-    factories.push_back(std::make_unique<ml::api::CDataFrameBoostedTreeRunnerFactory>());
-    factories.push_back(std::make_unique<ml::api::CDataFrameOutliersRunnerFactory>());
+    factories.push_back(std::make_unique<CDataFrameOutliersRunnerFactory>());
+    factories.push_back(
+        std::make_unique<CDataFrameTrainBoostedTreeRegressionRunnerFactory>());
+    factories.push_back(
+        std::make_unique<CDataFrameTrainBoostedTreeClassifierRunnerFactory>());
     // Add new analysis types here.
     return factories;
 }
@@ -189,10 +194,9 @@ CDataFrameAnalysisSpecification::makeDataFrame() {
     return result;
 }
 
-CDataFrameAnalysisRunner* CDataFrameAnalysisSpecification::run(const TStrVec& featureNames,
-                                                               core::CDataFrame& frame) const {
+CDataFrameAnalysisRunner* CDataFrameAnalysisSpecification::run(core::CDataFrame& frame) const {
     if (m_Runner != nullptr) {
-        m_Runner->run(featureNames, frame);
+        m_Runner->run(frame);
         return m_Runner.get();
     }
     return nullptr;
@@ -200,10 +204,19 @@ CDataFrameAnalysisRunner* CDataFrameAnalysisSpecification::run(const TStrVec& fe
 
 void CDataFrameAnalysisSpecification::estimateMemoryUsage(CMemoryUsageEstimationResultJsonWriter& writer) const {
     if (m_Runner == nullptr) {
-        HANDLE_FATAL(<< "Internal error: no runner available so can't estimate memory. Please report this problem.");
+        HANDLE_FATAL(<< "Internal error: no runner available so can't estimate memory."
+                     << " Please report this problem.");
         return;
     }
     m_Runner->estimateMemoryUsage(writer);
+}
+
+TBoolVec CDataFrameAnalysisSpecification::columnsForWhichEmptyIsMissing(const TStrVec& fieldNames) const {
+    if (m_Runner == nullptr) {
+        HANDLE_FATAL(<< "Internal error: no runner available. Please report this problem.");
+        return TBoolVec(fieldNames.size(), false);
+    }
+    return m_Runner->columnsForWhichEmptyIsMissing(fieldNames);
 }
 
 void CDataFrameAnalysisSpecification::initializeRunner(const rapidjson::Value& jsonAnalysis) {
@@ -212,10 +225,11 @@ void CDataFrameAnalysisSpecification::initializeRunner(const rapidjson::Value& j
 
     auto analysis = ANALYSIS_READER.read(jsonAnalysis);
 
-    std::string name{analysis[NAME].as<std::string>()};
+    m_AnalysisName = analysis[NAME].as<std::string>();
+    LOG_INFO(<< "Parsed analysis with name '" << m_AnalysisName << "'");
 
     for (const auto& factory : m_RunnerFactories) {
-        if (name == factory->name()) {
+        if (m_AnalysisName == factory->name()) {
             auto parameters = analysis[PARAMETERS].jsonObject();
             m_Runner = parameters != nullptr ? factory->make(*this, *parameters)
                                              : factory->make(*this);
@@ -223,7 +237,7 @@ void CDataFrameAnalysisSpecification::initializeRunner(const rapidjson::Value& j
         }
     }
 
-    HANDLE_FATAL(<< "Input error: unexpected analysis name '" << name
+    HANDLE_FATAL(<< "Input error: unexpected analysis name '" << m_AnalysisName
                  << "'. Please report this problem.");
 }
 
@@ -249,6 +263,14 @@ CDataFrameAnalysisSpecification::noopRestoreSearcherSupplier() {
 
 const std::string& CDataFrameAnalysisSpecification::jobId() const {
     return m_JobId;
+}
+
+const std::string& CDataFrameAnalysisSpecification::analysisName() const {
+    return m_AnalysisName;
+}
+
+const CDataFrameAnalysisRunner* CDataFrameAnalysisSpecification::runner() {
+    return m_Runner.get();
 }
 }
 }

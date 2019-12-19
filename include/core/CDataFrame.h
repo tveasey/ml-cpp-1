@@ -8,12 +8,16 @@
 #define INCLUDED_ml_core_CDataFrame_h
 
 #include <core/CFloatStorage.h>
+#include <core/CPackedBitVector.h>
+#include <core/CVectorRange.h>
 #include <core/Concurrency.h>
 #include <core/ImportExport.h>
 
 #include <boost/optional.hpp>
+#include <boost/unordered_map.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <functional>
 #include <iterator>
 #include <memory>
@@ -23,7 +27,6 @@ namespace ml {
 namespace core {
 class CDataFrameRowSlice;
 class CDataFrameRowSliceHandle;
-class CPackedBitVector;
 class CTemporaryDirectory;
 
 namespace data_frame_detail {
@@ -32,7 +35,29 @@ using TFloatVec = std::vector<CFloatStorage>;
 using TFloatVecItr = TFloatVec::iterator;
 using TInt32Vec = std::vector<std::int32_t>;
 using TInt32VecCItr = TInt32Vec::const_iterator;
-using TPopMaskedRowFunc = std::function<std::size_t()>;
+
+//! \brief A callback used to iterate over only the masked rows.
+class CORE_EXPORT CPopMaskedRow {
+public:
+    CPopMaskedRow(std::size_t endSliceRows,
+                  CPackedBitVector::COneBitIndexConstIterator& maskedRow,
+                  const CPackedBitVector::COneBitIndexConstIterator& endMaskedRows)
+        : m_EndSliceRows{endSliceRows}, m_MaskedRow{&maskedRow}, m_EndMaskedRows{&endMaskedRows} {
+    }
+
+    std::size_t operator()() const {
+        return ++(*m_MaskedRow) == *m_EndMaskedRows
+                   ? m_EndSliceRows
+                   : std::min(**m_MaskedRow, m_EndSliceRows);
+    }
+
+private:
+    std::size_t m_EndSliceRows;
+    CPackedBitVector::COneBitIndexConstIterator* m_MaskedRow;
+    const CPackedBitVector::COneBitIndexConstIterator* m_EndMaskedRows;
+};
+
+using TOptionalPopMaskedRow = boost::optional<CPopMaskedRow>;
 
 //! \brief A lightweight wrapper around a single row of the data frame.
 //!
@@ -120,7 +145,7 @@ public:
                  std::size_t index,
                  TFloatVecItr rowItr,
                  TInt32VecCItr docHashItr,
-                 TPopMaskedRowFunc popMaskedRow = nullptr);
+                 const TOptionalPopMaskedRow& popMaskedRow);
 
     //! \name Forward Iterator Contract
     //@{
@@ -138,7 +163,7 @@ private:
     std::size_t m_Index = 0;
     TFloatVecItr m_RowItr;
     TInt32VecCItr m_DocHashItr;
-    TPopMaskedRowFunc m_PopMaskedRow;
+    TOptionalPopMaskedRow m_PopMaskedRow;
 };
 }
 
@@ -187,6 +212,9 @@ private:
 class CORE_EXPORT CDataFrame final {
 public:
     using TBoolVec = std::vector<bool>;
+    using TStrVec = std::vector<std::string>;
+    using TStrVecVec = std::vector<TStrVec>;
+    using TStrCRng = CVectorRange<const TStrVec>;
     using TFloatVec = std::vector<CFloatStorage>;
     using TFloatVecItr = TFloatVec::iterator;
     using TInt32Vec = std::vector<std::int32_t>;
@@ -205,6 +233,10 @@ public:
 
     //! Controls whether to read and write to storage asynchronously.
     enum class EReadWriteToStorage { E_Async, E_Sync };
+
+public:
+    //! The maximum number of distinct categorical fields we can faithfully represent.
+    static const std::size_t MAX_CATEGORICAL_CARDINALITY;
 
 public:
     //! \param[in] inMainMemory True if the data frame is stored in main memory.
@@ -389,6 +421,9 @@ public:
         return this->writeColumns(numberThreads, 0, this->numberRows(), std::move(writer));
     }
 
+    //! Parses the strings in \p columnValues and writes one row via writeRow.
+    void parseAndWriteRow(const TStrCRng& columnValues, const std::string* hash = nullptr);
+
     //! This writes a single row of the data frame via a callback.
     //!
     //! If asynchronous read and write to store was selected in the constructor
@@ -405,6 +440,15 @@ public:
     //! writing rows.
     void writeRow(const TWriteFunc& writeRow);
 
+    //! Write the column names.
+    void columnNames(TStrVec columnNames);
+
+    //! Write for which columns an empty string implies the value is missing.
+    void emptyIsMissing(TBoolVec emptyIsMissing);
+
+    //! Write which columns contain categorical data.
+    void categoricalColumns(TStrVec categoricalColumnNames);
+
     //! Write which columns contain categorical data.
     void categoricalColumns(TBoolVec columnIsCategorical);
 
@@ -417,6 +461,12 @@ public:
     //! \warning This MUST be called after the last row is written to commit the
     //! work and to join the thread used to store the slices.
     void finishWritingRows();
+
+    //! \return The column names if any.
+    const TStrVec& columnNames() const;
+
+    //! \return The string values of the categories for each column.
+    const TStrVecVec& categoricalColumnValues() const;
 
     //! \return Indicator of columns containing categorical data.
     const TBoolVec& columnIsCategorical() const;
@@ -437,9 +487,11 @@ public:
     static double valueOfMissing();
 
 private:
+    using TStrSizeUMap = boost::unordered_map<std::string, std::size_t>;
+    using TStrSizeUMapVec = std::vector<TStrSizeUMap>;
     using TSizeSizePr = std::pair<std::size_t, std::size_t>;
     using TSizeDataFrameRowSlicePtrVecPr = std::pair<std::size_t, TRowSlicePtrVec>;
-    using TPopMaskedRowFunc = data_frame_detail::TPopMaskedRowFunc;
+    using TOptionalPopMaskedRow = data_frame_detail::TOptionalPopMaskedRow;
 
     //! \brief Writes rows to the data frame.
     class CDataFrameRowSliceWriter final {
@@ -474,19 +526,19 @@ private:
     TRowFuncVecBoolPr parallelApplyToAllRows(std::size_t numberThreads,
                                              std::size_t beginRows,
                                              std::size_t endRows,
-                                             TRowFunc func,
+                                             TRowFunc&& func,
                                              const CPackedBitVector* rowMask,
                                              bool commitResult) const;
     TRowFuncVecBoolPr sequentialApplyToAllRows(std::size_t beginRows,
                                                std::size_t endRows,
-                                               TRowFunc func,
+                                               TRowFunc& func,
                                                const CPackedBitVector* rowMask,
                                                bool commitResult) const;
 
     void applyToRowsOfOneSlice(TRowFunc& func,
                                std::size_t firstRowToRead,
                                std::size_t endRowsToRead,
-                               TPopMaskedRowFunc popMaskedRow,
+                               const TOptionalPopMaskedRow& popMaskedRow,
                                const CDataFrameRowSliceHandle& slice) const;
 
     TRowSlicePtrVecCItr beginSlices(std::size_t beginRows) const;
@@ -516,8 +568,27 @@ private:
     //! The callback to write a slice to storage.
     TWriteSliceToStoreFunc m_WriteSliceToStore;
 
+    //! Optional column names.
+    TStrVec m_ColumnNames;
+
+    //! The string values of the categories.
+    TStrVecVec m_CategoricalColumnValues;
+
+    //! A lookup for the integer value of categories.
+    TStrSizeUMapVec m_CategoricalColumnValueLookup;
+
+    //! Indicator vector for treating empty strings as missing values.
+    TBoolVec m_EmptyIsMissing;
+
     //! Indicator vector of the columns which contain categorical values.
     TBoolVec m_ColumnIsCategorical;
+
+    //! \name Parse Counters
+    //@{
+    std::uint64_t m_MissingValueCount = 0;
+    std::uint64_t m_BadValueCount = 0;
+    std::uint64_t m_BadDocHashCount = 0;
+    //@}
 
     //! The stored slices.
     TRowSlicePtrVec m_Slices;

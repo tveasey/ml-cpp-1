@@ -9,6 +9,7 @@ TARGET=ml_test$(EXE_EXT)
 
 USE_BOOST=1
 USE_BOOST_FILESYSTEM_LIBS=1
+USE_BOOST_TEST_LIBS=1
 USE_RAPIDJSON=1
 USE_EIGEN=1
 
@@ -87,6 +88,7 @@ SRCS=\
 	CSamplingTest.cc \
 	CSeasonalComponentTest.cc \
 	CSeasonalComponentAdaptiveBucketingTest.cc \
+	CSeasonalTimeTest.cc \
 	CSetToolsTest.cc \
 	CSignalTest.cc \
 	CSolversTest.cc \
@@ -98,10 +100,11 @@ SRCS=\
 	CTimeSeriesMultibucketFeaturesTest.cc \
 	CTimeSeriesSegmentationTest.cc \
 	CToolsTest.cc \
+	CTreeShapFeatureImportanceTest.cc \
 	CTrendComponentTest.cc \
 	CXMeansOnlineTest.cc \
 	CXMeansOnline1dTest.cc \
 	CXMeansTest.cc \
 	TestUtils.cc \
 
-include $(CPP_SRC_HOME)/mk/stdcppunit.mk
+include $(CPP_SRC_HOME)/mk/stdboosttest.mk

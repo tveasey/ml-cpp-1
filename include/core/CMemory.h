@@ -6,6 +6,7 @@
 #ifndef INCLUDED_ml_core_CMemory_h
 #define INCLUDED_ml_core_CMemory_h
 
+#include <core/BoostMultiIndex.h>
 #include <core/CLogger.h>
 #include <core/CMemoryUsage.h>
 #include <core/CNonInstantiatable.h>
@@ -14,6 +15,7 @@
 #include <boost/any.hpp>
 #include <boost/circular_buffer_fwd.hpp>
 #include <boost/container/container_fwd.hpp>
+#include <boost/mpl/range_c.hpp>
 #include <boost/optional/optional_fwd.hpp>
 #include <boost/shared_array.hpp>
 #include <boost/type_traits/is_pointer.hpp>
@@ -294,10 +296,13 @@ public:
     //! Overload for std::shared_ptr.
     template<typename T>
     static std::size_t dynamicSize(const std::shared_ptr<T>& t) {
-        if (t == nullptr) {
+        // The check for nullptr here may seem unnecessary but there are situations
+        // where an unset shared_ptr can have a use_count greater than 0, see
+        // https://stackoverflow.com/questions/48885252/c-sharedptr-use-count-for-nullptr/48885643
+        long uc{t == nullptr ? 0 : t.use_count()};
+        if (uc == 0) {
             return 0;
         }
-        long uc = t.use_count();
         // Note we add on sizeof(long) here to account for the memory
         // used by the shared reference count. Also, round up.
         return (sizeof(long) + staticSize(*t) + dynamicSize(*t) + std::size_t(uc - 1)) / uc;
@@ -486,6 +491,30 @@ public:
         std::size_t pageVecEntries = std::max(numPages, memory_detail::MIN_DEQUE_PAGE_VEC_ENTRIES);
 
         return mem + pageVecEntries * sizeof(std::size_t) + numPages * pageSize;
+    }
+
+    //! Overload for boost::multi_index::multi_index_container.
+    template<typename T, typename I, typename A>
+    static std::size_t
+    dynamicSize(const boost::multi_index::multi_index_container<T, I, A>& t) {
+        // It's tricky to determine the container overhead of a multi-index
+        // container.  It can have an arbitrary number of indices, each of which
+        // can be of a different type.  To accurately determine the overhead
+        // would require some serious template metaprogramming to interpret the
+        // "typename I" template argument, and it's just not worth it given the
+        // infrequent and relatively simple usage (generally just two indices
+        // in our current codebase).  Therefore there's an approximation here
+        // that the overhead is 2 pointers per entry per index.
+        using TMultiIndex = boost::multi_index::multi_index_container<T, I, A>;
+        constexpr std::size_t indexCount{
+            boost::mpl::size<typename TMultiIndex::index_type_list>::value};
+        std::size_t mem = 0;
+        if (!memory_detail::SDynamicSizeAlwaysZero<T>::value()) {
+            for (auto i = t.begin(); i != t.end(); ++i) {
+                mem += dynamicSize(*i);
+            }
+        }
+        return mem + t.size() * (sizeof(T) + 2 * indexCount * sizeof(std::size_t));
     }
 
     //! Overload for boost::circular_buffer.
@@ -697,26 +726,30 @@ public:
     static void dynamicSize(const char* name,
                             const std::shared_ptr<T>& t,
                             CMemoryUsage::TMemoryUsagePtr mem) {
-        if (t != nullptr) {
-            long uc = t.use_count();
-            // If the pointer is shared by multiple users, each one
-            // might count it, so divide by the number of users.
-            // However, if only 1 user has it, do a full debug.
-            if (uc == 1) {
-                // Note we add on sizeof(long) here to account for
-                // the memory used by the shared reference count.
-                mem->addItem("shared_ptr", sizeof(long) + CMemory::staticSize(*t));
-                dynamicSize(name, *t, mem);
-            } else {
-                std::ostringstream ss;
-                ss << "shared_ptr (x" << uc << ')';
-                // Note we add on sizeof(long) here to account for
-                // the memory used by the shared reference count.
-                // Also, round up.
-                mem->addItem(ss.str(), (sizeof(long) + CMemory::staticSize(*t) +
-                                        CMemory::dynamicSize(*t) + std::size_t(uc - 1)) /
-                                           uc);
-            }
+        // The check for nullptr here may seem unnecessary but there are situations
+        // where an unset shared_ptr can have a use_count greater than 0, see
+        // https://stackoverflow.com/questions/48885252/c-sharedptr-use-count-for-nullptr/48885643
+        long uc{t == nullptr ? 0 : t.use_count()};
+        if (uc == 0) {
+            return;
+        }
+        // If the pointer is shared by multiple users, each one
+        // might count it, so divide by the number of users.
+        // However, if only 1 user has it, do a full debug.
+        if (uc == 1) {
+            // Note we add on sizeof(long) here to account for
+            // the memory used by the shared reference count.
+            mem->addItem("shared_ptr", sizeof(long) + CMemory::staticSize(*t));
+            dynamicSize(name, *t, mem);
+        } else {
+            std::ostringstream ss;
+            ss << "shared_ptr (x" << uc << ')';
+            // Note we add on sizeof(long) here to account for
+            // the memory used by the shared reference count.
+            // Also, round up.
+            mem->addItem(ss.str(), (sizeof(long) + CMemory::staticSize(*t) +
+                                    CMemory::dynamicSize(*t) + std::size_t(uc - 1)) /
+                                       uc);
         }
     }
 
@@ -963,7 +996,7 @@ public:
         componentName += "_list";
 
         std::size_t listSize = (memory_detail::EXTRA_NODES + t.size()) *
-                               (sizeof(T) + 4 * sizeof(std::size_t));
+                               (sizeof(T) + 2 * sizeof(std::size_t));
 
         CMemoryUsage::SMemoryUsage usage(componentName, listSize);
         CMemoryUsage::TMemoryUsagePtr ptr = mem->addChild();
@@ -999,6 +1032,37 @@ public:
 
         for (auto i = t.begin(); i != t.end(); ++i) {
             dynamicSize("value", *i, ptr);
+        }
+    }
+
+    //! Overload for boost::multi_index::multi_index_container.
+    template<typename T, typename I, typename A>
+    static void dynamicSize(const char* name,
+                            const boost::multi_index::multi_index_container<T, I, A>& t,
+                            CMemoryUsage::TMemoryUsagePtr mem) {
+        // It's tricky to determine the container overhead of a multi-index
+        // container.  It can have an arbitrary number of indices, each of which
+        // can be of a different type.  To accurately determine the overhead
+        // would require some serious template metaprogramming to interpret the
+        // "typename I" template argument, and it's just not worth it given the
+        // infrequent and relatively simple usage (generally just two indices
+        // in our current codebase).  Therefore there's an approximation here
+        // that the overhead is 2 pointers per entry per index.
+        using TMultiIndex = boost::multi_index::multi_index_container<T, I, A>;
+        constexpr std::size_t indexCount{
+            boost::mpl::size<typename TMultiIndex::index_type_list>::value};
+        std::string componentName(name);
+
+        std::size_t items = t.size();
+        CMemoryUsage::SMemoryUsage usage(
+            componentName + "::" + typeid(T).name(),
+            items * (sizeof(T) + 2 * indexCount * sizeof(std::size_t)));
+        CMemoryUsage::TMemoryUsagePtr ptr = mem->addChild();
+        ptr->setName(usage);
+
+        componentName += "_item";
+        for (auto i = t.begin(); i != t.end(); ++i) {
+            dynamicSize(componentName.c_str(), *i, ptr);
         }
     }
 

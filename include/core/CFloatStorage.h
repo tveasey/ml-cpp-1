@@ -83,6 +83,47 @@ public:
     //! Implicit construction from a double.
     CFloatStorage(double value) : m_Value() { this->set(value); }
 
+    //! \name Operators
+    //@{
+    CFloatStorage operator-() const { return CFloatStorage{-m_Value}; }
+    bool operator==(const CFloatStorage& rhs) const {
+        return m_Value == rhs.m_Value;
+    }
+    bool operator==(const double& rhs) const {
+        return static_cast<double>(m_Value) == rhs;
+    }
+    bool operator!=(const CFloatStorage& rhs) const {
+        return m_Value != rhs.m_Value;
+    }
+    bool operator!=(const double& rhs) const {
+        return static_cast<double>(m_Value) != rhs;
+    }
+    bool operator<(const CFloatStorage& rhs) const {
+        return m_Value < rhs.m_Value;
+    }
+    bool operator<(const double& rhs) const {
+        return static_cast<double>(m_Value) < rhs;
+    }
+    bool operator<=(const CFloatStorage& rhs) const {
+        return m_Value <= rhs.m_Value;
+    }
+    bool operator<=(const double& rhs) const {
+        return static_cast<double>(m_Value) <= rhs;
+    }
+    bool operator>(const CFloatStorage& rhs) const {
+        return m_Value > rhs.m_Value;
+    }
+    bool operator>(const double& rhs) const {
+        return static_cast<double>(m_Value) > rhs;
+    }
+    bool operator>=(const CFloatStorage& rhs) const {
+        return m_Value >= rhs.m_Value;
+    }
+    bool operator>=(const double& rhs) const {
+        return static_cast<double>(m_Value) >= rhs;
+    }
+    //@}
+
     //! Set from a string.
     bool fromString(const std::string& string) {
         double value;

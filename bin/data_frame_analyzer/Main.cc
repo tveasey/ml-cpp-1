@@ -85,7 +85,8 @@ int main(int argc, char** argv) {
         ml::counter_t::E_DFONumberPartitions,
         ml::counter_t::E_DFTPMEstimatedPeakMemoryUsage,
         ml::counter_t::E_DFTPMPeakMemoryUsage,
-        ml::counter_t::E_DFTPMTimeToTrain};
+        ml::counter_t::E_DFTPMTimeToTrain,
+        ml::counter_t::E_DFTPMTrainedForestNumberTrees};
     ml::core::CProgramCounters::registerProgramCounterTypes(counters);
 
     // Read command line options
@@ -183,9 +184,7 @@ int main(int argc, char** argv) {
         std::move(restoreSearcherSupplier));
 
     if (memoryUsageEstimationOnly) {
-        auto outStream = [&ioMgr]() {
-            return std::make_unique<ml::core::CJsonOutputStreamWrapper>(ioMgr.outputStream());
-        }();
+        auto outStream = resultsStreamSupplier();
         ml::api::CMemoryUsageEstimationResultJsonWriter writer(*outStream);
         analysisSpecification->estimateMemoryUsage(writer);
         return EXIT_SUCCESS;
@@ -204,8 +203,7 @@ int main(int argc, char** argv) {
         if (lengthEncodedInput) {
             return std::make_unique<ml::api::CLengthEncodedInputParser>(ioMgr.inputStream());
         }
-        return std::make_unique<ml::api::CCsvInputParser>(
-            ioMgr.inputStream(), ml::api::CCsvInputParser::COMMA);
+        return std::make_unique<ml::api::CCsvInputParser>(ioMgr.inputStream());
     }()};
     if (inputParser->readStreamIntoVecs(
             [&dataFrameAnalyzer](const auto& fieldNames, const auto& fieldValues) {

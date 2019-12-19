@@ -45,7 +45,7 @@ CFLAGS=-nologo $(OPTCFLAGS) -W4 $(CRT_OPT) -EHsc -Zi -Gw -FS -Zc:inline -diagnos
 CXXFLAGS=-TP $(CFLAGS) -Zc:rvalueCast -Zc:strictStrings -wd4127 -we4150 -wd4201 -wd4231 -wd4251 -wd4355 -wd4512 -wd4702 -bigobj
 ANALYZEFLAGS=-nologo -analyze:only -analyze:stacksize100000 $(CRT_OPT)
 
-CPPFLAGS=-X -I$(CPP_SRC_HOME)/3rd_party/include -I$(LOCAL_DRIVE):/usr/local/include $(VCINCLUDES) $(WINSDKINCLUDES) -D$(OS) -D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_DEPRECATE -DWIN32_LEAN_AND_MEAN -DNTDDI_VERSION=0x06010000 -D_WIN32_WINNT=0x0601 -DCPPUNIT_DLL -DBUILDING_$(basename $(notdir $(TARGET))) $(OPTCPPFLAGS)
+CPPFLAGS=-X -I$(CPP_SRC_HOME)/3rd_party/include -I$(LOCAL_DRIVE):/usr/local/include $(VCINCLUDES) $(WINSDKINCLUDES) -D$(OS) -D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_DEPRECATE -DWIN32_LEAN_AND_MEAN -DNTDDI_VERSION=0x06010000 -D_WIN32_WINNT=0x0601 -DBUILDING_$(basename $(notdir $(TARGET))) $(OPTCPPFLAGS)
 # -MD defines _DLL and _MT - for dependency determination we must define these
 # otherwise the Boost headers will throw errors during preprocessing
 ifeq ($(CRT_OPT),-MD)
@@ -62,6 +62,18 @@ AR_OUT_FLAG=-OUT:
 # do then we'll rebuild everything from scratch
 DEP_FILTER= 2>/dev/null | egrep "^.line .*(\\.h|$<)" | tr -s '\\\\' '/' | awk -F'"' '{ print $$2 }' | egrep -i -v "usr.local|$(LOCAL_DRIVE)..progra" | sed 's~/[a-z]*/\.\./~/~g' | sort -f -u | sort -t. -k2 | tr '\r\n\t' ' ' | sed 's/  / /g' | sed 's/^ //' | sed 's/ $$//'
 DEP_REFORMAT=sed 's,$<,$(basename $@)$(OBJECT_FILE_EXT) $@ : $<,'
+OBJECT_FILE_EXT=.obj
+EXE_EXT=.exe
+EXE_DIR=bin
+DYNAMIC_LIB_EXT=.dll
+DYNAMIC_LIB_DIR=bin
+IMPORT_LIB_DIR=lib
+RESOURCE_FILE=$(OBJS_DIR)/ml.res
+STATIC_LIB_EXT=.lib
+SHELL_SCRIPT_EXT=.bat
+# This temp directory assumes we're running in a Unix-like shell such as Git bash
+UT_TMP_DIR=/tmp
+RESOURCES_DIR=resources
 LOCALLIBS=AdvAPI32.lib shell32.lib Version.lib
 NETLIBS=WS2_32.lib
 BOOSTVER=1_71
@@ -76,30 +88,21 @@ BOOSTPROGRAMOPTIONSLIBS=boost_program_options-vc$(BOOSTVCVER)-mt-x64-$(BOOSTVER)
 BOOSTTHREADLIBS=boost_thread-vc$(BOOSTVCVER)-mt-x64-$(BOOSTVER).lib boost_chrono-vc$(BOOSTVCVER)-mt-x64-$(BOOSTVER).lib boost_system-vc$(BOOSTVCVER)-mt-x64-$(BOOSTVER).lib
 BOOSTFILESYSTEMLIBS=boost_filesystem-vc$(BOOSTVCVER)-mt-x64-$(BOOSTVER).lib boost_system-vc$(BOOSTVCVER)-mt-x64-$(BOOSTVER).lib
 BOOSTDATETIMELIBS=boost_date_time-vc$(BOOSTVCVER)-mt-x64-$(BOOSTVER).lib
+BOOSTTESTLIBS=boost_unit_test_framework-vc$(BOOSTVCVER)-mt-x64-$(BOOSTVER).lib
 RAPIDJSONINCLUDES=-I$(CPP_SRC_HOME)/3rd_party/rapidjson/include
 RAPIDJSONCPPFLAGS=-DRAPIDJSON_HAS_STDSTRING -DRAPIDJSON_SSE42
 # Eigen automatically uses SSE and SSE2 on 64 bit Windows - only the higher
 # versions need to be explicitly enabled
+EIGENINCLUDES=-I$(CPP_SRC_HOME)/3rd_party/eigen
 EIGENCPPFLAGS=-DEIGEN_MPL2_ONLY -DEIGEN_VECTORIZE_SSE3 -DEIGEN_VECTORIZE_SSE4_1 -DEIGEN_VECTORIZE_SSE4_2
 XMLINCLUDES=-I$(LOCAL_DRIVE):/usr/local/include/libxml2
 XMLLIBLDFLAGS=-LIBPATH:$(LOCAL_DRIVE):/usr/local/lib
 XMLLIBS=libxml2.lib
 DYNAMICLIBLDFLAGS=-nologo -Zi $(CRT_OPT) -LD -link -MAP -OPT:REF -INCREMENTAL:NO -LIBPATH:$(CPP_PLATFORM_HOME)/$(IMPORT_LIB_DIR)
-CPPUNITLIBS=cppunit_dll.lib
 ZLIBLIBS=zdll.lib
 STRPTIMELIBS=strptime.lib
 EXELDFLAGS=-nologo -Zi $(CRT_OPT) -link -MAP -OPT:REF -SUBSYSTEM:CONSOLE,6.1 -STACK:0x800000 -INCREMENTAL:NO -LIBPATH:$(CPP_PLATFORM_HOME)/$(IMPORT_LIB_DIR)
 UTLDFLAGS=$(EXELDFLAGS)
-OBJECT_FILE_EXT=.obj
-DYNAMIC_LIB_EXT=.dll
-DYNAMIC_LIB_DIR=bin
-IMPORT_LIB_DIR=lib
-RESOURCE_FILE=$(OBJS_DIR)/ml.res
-STATIC_LIB_EXT=.lib
-SHELL_SCRIPT_EXT=.bat
-# This temp directory assumes we're running in a Unix-like shell such as Git bash
-UT_TMP_DIR=/tmp
-EXE_EXT=.exe
 INSTALL=cp
 CP=cp
 RC=rc -nologo

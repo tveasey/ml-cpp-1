@@ -25,6 +25,7 @@ CBayesianOptimisation.cc \
 CBjkstUniqueValues.cc \
 CBoostedTree.cc \
 CBoostedTreeFactory.cc \
+CBoostedTreeHyperparameters.cc \
 CBoostedTreeImpl.cc \
 CCalendarCyclicTest.cc \
 CCalendarComponentAdaptiveBucketing.cc \
@@ -106,6 +107,7 @@ CTimeSeriesModel.cc \
 CTimeSeriesMultibucketFeatureSerialiser.cc \
 CTimeSeriesSegmentation.cc \
 CTools.cc \
+CTreeShapFeatureImportance.cc \
 CTrendComponent.cc \
 CXMeansOnline1d.cc \
 CXMeansOnlineFactory.cc \

@@ -138,7 +138,7 @@ public:
     //! \tparam T The "floating point" type.
     //! \tparam ORDER The highest order moment to gather.
     template<typename T, unsigned int ORDER>
-    struct SSampleCentralMoments : public std::unary_function<T, void> {
+    struct SSampleCentralMoments {
         using TCoordinate = typename SCoordinate<T>::Type;
         using TValue = T;
 
@@ -718,7 +718,7 @@ public:
     //!
     //! \tparam POINT The "floating point" vector type.
     template<typename POINT>
-    struct SSampleCovariances : public std::unary_function<POINT, void> {
+    struct SSampleCovariances {
         //! See core::CMemory.
         static bool dynamicSizeAlwaysZero() {
             return core::memory_detail::SDynamicSizeAlwaysZero<POINT>::value();
@@ -916,7 +916,7 @@ private:
     //! function is supplied so that T can be any type which supports a
     //! partial ordering. (T must also have a default constructor.)
     template<typename T, typename CONTAINER, typename LESS>
-    class COrderStatisticsImpl : public std::unary_function<T, void> {
+    class COrderStatisticsImpl {
     public:
         using iterator = typename CONTAINER::iterator;
         using const_iterator = typename CONTAINER::const_iterator;
@@ -1145,7 +1145,7 @@ public:
     //! \tparam LESS The comparison function object type used to test
     //! if one object of type T is less than another.
     template<typename T, std::size_t N, typename LESS = std::less<T>>
-    class COrderStatisticsStack
+    class EMPTY_BASE_OPT COrderStatisticsStack
         : public COrderStatisticsImpl<T, std::array<T, N>, LESS>,
           private boost::addable<COrderStatisticsStack<T, N, LESS>> {
 
@@ -1205,6 +1205,12 @@ public:
         }
     };
 
+    //! Make a stack based order statistics accumulator from \p less.
+    template<typename T, std::size_t N, typename LESS>
+    static COrderStatisticsStack<T, N, LESS> orderStatisticsAccumulator(LESS less) {
+        return COrderStatisticsStack<T, N, LESS>{less};
+    }
+
     //! \brief A heap based accumulator class for order statistics.
     //!
     //! DESCRIPTION:\n
@@ -1238,7 +1244,7 @@ public:
     //! \tparam LESS The comparison function object type used to test
     //! if one object of type T is less than another.
     template<typename T, typename LESS = std::less<T>>
-    class COrderStatisticsHeap
+    class EMPTY_BASE_OPT COrderStatisticsHeap
         : public COrderStatisticsImpl<T, std::vector<T>, LESS>,
           private boost::addable<COrderStatisticsHeap<T, LESS>> {
     private:
@@ -1297,6 +1303,12 @@ public:
             return this->TImpl::toDelimited(std::forward<Args>(args)...);
         }
     };
+
+    //! Make a heap based order statistics accumulator from \p less.
+    template<typename T, typename LESS>
+    static COrderStatisticsHeap<T, LESS> orderStatisticsAccumulator(std::size_t n, LESS less) {
+        return COrderStatisticsHeap<T, LESS>{n, T{}, less};
+    }
 
     //! \name Accumulator Typedefs
     //@{

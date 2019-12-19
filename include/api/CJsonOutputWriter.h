@@ -11,10 +11,10 @@
 #include <core/CSmallVector.h>
 #include <core/CoreTypes.h>
 
+#include <model/CCategoryExamplesCollector.h>
 #include <model/CHierarchicalResults.h>
 #include <model/CResourceMonitor.h>
 
-#include <api/CCategoryExamplesCollector.h>
 #include <api/CHierarchicalResultsWriter.h>
 #include <api/COutputHandler.h>
 #include <api/ImportExport.h>
@@ -169,28 +169,26 @@ public:
     using TTimeBucketDataMap = std::map<core_t::TTime, SBucketData>;
     using TTimeBucketDataMapItr = TTimeBucketDataMap::iterator;
     using TTimeBucketDataMapCItr = TTimeBucketDataMap::const_iterator;
-
-private:
-    using TStrSet = CCategoryExamplesCollector::TStrSet;
-    using TStrSetCItr = TStrSet::const_iterator;
+    using TStrFSet = model::CCategoryExamplesCollector::TStrFSet;
+    using TStrFSetCItr = TStrFSet::const_iterator;
 
 public:
     //! Constructor that causes output to be written to the specified wrapped stream
     CJsonOutputWriter(const std::string& jobId, core::CJsonOutputStreamWrapper& strmOut);
 
     //! Destructor flushes the stream
-    virtual ~CJsonOutputWriter();
+    ~CJsonOutputWriter() override;
 
     // Bring the other overload of fieldNames() into scope
     using COutputHandler::fieldNames;
 
     //! Set field names.  In this class this function has no effect and it
     //! always returns true
-    virtual bool fieldNames(const TStrVec& fieldNames, const TStrVec& extraFieldNames);
+    bool fieldNames(const TStrVec& fieldNames, const TStrVec& extraFieldNames) override;
 
     //! Write the data row fields as a JSON object
-    virtual bool writeRow(const TStrStrUMap& dataRowFields,
-                          const TStrStrUMap& overrideDataRowFields);
+    bool writeRow(const TStrStrUMap& dataRowFields,
+                  const TStrStrUMap& overrideDataRowFields) override;
 
     //! Limit the output to the top count anomalous records and influencers.
     //! Each detector will write no more than count records and influencers
@@ -206,10 +204,7 @@ public:
     //! Close the JSON structures and flush output.
     //! This method should only be called once and will have no affect
     //! on subsequent invocations
-    virtual void finalise();
-
-    //! Receive a count of possible results
-    void possibleResultCount(core_t::TTime time, size_t count);
+    void finalise() override;
 
     //! Accept a result from the anomaly detector
     //! Virtual for testing mocks
@@ -247,7 +242,7 @@ public:
                                  const std::string& terms,
                                  const std::string& regex,
                                  std::size_t maxMatchingFieldLength,
-                                 const TStrSet& examples);
+                                 const TStrFSet& examples);
 
     //! Persist a normalizer by writing its state to the output
     void persistNormalizer(const model::CHierarchicalResultsNormalizer& normalizer,

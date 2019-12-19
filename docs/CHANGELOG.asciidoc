@@ -7,7 +7,7 @@
 
 = Elasticsearch Release Notes
 
-////
+//
 // To add a release, copy and paste the following text,  uncomment the relevant
 // sections, and add a link to the new section in the list of releases at the
 // top of the page. Note that release subheads must be floated and sections
@@ -28,6 +28,49 @@
 
 //=== Regressions
 
+== {es} version 8.0.0
+
+=== Enhancements
+
+* The macOS build platform for the {ml} C++ code is now High Sierra running Xcode 10.1,
+  or Ubuntu 18.04 running clang 6.0 for cross compilation. (See {ml-pull}867[#867].)
+
+== {es} version 7.6.0
+
+=== New Features
+
+* Add feature importance values to classification and regression results (using tree 
+SHapley Additive exPlanation, or SHAP). (See {ml-pull}857[#857].)
+
+=== Enhancements
+
+* Improve performance of boosted tree training for both classification and regression.
+(See {ml-pull}775[#775].)
+* Reduce the peak memory used by boosted tree training and fix an overcounting bug
+estimating maximum memory usage. (See {ml-pull}781[#781].)
+* Stratified fractional cross validation for regression. (See {ml-pull}784[#784].)
+* Added `geo_point` supported output for `lat_long` function records. (See {ml-pull}809[#809]
+and {pull}47050[#47050].)
+* Use a random bag of the data to compute the loss function derivatives for each new
+tree which is trained for both regression and classification. (See {ml-pull}811[#811].)
+* Emit `prediction_probability` field alongside prediction field in ml results.
+(See {ml-pull}818[#818].)
+* Reduce memory usage of {ml} native processes on Windows. (See {ml-pull}844[#844].)
+* Reduce runtime of classification and regression. (See {ml-pull}863[#863].)
+* Stop early training a classification and regression forest when the validation error
+is no longer decreasing. (See {ml-pull}875[#875].)
+* Emit `prediction_field_name` in ml results using the type provided as
+`prediction_field_type` parameter. (See {ml-pull}877[#877].)
+* Improve performance updating quantile estimates. (See {ml-pull}881[#881].)
+* Migrate to use Bayesian Optimisation for initial hyperparameter value line searches and
+stop early if the expected improvement is too small. (See {ml-pull}903[#903].)
+
+=== Bug Fixes
+* Fixes potential memory corruption when determining seasonality. (See {ml-pull}852[#852].)
+* Prevent prediction_field_name clashing with other fields in ml results.
+(See {ml-pull}861[#861].)
+
+
 == {es} version 7.5.0
 
 === Enhancements
@@ -36,6 +79,36 @@
 For large data sets this change was observed to give a 10% to 20% decrease in
 train time. (See {ml-pull}622[#622].)
 * Upgrade Boost libraries to version 1.71. (See {ml-pull}638[#638].)
+* Improve initialisation of boosted tree training. This generally enables us to
+find lower loss models faster. (See {ml-pull}686[#686].)
+* Include a smooth tree depth based penalty to regularized objective function for
+boosted tree training. Hard depth based regularization is often the strategy of
+choice to prevent over fitting for XGBoost. By smoothing we can make better tradeoffs.
+Also, the parameters of the penalty function are mode suited to optimising with our
+Bayesian optimisation based hyperparameter search. (See {ml-pull}698[#698].)
+* Binomial logistic regression targeting cross entropy. (See {ml-pull}713[#713].) 
+* Improvements to count and sum anomaly detection for sparse data. This primarily
+aims to improve handling of data which are predictably present: detecting when they
+are unexpectedly missing. (See {ml-pull}721[#721].)
+* Trap numeric errors causing bad hyperparameter search initialisation and repeated
+errors to be logged during boosted tree training. (See {ml-pull}732[#732].)
+
+=== Bug Fixes
+
+* Restore from checkpoint could damage seasonality modeling. For example, it could
+cause seasonal components to be overwritten in error. (See {ml-pull}821[#821].)
+
+== {es} version 7.4.1
+
+=== Enhancements
+
+* The {ml} native processes are now arranged in a .app directory structure on
+  macOS, to allow for notarization on macOS Catalina. (See {ml-pull}593[#593].)
+
+=== Bug Fixes
+
+* A reference to a temporary variable was causing forecast model restoration to fail.
+The bug exhibited itself on MacOS builds with versions of clangd > 10.0.0. (See {ml-pull}688[#688].)
 
 == {es} version 7.4.0
 
@@ -107,6 +180,13 @@ to the model. (See {ml-pull}214[#214].)
 * Ensure statics are persisted in a consistent manner {ml-pull}360[#360]
 
 == {es} version 7.0.0-alpha1
+
+== {es} version 6.8.4
+
+=== Bug Fixes
+
+* A reference to a temporary variable was causing forecast model restoration to fail.
+The bug exhibited itself on MacOS builds with versions of clangd > 10.0.0. (See {ml-pull}688[#688].)
 
 == {es} version 6.8.2
 

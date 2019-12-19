@@ -12,6 +12,7 @@ USE_BOOST=1
 USE_BOOST_DATETIME_LIBS=1
 USE_BOOST_FILESYSTEM_LIBS=1
 USE_BOOST_THREAD_LIBS=1
+USE_BOOST_TEST_LIBS=1
 USE_RAPIDJSON=1
 USE_EIGEN=1
 
@@ -33,6 +34,7 @@ CConcurrencyTest.cc \
 CConcurrentWrapperTest.cc \
 CContainerPrinterTest.cc \
 CContainerThroughputTest.cc \
+CCsvLineParserTest.cc \
 CDataFrameTest.cc \
 CDetachedProcessSpawnerTest.cc \
 CDualThreadStreamBufTest.cc \
@@ -40,6 +42,7 @@ CFlatPrefixTreeTest.cc \
 CFunctionalTest.cc \
 CHashingTest.cc \
 CIEEE754Test.cc \
+CImmutableRadixSetTest.cc \
 CJsonLogLayoutTest.cc \
 CJsonOutputStreamWrapperTest.cc \
 CJsonStatePersistInserterTest.cc \
@@ -49,7 +52,6 @@ CLoopProgressTest.cc \
 CMemoryUsageJsonWriterTest.cc \
 CMemoryUsageTest.cc \
 CMonotonicTimeTest.cc \
-CMapPopulationTest.cc \
 CMutexTest.cc \
 CNamedPipeFactoryTest.cc \
 COsFileFuncsTest.cc \
@@ -90,5 +92,5 @@ CWordExtractorTest.cc \
 CXmlNodeWithChildrenTest.cc \
 CXmlParserTest.cc \
 
-include $(CPP_SRC_HOME)/mk/stdcppunit.mk
+include $(CPP_SRC_HOME)/mk/stdboosttest.mk
 

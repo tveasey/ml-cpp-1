@@ -36,9 +36,6 @@
 
 #include <stdint.h>
 
-class CPersistenceManagerTest;
-class CAnomalyJobTest;
-
 namespace ml {
 namespace core {
 class CDataAdder;
@@ -177,9 +174,9 @@ public:
     bool persistState(core::CDataAdder& persister, const std::string& descriptionPrefix) override;
 
     //! Persist state of the residual models only
-    bool persistResidualModelsState(core::CDataAdder& persister,
-                                    core_t::TTime timestamp,
-                                    const std::string& outputFormat);
+    bool persistModelsState(core::CDataAdder& persister,
+                            core_t::TTime timestamp,
+                            const std::string& outputFormat);
 
     //! Initialise normalizer from quantiles state
     virtual bool initNormalizer(const std::string& quantilesStateFile);
@@ -274,10 +271,10 @@ private:
     bool periodicPersistStateInForeground() override;
 
     //! Persist state of the residual models only
-    bool persistResidualModelsState(const TKeyCRefAnomalyDetectorPtrPrVec& detectors,
-                                    core::CDataAdder& persister,
-                                    core_t::TTime timestamp,
-                                    const std::string& outputFormat);
+    bool persistModelsState(const TKeyCRefAnomalyDetectorPtrPrVec& detectors,
+                            core::CDataAdder& persister,
+                            core_t::TTime timestamp,
+                            const std::string& outputFormat);
 
     //! Acknowledge a flush request
     void acknowledgeFlush(const std::string& flushId);
@@ -474,9 +471,6 @@ private:
 
     //! Flag indicating whether or not time has been advanced.
     bool m_TimeAdvanced{false};
-
-    friend class ::CPersistenceManagerTest;
-    friend class ::CAnomalyJobTest;
 };
 }
 }

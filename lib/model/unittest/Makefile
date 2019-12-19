@@ -9,6 +9,7 @@ TARGET=ml_test$(EXE_EXT)
 
 USE_BOOST=1
 USE_BOOST_FILESYSTEM_LIBS=1
+USE_BOOST_TEST_LIBS=1
 USE_RAPIDJSON=1
 USE_EIGEN=1
 
@@ -21,7 +22,9 @@ SRCS=\
 	CAnnotatedProbabilityBuilderTest.cc \
 	CAnomalyDetectorModelConfigTest.cc \
 	CAnomalyScoreTest.cc \
+	CBaseTokenListDataCategorizerTest.cc \
 	CBucketQueueTest.cc \
+	CCategoryExamplesCollectorTest.cc \
 	CCountingModelTest.cc \
 	CDetectionRuleTest.cc \
 	CDetectorEqualizerTest.cc \
@@ -55,8 +58,10 @@ SRCS=\
 	CSampleQueueTest.cc \
 	CSearchKeyTest.cc \
 	CStringStoreTest.cc \
+	CTokenListDataCategorizerTest.cc \
+	CTokenListReverseSearchCreatorTest.cc \
 	CToolsTest.cc \
 	Mocks.cc
 
-include $(CPP_SRC_HOME)/mk/stdcppunit.mk
+include $(CPP_SRC_HOME)/mk/stdboosttest.mk
 

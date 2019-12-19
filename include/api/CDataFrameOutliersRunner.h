@@ -7,6 +7,7 @@
 #ifndef INCLUDED_ml_api_CDataFrameOutliersRunner_h
 #define INCLUDED_ml_api_CDataFrameOutliersRunner_h
 
+#include <api/CDataFrameAnalysisConfigReader.h>
 #include <api/CDataFrameAnalysisRunner.h>
 
 #include <api/ImportExport.h>
@@ -19,9 +20,17 @@ namespace api {
 //! \brief Runs outlier detection on a core::CDataFrame.
 class API_EXPORT CDataFrameOutliersRunner final : public CDataFrameAnalysisRunner {
 public:
+    static const std::string STANDARDIZATION_ENABLED;
+    static const std::string N_NEIGHBORS;
+    static const std::string METHOD;
+    static const std::string COMPUTE_FEATURE_INFLUENCE;
+    static const std::string FEATURE_INFLUENCE_THRESHOLD;
+    static const std::string OUTLIER_FRACTION;
+
+public:
     //! This is not intended to be called directly: use CDataFrameOutliersRunnerFactory.
     CDataFrameOutliersRunner(const CDataFrameAnalysisSpecification& spec,
-                             const rapidjson::Value& jsonParameters);
+                             const CDataFrameAnalysisParameters& parameters);
 
     //! This is not intended to be called directly: use CDataFrameOutliersRunnerFactory.
     CDataFrameOutliersRunner(const CDataFrameAnalysisSpecification& spec);
@@ -30,12 +39,12 @@ public:
     std::size_t numberExtraColumns() const override;
 
     //! Write the extra columns of \p row added by outlier analysis to \p writer.
-    void writeOneRow(const TStrVec& featureNames,
-                     TRowRef row,
+    void writeOneRow(const core::CDataFrame& frame,
+                     const TRowRef& row,
                      core::CRapidJsonConcurrentLineWriter& writer) const override;
 
 private:
-    void runImpl(const TStrVec& featureNames, core::CDataFrame& frame) override;
+    void runImpl(core::CDataFrame& frame) override;
     std::size_t estimateBookkeepingMemoryUsage(std::size_t numberPartitions,
                                                std::size_t totalNumberRows,
                                                std::size_t partitionNumberRows,
@@ -55,7 +64,7 @@ private:
     std::size_t m_Method;
 
     //! If true then standardise the feature values.
-    bool m_StandardizeColumns = true;
+    bool m_StandardizationEnabled = true;
 
     //! Compute the significance of features responsible for each point being outlying.
     bool m_ComputeFeatureInfluence = true;
@@ -71,15 +80,15 @@ private:
 //! \brief Makes a core::CDataFrame outlier analysis runner.
 class API_EXPORT CDataFrameOutliersRunnerFactory final : public CDataFrameAnalysisRunnerFactory {
 public:
-    const std::string& name() const override;
-
-private:
     static const std::string NAME;
+
+public:
+    const std::string& name() const override;
 
 private:
     TRunnerUPtr makeImpl(const CDataFrameAnalysisSpecification& spec) const override;
     TRunnerUPtr makeImpl(const CDataFrameAnalysisSpecification& spec,
-                         const rapidjson::Value& params) const override;
+                         const rapidjson::Value& jsonParameters) const override;
 };
 }
 }

@@ -15,16 +15,23 @@
 
 #include <functional>
 
-class CResourceMonitorTest;
-class CResourceLimitTest;
-class CAnomalyJobLimitTest;
+namespace CResourceMonitorTest {
+struct testMonitor;
+struct testPruning;
+}
+namespace CResourceLimitTest {
+class CTestFixture;
+}
+namespace CAnomalyJobLimitTest {
+struct testAccuracy;
+struct testLimit;
+}
 
 namespace ml {
 namespace model {
 
 class CAnomalyDetector;
 class CAnomalyDetectorModel;
-class CResourcePruner;
 
 //! \brief Assess memory used by models and decide on further memory allocations.
 //!
@@ -241,9 +248,11 @@ private:
     bool m_PersistenceInForeground;
 
     //! Test friends
-    friend class ::CResourceMonitorTest;
-    friend class ::CResourceLimitTest;
-    friend class ::CAnomalyJobLimitTest;
+    friend struct CResourceMonitorTest::testMonitor;
+    friend struct CResourceMonitorTest::testPruning;
+    friend class CResourceLimitTest::CTestFixture;
+    friend struct CAnomalyJobLimitTest::testAccuracy;
+    friend struct CAnomalyJobLimitTest::testLimit;
 };
 
 } // model

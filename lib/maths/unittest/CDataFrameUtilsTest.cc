@@ -4,8 +4,6 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 
-#include "CDataFrameUtilsTest.h"
-
 #include <core/CPackedBitVector.h>
 
 #include <maths/CBasicStatistics.h>
@@ -15,17 +13,24 @@
 #include <maths/COrderings.h>
 #include <maths/CQuantileSketch.h>
 
+#include <test/BoostTestCloseAbsolute.h>
 #include <test/CRandomNumbers.h>
 #include <test/CTestTmpDir.h>
+
+#include <boost/test/unit_test.hpp>
+#include <boost/unordered_map.hpp>
 
 #include <functional>
 #include <limits>
 #include <numeric>
 #include <vector>
 
+BOOST_AUTO_TEST_SUITE(CDataFrameUtilsTest)
+
 using namespace ml;
 
 namespace {
+using TBoolVec = std::vector<bool>;
 using TDoubleVec = std::vector<double>;
 using TDoubleVecVec = std::vector<TDoubleVec>;
 using TSizeVec = std::vector<std::size_t>;
@@ -33,6 +38,8 @@ using TFactoryFunc = std::function<std::unique_ptr<core::CDataFrame>()>;
 using TMeanAccumulator = maths::CBasicStatistics::SSampleMean<double>::TAccumulator;
 using TMeanAccumulatorVec = std::vector<TMeanAccumulator>;
 using TMeanAccumulatorVecVec = std::vector<TMeanAccumulatorVec>;
+using TMeanVarAccumulator = maths::CBasicStatistics::SSampleMeanVar<double>::TAccumulator;
+using TMeanVarAccumulatorVec = std::vector<TMeanVarAccumulator>;
 using TQuantileSketchVec = std::vector<maths::CQuantileSketch>;
 
 auto generateCategoricalData(test::CRandomNumbers& rng,
@@ -61,9 +68,28 @@ auto generateCategoricalData(test::CRandomNumbers& rng,
 core::CPackedBitVector maskAll(std::size_t rows) {
     return {rows, true};
 }
+
+core::CPackedBitVector generateRandomRowMask(test::CRandomNumbers& rng, std::size_t numberRows) {
+    TSizeVec sampleCount;
+    rng.generateUniformSamples(numberRows / 2, 3 * numberRows / 2, 1, sampleCount);
+
+    TSizeVec sampledRows;
+    rng.generateUniformSamples(0, numberRows, sampleCount[0], sampledRows);
+    std::sort(sampledRows.begin(), sampledRows.end());
+    sampledRows.erase(std::unique(sampledRows.begin(), sampledRows.end()),
+                      sampledRows.end());
+
+    core::CPackedBitVector rowMask;
+    for (auto i : sampledRows) {
+        rowMask.extend(false, i - rowMask.size());
+        rowMask.extend(true);
+    }
+    rowMask.extend(false, numberRows - rowMask.size());
+    return rowMask;
+}
 }
 
-void CDataFrameUtilsTest::testColumnDataTypes() {
+BOOST_AUTO_TEST_CASE(testColumnDataTypes) {
 
     test::CRandomNumbers rng;
 
@@ -125,30 +151,29 @@ void CDataFrameUtilsTest::testColumnDataTypes() {
                 [](const auto& type) { return type.toDelimited(); },
                 maths::CDataFrameUtils::SDataType::EXTERNAL_DELIMITER)};
             LOG_DEBUG(<< "delimited = " << delimitedCollection);
-            CPPUNIT_ASSERT(core::CPersistUtils::fromString(
+            BOOST_TEST_REQUIRE(core::CPersistUtils::fromString(
                 delimitedCollection,
                 [](const std::string& delimited, auto& type) {
                     return type.fromDelimited(delimited);
                 },
                 restoredTypes, maths::CDataFrameUtils::SDataType::EXTERNAL_DELIMITER));
 
-            CPPUNIT_ASSERT_EQUAL(expectedTypes.size(), actualTypes.size());
+            BOOST_REQUIRE_EQUAL(expectedTypes.size(), actualTypes.size());
             for (std::size_t i = 0; i < expectedTypes.size(); ++i) {
                 double eps{100.0 * std::numeric_limits<double>::epsilon()};
-                CPPUNIT_ASSERT_EQUAL(expectedTypes[i].s_IsInteger,
-                                     actualTypes[i].s_IsInteger);
-                CPPUNIT_ASSERT_DOUBLES_EQUAL(expectedTypes[i].s_Min,
+                BOOST_REQUIRE_EQUAL(expectedTypes[i].s_IsInteger, actualTypes[i].s_IsInteger);
+                BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedTypes[i].s_Min,
                                              actualTypes[i].s_Min,
                                              eps * expectedTypes[i].s_Min);
-                CPPUNIT_ASSERT_DOUBLES_EQUAL(expectedTypes[i].s_Max,
+                BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedTypes[i].s_Max,
                                              actualTypes[i].s_Max,
                                              eps * expectedTypes[i].s_Max);
-                CPPUNIT_ASSERT_EQUAL(expectedTypes[i].s_IsInteger,
-                                     restoredTypes[i].s_IsInteger);
-                CPPUNIT_ASSERT_DOUBLES_EQUAL(expectedTypes[i].s_Min,
+                BOOST_REQUIRE_EQUAL(expectedTypes[i].s_IsInteger,
+                                    restoredTypes[i].s_IsInteger);
+                BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedTypes[i].s_Min,
                                              restoredTypes[i].s_Min,
                                              eps * expectedTypes[i].s_Min);
-                CPPUNIT_ASSERT_DOUBLES_EQUAL(expectedTypes[i].s_Max,
+                BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedTypes[i].s_Max,
                                              restoredTypes[i].s_Max,
                                              eps * expectedTypes[i].s_Max);
             }
@@ -160,10 +185,7 @@ void CDataFrameUtilsTest::testColumnDataTypes() {
     core::stopDefaultAsyncExecutor();
 }
 
-void CDataFrameUtilsTest::testStandardizeColumns() {
-
-    using TMeanVarAccumulatorVec =
-        std::vector<maths::CBasicStatistics::SSampleMeanVar<double>::TAccumulator>;
+BOOST_AUTO_TEST_CASE(testStandardizeColumns) {
 
     test::CRandomNumbers rng;
 
@@ -210,7 +232,7 @@ void CDataFrameUtilsTest::testStandardizeColumns() {
             }
             frame->finishWritingRows();
 
-            CPPUNIT_ASSERT(maths::CDataFrameUtils::standardizeColumns(threads, *frame));
+            BOOST_TEST_REQUIRE(maths::CDataFrameUtils::standardizeColumns(threads, *frame));
 
             // Check the column values are what we expect given the data we generated.
 
@@ -230,7 +252,7 @@ void CDataFrameUtilsTest::testStandardizeColumns() {
                 }
             });
 
-            CPPUNIT_ASSERT(passed);
+            BOOST_TEST_REQUIRE(passed);
 
             // Check that the mean and variance of the columns are zero and one,
             // respectively.
@@ -249,8 +271,8 @@ void CDataFrameUtilsTest::testStandardizeColumns() {
                 double mean{maths::CBasicStatistics::mean(columnMoments)};
                 double variance{maths::CBasicStatistics::variance(columnMoments)};
                 LOG_DEBUG(<< "mean = " << mean << ", variance = " << variance);
-                CPPUNIT_ASSERT_DOUBLES_EQUAL(0.0, mean, 1e-6);
-                CPPUNIT_ASSERT_DOUBLES_EQUAL(1.0, variance, 1e-6);
+                BOOST_REQUIRE_CLOSE_ABSOLUTE(0.0, mean, 1e-6);
+                BOOST_REQUIRE_CLOSE_ABSOLUTE(1.0, variance, 1e-6);
             }
         }
 
@@ -260,7 +282,7 @@ void CDataFrameUtilsTest::testStandardizeColumns() {
     core::stopDefaultAsyncExecutor();
 }
 
-void CDataFrameUtilsTest::testColumnQuantiles() {
+BOOST_AUTO_TEST_CASE(testColumnQuantiles) {
 
     test::CRandomNumbers rng;
 
@@ -312,10 +334,12 @@ void CDataFrameUtilsTest::testColumnQuantiles() {
             }
             frame->finishWritingRows();
 
-            maths::CQuantileSketch sketch{maths::CQuantileSketch::E_Linear, 100};
             TQuantileSketchVec actualQuantiles;
-            CPPUNIT_ASSERT(maths::CDataFrameUtils::columnQuantiles(
-                threads, *frame, maskAll(rows), columnMask, sketch, actualQuantiles));
+            bool successful;
+            std::tie(actualQuantiles, successful) = maths::CDataFrameUtils::columnQuantiles(
+                threads, *frame, maskAll(rows), columnMask,
+                maths::CQuantileSketch{maths::CQuantileSketch::E_Linear, 100});
+            BOOST_TEST_REQUIRE(successful);
 
             // Check the quantile sketches match.
 
@@ -325,9 +349,9 @@ void CDataFrameUtilsTest::testColumnQuantiles() {
                 for (std::size_t feature = 0; feature < columnMask.size(); ++feature) {
                     double x{static_cast<double>(i)};
                     double qa, qe;
-                    CPPUNIT_ASSERT(expectedQuantiles[feature].quantile(x, qe));
-                    CPPUNIT_ASSERT(actualQuantiles[feature].quantile(x, qa));
-                    CPPUNIT_ASSERT_DOUBLES_EQUAL(
+                    BOOST_TEST_REQUIRE(expectedQuantiles[feature].quantile(x, qe));
+                    BOOST_TEST_REQUIRE(actualQuantiles[feature].quantile(x, qa));
+                    BOOST_REQUIRE_CLOSE_ABSOLUTE(
                         qe, qa, 0.02 * std::max(std::fabs(qa), 1.5));
                     columnsMae[feature].add(std::fabs(qa - qe));
                 }
@@ -337,11 +361,11 @@ void CDataFrameUtilsTest::testColumnQuantiles() {
             for (std::size_t i = 0; i < columnsMae.size(); ++i) {
                 LOG_DEBUG(<< "Column MAE = "
                           << maths::CBasicStatistics::mean(columnsMae[i]));
-                CPPUNIT_ASSERT(maths::CBasicStatistics::mean(columnsMae[i]) < 0.03);
+                BOOST_TEST_REQUIRE(maths::CBasicStatistics::mean(columnsMae[i]) < 0.03);
                 mae += columnsMae[i];
             }
             LOG_DEBUG(<< "MAE = " << maths::CBasicStatistics::mean(mae));
-            CPPUNIT_ASSERT(maths::CBasicStatistics::mean(mae) < 0.015);
+            BOOST_TEST_REQUIRE(maths::CBasicStatistics::mean(mae) < 0.015);
         }
 
         core::startDefaultAsyncExecutor();
@@ -350,7 +374,7 @@ void CDataFrameUtilsTest::testColumnQuantiles() {
     core::stopDefaultAsyncExecutor();
 }
 
-void CDataFrameUtilsTest::testColumnQuantilesWithEncoding() {
+BOOST_AUTO_TEST_CASE(testColumnQuantilesWithEncoding) {
 
     test::CRandomNumbers rng;
 
@@ -381,7 +405,7 @@ void CDataFrameUtilsTest::testColumnQuantilesWithEncoding() {
 
     auto frame = core::makeMainStorageDataFrame(cols, capacity).first;
 
-    frame->categoricalColumns({false, true, false, false, false, true});
+    frame->categoricalColumns(TBoolVec{false, true, false, false, false, true});
     for (std::size_t i = 0; i < rows; ++i) {
         frame->writeRow([&features, target, i, rowFeatures = TDoubleVec{} ](
             core::CDataFrame::TFloatVecItr column, std::int32_t&) mutable {
@@ -399,7 +423,7 @@ void CDataFrameUtilsTest::testColumnQuantilesWithEncoding() {
 
     maths::CDataFrameCategoryEncoder encoder{{1, *frame, 0}};
 
-    TSizeVec columnMask(encoder.numberFeatures());
+    TSizeVec columnMask(encoder.numberEncodedColumns());
     std::iota(columnMask.begin(), columnMask.end(), 0);
 
     TQuantileSketchVec expectedQuantiles{columnMask.size(),
@@ -414,22 +438,171 @@ void CDataFrameUtilsTest::testColumnQuantilesWithEncoding() {
     });
 
     TQuantileSketchVec actualQuantiles;
-    maths::CQuantileSketch sketch{maths::CQuantileSketch::E_Linear, 100};
-    CPPUNIT_ASSERT(maths::CDataFrameUtils::columnQuantiles(
-        1, *frame, maskAll(rows), columnMask, sketch, actualQuantiles, &encoder));
+    bool successful;
+    std::tie(actualQuantiles, successful) = maths::CDataFrameUtils::columnQuantiles(
+        1, *frame, maskAll(rows), columnMask,
+        maths::CQuantileSketch{maths::CQuantileSketch::E_Linear, 100}, &encoder);
+    BOOST_TEST_REQUIRE(successful);
 
     for (std::size_t i = 5; i < 100; i += 5) {
         for (std::size_t feature = 0; feature < columnMask.size(); ++feature) {
             double x{static_cast<double>(i)};
             double qa, qe;
-            CPPUNIT_ASSERT(expectedQuantiles[feature].quantile(x, qe));
-            CPPUNIT_ASSERT(actualQuantiles[feature].quantile(x, qa));
-            CPPUNIT_ASSERT_EQUAL(qe, qa);
+            BOOST_TEST_REQUIRE(expectedQuantiles[feature].quantile(x, qe));
+            BOOST_TEST_REQUIRE(actualQuantiles[feature].quantile(x, qa));
+            BOOST_REQUIRE_EQUAL(qe, qa);
         }
     }
 }
 
-void CDataFrameUtilsTest::testMicWithColumn() {
+BOOST_AUTO_TEST_CASE(testStratifiedCrossValidationRowMasks) {
+
+    // Check some invariants of the test and train masks:
+    //   1) The folds are approximately the same size,
+    //   2) The test masks are disjoint for each fold,
+    //   3) The train and test masks are disjoint for a given fold,
+    //   4) They're all subsets of the initial mask supplied,
+    //   5) The number of examples in each category per fold is proportional to
+    //      their overall frequency.
+
+    using TDoubleDoubleUMap = boost::unordered_map<double, double>;
+
+    test::CRandomNumbers testRng;
+    maths::CPRNG::CXorOShiro128Plus rng;
+
+    std::size_t numberRows{2000};
+    std::size_t numberCols{1};
+    std::size_t numberBins{10};
+
+    for (std::size_t trial = 0; trial < 10; ++trial) {
+
+        TDoubleVec categories;
+        testRng.generateNormalSamples(0.0, 3.0, numberRows, categories);
+        TSizeVec numberFolds;
+        testRng.generateUniformSamples(2, 6, 1, numberFolds);
+
+        auto frame = core::makeMainStorageDataFrame(numberCols).first;
+        frame->categoricalColumns(TBoolVec{true});
+        for (std::size_t i = 0; i < numberRows; ++i) {
+            frame->writeRow([&](core::CDataFrame::TFloatVecItr column, std::int32_t&) {
+                *column = std::floor(std::fabs(categories[i]));
+            });
+        }
+        frame->finishWritingRows();
+
+        core::CPackedBitVector allTrainingRowsMask{generateRandomRowMask(testRng, numberRows)};
+
+        TDoubleDoubleUMap categoryCounts;
+        for (auto i = allTrainingRowsMask.beginOneBits();
+             i != allTrainingRowsMask.endOneBits(); ++i) {
+            categoryCounts[std::floor(std::fabs(categories[*i]))] += 1.0;
+        }
+
+        maths::CDataFrameUtils::TPackedBitVectorVec trainingRowMasks;
+        maths::CDataFrameUtils::TPackedBitVectorVec testingRowMasks;
+        std::tie(trainingRowMasks, testingRowMasks, std::ignore) =
+            maths::CDataFrameUtils::stratifiedCrossValidationRowMasks(
+                1, *frame, 0, rng, numberFolds[0], numberBins, allTrainingRowsMask);
+
+        BOOST_REQUIRE_EQUAL(numberFolds[0], trainingRowMasks.size());
+        BOOST_REQUIRE_EQUAL(numberFolds[0], testingRowMasks.size());
+
+        core::CPackedBitVector allTestingRowsMask{numberRows, false};
+        for (std::size_t fold = 0; fold < numberFolds[0]; ++fold) {
+            // Count should be very nearly the expected value.
+            double expectedTestRowCount{allTrainingRowsMask.manhattan() /
+                                        static_cast<double>(numberFolds[0])};
+            BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedTestRowCount,
+                                         testingRowMasks[fold].manhattan(), 10.0);
+            BOOST_REQUIRE_EQUAL(0.0, testingRowMasks[fold].inner(allTestingRowsMask));
+            BOOST_REQUIRE_EQUAL(0.0, trainingRowMasks[fold].inner(testingRowMasks[fold]));
+            BOOST_REQUIRE_EQUAL(trainingRowMasks[fold].manhattan(),
+                                trainingRowMasks[fold].inner(allTrainingRowsMask));
+            BOOST_REQUIRE_EQUAL(testingRowMasks[fold].manhattan(),
+                                testingRowMasks[fold].inner(allTrainingRowsMask));
+            allTestingRowsMask |= testingRowMasks[fold];
+
+            TDoubleDoubleUMap testingCategoryCounts;
+            frame->readRows(1, 0, frame->numberRows(),
+                            [&](core::CDataFrame::TRowItr beginRows,
+                                core::CDataFrame::TRowItr endRows) {
+                                for (auto row = beginRows; row != endRows; ++row) {
+                                    testingCategoryCounts[(*row)[0]] += 1.0;
+                                }
+                            },
+                            &testingRowMasks[fold]);
+            for (const auto& count : categoryCounts) {
+                BOOST_REQUIRE_CLOSE_ABSOLUTE(
+                    count.second / static_cast<double>(numberFolds[0]),
+                    testingCategoryCounts[count.first], 5.0);
+            }
+        }
+    }
+
+    for (std::size_t trial = 0; trial < 10; ++trial) {
+
+        TDoubleVec value;
+        testRng.generateNormalSamples(0.0, 3.0, numberRows, value);
+        TSizeVec numberFolds;
+        testRng.generateUniformSamples(2, 6, 1, numberFolds);
+
+        auto frame = core::makeMainStorageDataFrame(numberCols).first;
+        frame->categoricalColumns(TBoolVec{false});
+        for (std::size_t i = 0; i < numberRows; ++i) {
+            frame->writeRow([&](core::CDataFrame::TFloatVecItr column,
+                                std::int32_t&) { *column = value[i]; });
+        }
+        frame->finishWritingRows();
+
+        core::CPackedBitVector allTrainingRowsMask{generateRandomRowMask(testRng, numberRows)};
+
+        maths::CDataFrameUtils::TPackedBitVectorVec testingRowMasks;
+        std::tie(std::ignore, testingRowMasks, std::ignore) =
+            maths::CDataFrameUtils::stratifiedCrossValidationRowMasks(
+                1, *frame, 0, rng, numberFolds[0], numberBins, allTrainingRowsMask);
+
+        TDoubleVecVec targetDecile(numberFolds[0], TDoubleVec(numberBins));
+
+        core::CPackedBitVector allTestingRowsMask{numberRows, false};
+        for (std::size_t fold = 0; fold < numberFolds[0]; ++fold) {
+            // Count should be very nearly the expected value.
+            double expectedTestRowCount{allTrainingRowsMask.manhattan() /
+                                        static_cast<double>(numberFolds[0])};
+            BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedTestRowCount,
+                                         testingRowMasks[fold].manhattan(), 10.0);
+            BOOST_REQUIRE_EQUAL(0.0, testingRowMasks[fold].inner(allTestingRowsMask));
+            BOOST_REQUIRE_EQUAL(testingRowMasks[fold].manhattan(),
+                                testingRowMasks[fold].inner(allTrainingRowsMask));
+            allTestingRowsMask |= testingRowMasks[fold];
+
+            TDoubleVec values;
+            frame->readRows(1, 0, frame->numberRows(),
+                            [&](core::CDataFrame::TRowItr beginRows,
+                                core::CDataFrame::TRowItr endRows) {
+                                for (auto row = beginRows; row != endRows; ++row) {
+                                    values.push_back((*row)[0]);
+                                }
+                            },
+                            &testingRowMasks[fold]);
+            std::sort(values.begin(), values.end());
+            for (std::size_t i = 1; i < numberBins; ++i) {
+                targetDecile[fold][i] = values[(i * values.size()) / numberBins];
+            }
+        }
+
+        for (std::size_t i = 1; i < numberBins; ++i) {
+            TMeanVarAccumulator testTargetDecileMoments;
+            for (std::size_t fold = 0; fold < numberFolds[0]; ++fold) {
+                testTargetDecileMoments.add(targetDecile[fold][i]);
+            }
+            LOG_DEBUG(<< "variance in test set target percentile = "
+                      << maths::CBasicStatistics::variance(testTargetDecileMoments));
+            BOOST_TEST_REQUIRE(maths::CBasicStatistics::variance(testTargetDecileMoments) < 0.02);
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testMicWithColumn) {
 
     test::CRandomNumbers rng;
 
@@ -486,8 +659,8 @@ void CDataFrameUtilsTest::testMicWithColumn() {
 
         LOG_DEBUG(<< "expected = " << core::CContainerPrinter::print(expected));
         LOG_DEBUG(<< "actual   = " << core::CContainerPrinter::print(actual));
-        CPPUNIT_ASSERT_EQUAL(core::CContainerPrinter::print(expected),
-                             core::CContainerPrinter::print(actual));
+        BOOST_REQUIRE_EQUAL(core::CContainerPrinter::print(expected),
+                            core::CContainerPrinter::print(actual));
     }
 
     // Test missing values.
@@ -542,12 +715,12 @@ void CDataFrameUtilsTest::testMicWithColumn() {
 
         LOG_DEBUG(<< "expected = " << core::CContainerPrinter::print(expected));
         LOG_DEBUG(<< "actual   = " << core::CContainerPrinter::print(actual));
-        CPPUNIT_ASSERT_EQUAL(core::CContainerPrinter::print(expected),
-                             core::CContainerPrinter::print(actual));
+        BOOST_REQUIRE_EQUAL(core::CContainerPrinter::print(expected),
+                            core::CContainerPrinter::print(actual));
     }
 }
 
-void CDataFrameUtilsTest::testCategoryFrequencies() {
+BOOST_AUTO_TEST_CASE(testCategoryFrequencies) {
 
     std::size_t rows{5000};
     std::size_t cols{4};
@@ -575,7 +748,7 @@ void CDataFrameUtilsTest::testCategoryFrequencies() {
 
             auto frame = factory();
 
-            frame->categoricalColumns({true, false, true, false});
+            frame->categoricalColumns(TBoolVec{true, false, true, false});
             for (std::size_t i = 0; i < rows; ++i) {
                 frame->writeRow([&values, i, cols](core::CDataFrame::TFloatVecItr column,
                                                    std::int32_t&) {
@@ -589,18 +762,18 @@ void CDataFrameUtilsTest::testCategoryFrequencies() {
             TDoubleVecVec actualFrequencies{maths::CDataFrameUtils::categoryFrequencies(
                 threads, *frame, maskAll(rows), {0, 1, 2, 3})};
 
-            CPPUNIT_ASSERT_EQUAL(std::size_t{4}, actualFrequencies.size());
+            BOOST_REQUIRE_EQUAL(std::size_t{4}, actualFrequencies.size());
             for (std::size_t i : {0, 2}) {
-                CPPUNIT_ASSERT_EQUAL(actualFrequencies.size(),
-                                     expectedFrequencies.size());
+                BOOST_REQUIRE_EQUAL(actualFrequencies.size(),
+                                    expectedFrequencies.size());
                 for (std::size_t j = 0; j < actualFrequencies[i].size(); ++j) {
-                    CPPUNIT_ASSERT_DOUBLES_EQUAL(expectedFrequencies[i][j],
+                    BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedFrequencies[i][j],
                                                  actualFrequencies[i][j],
                                                  1.0 / static_cast<double>(rows));
                 }
             }
             for (std::size_t i : {1, 3}) {
-                CPPUNIT_ASSERT(actualFrequencies[i].empty());
+                BOOST_TEST_REQUIRE(actualFrequencies[i].empty());
             }
         }
 
@@ -610,7 +783,7 @@ void CDataFrameUtilsTest::testCategoryFrequencies() {
     core::stopDefaultAsyncExecutor();
 }
 
-void CDataFrameUtilsTest::testMeanValueOfTargetForCategories() {
+BOOST_AUTO_TEST_CASE(testMeanValueOfTargetForCategories) {
 
     std::size_t rows{2000};
     std::size_t cols{4};
@@ -651,7 +824,7 @@ void CDataFrameUtilsTest::testMeanValueOfTargetForCategories() {
 
             auto frame = factory();
 
-            frame->categoricalColumns({true, false, true, false});
+            frame->categoricalColumns(TBoolVec{true, false, true, false});
             for (std::size_t i = 0; i < rows; ++i) {
                 frame->writeRow([&values, i, cols](core::CDataFrame::TFloatVecItr column,
                                                    std::int32_t&) {
@@ -666,11 +839,11 @@ void CDataFrameUtilsTest::testMeanValueOfTargetForCategories() {
                 maths::CDataFrameUtils::CMetricColumnValue{3}, threads, *frame,
                 maskAll(rows), {0, 1, 2}));
 
-            CPPUNIT_ASSERT_EQUAL(std::size_t{4}, actualMeans.size());
+            BOOST_REQUIRE_EQUAL(std::size_t{4}, actualMeans.size());
             for (std::size_t i : {0, 2}) {
-                CPPUNIT_ASSERT_EQUAL(actualMeans.size(), expectedMeans.size());
+                BOOST_REQUIRE_EQUAL(actualMeans.size(), expectedMeans.size());
                 for (std::size_t j = 0; j < actualMeans[i].size(); ++j) {
-                    CPPUNIT_ASSERT_DOUBLES_EQUAL(
+                    BOOST_REQUIRE_CLOSE_ABSOLUTE(
                         maths::CBasicStatistics::mean(expectedMeans[i][j]),
                         actualMeans[i][j],
                         static_cast<double>(std::numeric_limits<float>::epsilon()) *
@@ -678,7 +851,7 @@ void CDataFrameUtilsTest::testMeanValueOfTargetForCategories() {
                 }
             }
             for (std::size_t i : {1, 3}) {
-                CPPUNIT_ASSERT(actualMeans[i].empty());
+                BOOST_TEST_REQUIRE(actualMeans[i].empty());
             }
         }
 
@@ -688,7 +861,7 @@ void CDataFrameUtilsTest::testMeanValueOfTargetForCategories() {
     core::stopDefaultAsyncExecutor();
 }
 
-void CDataFrameUtilsTest::testMeanValueOfTargetForCategoriesWithMissing() {
+BOOST_AUTO_TEST_CASE(testMeanValueOfTargetForCategoriesWithMissing) {
 
     // Test that rows missing the target variable are ignored.
 
@@ -725,7 +898,7 @@ void CDataFrameUtilsTest::testMeanValueOfTargetForCategoriesWithMissing() {
 
     auto frame = core::makeMainStorageDataFrame(cols, capacity).first;
 
-    frame->categoricalColumns({true, false, true, false});
+    frame->categoricalColumns(TBoolVec{true, false, true, false});
     for (std::size_t i = 0; i < rows; ++i) {
         frame->writeRow([&values, i, cols](core::CDataFrame::TFloatVecItr column, std::int32_t&) {
             for (std::size_t j = 0; j < cols; ++j, ++column) {
@@ -739,17 +912,17 @@ void CDataFrameUtilsTest::testMeanValueOfTargetForCategoriesWithMissing() {
         maths::CDataFrameUtils::CMetricColumnValue{3}, 1, *frame,
         core::CPackedBitVector{rows, true}, {0, 1, 2}));
 
-    CPPUNIT_ASSERT_EQUAL(std::size_t{4}, actualMeans.size());
+    BOOST_REQUIRE_EQUAL(std::size_t{4}, actualMeans.size());
     for (std::size_t i : {0, 2}) {
-        CPPUNIT_ASSERT_EQUAL(actualMeans.size(), expectedMeans.size());
+        BOOST_REQUIRE_EQUAL(actualMeans.size(), expectedMeans.size());
         for (std::size_t j = 0; j < actualMeans[i].size(); ++j) {
-            CPPUNIT_ASSERT_EQUAL(maths::CBasicStatistics::mean(expectedMeans[i][j]),
-                                 actualMeans[i][j]);
+            BOOST_REQUIRE_EQUAL(maths::CBasicStatistics::mean(expectedMeans[i][j]),
+                                actualMeans[i][j]);
         }
     }
 }
 
-void CDataFrameUtilsTest::testCategoryMicWithColumn() {
+BOOST_AUTO_TEST_CASE(testCategoryMicWithColumn) {
 
     std::size_t rows{5000};
     std::size_t cols{4};
@@ -783,7 +956,7 @@ void CDataFrameUtilsTest::testCategoryMicWithColumn() {
 
             auto frame = factory();
 
-            frame->categoricalColumns({true, false, true, false});
+            frame->categoricalColumns(TBoolVec{true, false, true, false});
             for (std::size_t i = 0; i < rows; ++i) {
                 frame->writeRow([&values, i, cols](core::CDataFrame::TFloatVecItr column,
                                                    std::int32_t&) {
@@ -806,30 +979,30 @@ void CDataFrameUtilsTest::testCategoryMicWithColumn() {
             LOG_DEBUG(<< "mics[0] = " << core::CContainerPrinter::print(mics[0]));
             LOG_DEBUG(<< "mics[2] = " << core::CContainerPrinter::print(mics[2]));
 
-            CPPUNIT_ASSERT_EQUAL(std::size_t{4}, mics.size());
+            BOOST_REQUIRE_EQUAL(std::size_t{4}, mics.size());
             for (const auto& mic : mics) {
-                CPPUNIT_ASSERT(std::is_sorted(
+                BOOST_TEST_REQUIRE(std::is_sorted(
                     mic.begin(), mic.end(), [](const auto& lhs, const auto& rhs) {
                         return maths::COrderings::lexicographical_compare(
                             -lhs.second, lhs.first, -rhs.second, rhs.first);
                     }));
             }
             for (std::size_t i : {0, 2}) {
-                CPPUNIT_ASSERT_EQUAL(std::size_t{5}, mics[i].size());
+                BOOST_REQUIRE_EQUAL(std::size_t{5}, mics[i].size());
             }
             for (std::size_t i : {1, 3}) {
-                CPPUNIT_ASSERT(mics[i].empty());
+                BOOST_TEST_REQUIRE(mics[i].empty());
             }
 
-            CPPUNIT_ASSERT(mics[0][0].second < 0.05);
-            CPPUNIT_ASSERT(mics[2][0].second > 0.50);
+            BOOST_TEST_REQUIRE(mics[0][0].second < 0.05);
+            BOOST_TEST_REQUIRE(mics[2][0].second > 0.50);
 
             TSizeVec categoryOrder;
             for (const auto& category : mics[2]) {
                 categoryOrder.push_back(category.first);
             }
-            CPPUNIT_ASSERT_EQUAL(std::string{"[1, 3, 0, 4, 2]"},
-                                 core::CContainerPrinter::print(categoryOrder));
+            BOOST_REQUIRE_EQUAL(std::string{"[1, 3, 0, 4, 2]"},
+                                core::CContainerPrinter::print(categoryOrder));
         }
 
         core::startDefaultAsyncExecutor();
@@ -837,34 +1010,4 @@ void CDataFrameUtilsTest::testCategoryMicWithColumn() {
 
     core::stopDefaultAsyncExecutor();
 }
-
-CppUnit::Test* CDataFrameUtilsTest::suite() {
-    CppUnit::TestSuite* suiteOfTests = new CppUnit::TestSuite("CDataFrameUtilsTest");
-
-    suiteOfTests->addTest(new CppUnit::TestCaller<CDataFrameUtilsTest>(
-        "CDataFrameUtilsTest::testColumnDataTypes", &CDataFrameUtilsTest::testColumnDataTypes));
-    suiteOfTests->addTest(new CppUnit::TestCaller<CDataFrameUtilsTest>(
-        "CDataFrameUtilsTest::testStandardizeColumns",
-        &CDataFrameUtilsTest::testStandardizeColumns));
-    suiteOfTests->addTest(new CppUnit::TestCaller<CDataFrameUtilsTest>(
-        "CDataFrameUtilsTest::testColumnQuantiles", &CDataFrameUtilsTest::testColumnQuantiles));
-    suiteOfTests->addTest(new CppUnit::TestCaller<CDataFrameUtilsTest>(
-        "CDataFrameUtilsTest::testColumnQuantilesWithEncoding",
-        &CDataFrameUtilsTest::testColumnQuantilesWithEncoding));
-    suiteOfTests->addTest(new CppUnit::TestCaller<CDataFrameUtilsTest>(
-        "CDataFrameUtilsTest::testMicWithColumn", &CDataFrameUtilsTest::testMicWithColumn));
-    suiteOfTests->addTest(new CppUnit::TestCaller<CDataFrameUtilsTest>(
-        "CDataFrameUtilsTest::testCategoryFrequencies",
-        &CDataFrameUtilsTest::testCategoryFrequencies));
-    suiteOfTests->addTest(new CppUnit::TestCaller<CDataFrameUtilsTest>(
-        "CDataFrameUtilsTest::testMeanValueOfTargetForCategories",
-        &CDataFrameUtilsTest::testMeanValueOfTargetForCategories));
-    suiteOfTests->addTest(new CppUnit::TestCaller<CDataFrameUtilsTest>(
-        "CDataFrameUtilsTest::testMeanValueOfTargetForCategoriesWithMissing",
-        &CDataFrameUtilsTest::testMeanValueOfTargetForCategoriesWithMissing));
-    suiteOfTests->addTest(new CppUnit::TestCaller<CDataFrameUtilsTest>(
-        "CDataFrameUtilsTest::testCategoryMicWithColumn",
-        &CDataFrameUtilsTest::testCategoryMicWithColumn));
-
-    return suiteOfTests;
-}
+BOOST_AUTO_TEST_SUITE_END()

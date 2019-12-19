@@ -7,6 +7,7 @@
 #define INCLUDED_ml_core_CStringSimilarityTester_h
 
 #include <core/CLogger.h>
+#include <core/CMemoryUsage.h>
 #include <core/CNonCopyable.h>
 #include <core/CompressUtils.h>
 #include <core/ImportExport.h>
@@ -20,7 +21,9 @@
 
 #include <stdlib.h>
 
-class CStringSimilarityTesterTest;
+namespace CStringSimilarityTesterTest {
+struct testLevensteinDistanceAlgorithmEquivalence;
+}
 
 namespace ml {
 namespace core {
@@ -284,6 +287,12 @@ public:
         return currentCol[secondLen];
     }
 
+    //! Debug the memory used by this similarity tester.
+    void debugMemoryUsage(core::CMemoryUsage::TMemoryUsagePtr mem) const;
+
+    //! Get the memory used by this similarity tester.
+    std::size_t memoryUsage() const;
+
 private:
     //! Calculate the Levenshtein distance using the naive method of
     //! calculating the entire distance matrix.  This private method
@@ -443,7 +452,7 @@ private:
     mutable CDeflator m_Compressor;
 
     // For unit testing
-    friend class ::CStringSimilarityTesterTest;
+    friend struct CStringSimilarityTesterTest::testLevensteinDistanceAlgorithmEquivalence;
 };
 }
 }

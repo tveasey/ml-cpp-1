@@ -9,6 +9,8 @@
 namespace ml {
 namespace maths {
 
+const std::string CDataFrameRegressionModel::SHAP_PREFIX{"feature_importance."};
+
 CDataFrameRegressionModel::CDataFrameRegressionModel(core::CDataFrame& frame,
                                                      TProgressCallback recordProgress,
                                                      TMemoryUsageCallback recordMemoryUsage,
