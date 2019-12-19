@@ -68,8 +68,44 @@ private:
     TMeanAccumulator m_MeanError;
 };
 
-//! \brief Finds the value to add to a set of predicted log-odds which minimises
-//! regularised cross entropy loss w.r.t. the actual categories.
+//! \brief Finds the value to add to a set of predictions which approximately
+//! minimises the regularised log MSE.
+class MATHS_EXPORT CArgMinLogMseImpl final : public CArgMinLossImpl {
+public:
+    CArgMinLogMseImpl(double lambda);
+    std::unique_ptr<CArgMinLossImpl> clone() const override;
+    bool nextPass() override;
+    void add(double prediction, double actual, double weight = 1.0) override;
+    void merge(const CArgMinLossImpl& other) override;
+    double value() const override;
+
+private:
+    using TMinMaxAccumulator = CBasicStatistics::CMinMax<double>;
+    using TMeanAccumulator = CBasicStatistics::SSampleMean<double>::TAccumulator;
+    using TVector = CVectorNx1<double, 3>;
+    using TVectorMeanAccumulator = CBasicStatistics::SSampleMean<TVector>::TAccumulator;
+    using TVectorMeanAccumulatorVec = std::vector<TVectorMeanAccumulator>;
+
+private:
+    std::size_t bucket(double prediction) const {
+        double bucket{(prediction - m_LogPredictionMinMax.min()) / this->bucketWidth()};
+        return std::min(static_cast<std::size_t>(bucket), m_Buckets.size() - 1);
+    }
+
+    double bucketWidth() const {
+        return m_LogPredictionMinMax.range() / static_cast<double>(m_Buckets.size());
+    }
+
+private:
+    std::size_t m_CurrentPass = 0;
+    TMinMaxAccumulator m_LogPredictionMinMax;
+    TMeanAccumulator m_MeanLogActual;
+    TVectorMeanAccumulatorVec m_Buckets;
+    TMeanAccumulator m_MeanError;
+};
+
+//! \brief Finds the value to add to a set of predicted log-odds which approximately
+//! minimises regularised cross entropy loss w.r.t. the actual categories.
 class MATHS_EXPORT CArgMinLogisticImpl final : public CArgMinLossImpl {
 public:
     CArgMinLogisticImpl(double lambda);
@@ -165,6 +201,8 @@ public:
     virtual double curvature(double prediction, double actual, double weight = 1.0) const = 0;
     //! Returns true if the loss curvature is constant.
     virtual bool isCurvatureConstant() const = 0;
+    //! Transforms a prediction from the forest to the value space.
+    virtual double transform(double prediction) const = 0;
     //! Get an object which computes the leaf value that minimises loss.
     virtual CArgMinLoss minimizer(double lambda) const = 0;
     //! Get the name of the loss function
@@ -182,6 +220,35 @@ public:
     double gradient(double prediction, double actual, double weight = 1.0) const override;
     double curvature(double prediction, double actual, double weight = 1.0) const override;
     bool isCurvatureConstant() const override;
+    double transform(double prediction) const override;
+    CArgMinLoss minimizer(double lambda) const override;
+    const std::string& name() const override;
+
+public:
+    static const std::string NAME;
+};
+
+//! \brief The log MSE loss function.
+//!
+//! DESCRIPTION:\n
+//! Formally, the log MSE error definition we use is \f$(\log(1+p) - \log(1+a))^2\f$.
+//! However, we approximate this by a quadratic which has its the minimum p = a and
+//! matches the value and derivative of log MSE loss function. For example, if the
+//! current prediction for the i'th training point is \f$p_i\f$, the loss is defined
+//! as
+//! <pre class="fragment">
+//!   \f$\displaystyle l_i(p) = c_i + w_i(p - a_i)^2\f$
+//! </pre>
+//! where \f$w_i = \frac{\log(1+p_i) - \log(1+a_i)}{(1+p_i)(p_i-a_i)}\f$ and \f$c_i\f$
+//! is choosen so \f$l_i(p_i) = (\log(1+p_i) - \log(1+a_i))^2\f$.
+class MATHS_EXPORT CLogMse final : public CLoss {
+public:
+    std::unique_ptr<CLoss> clone() const override;
+    double value(double prediction, double actual, double weight = 1.0) const override;
+    double gradient(double prediction, double actual, double weight = 1.0) const override;
+    double curvature(double prediction, double actual, double weight = 1.0) const override;
+    bool isCurvatureConstant() const override;
+    double transform(double prediction) const override;
     CArgMinLoss minimizer(double lambda) const override;
     const std::string& name() const override;
 
@@ -205,6 +272,7 @@ public:
     double gradient(double prediction, double actual, double weight = 1.0) const override;
     double curvature(double prediction, double actual, double weight = 1.0) const override;
     bool isCurvatureConstant() const override;
+    double transform(double prediction) const override;
     CArgMinLoss minimizer(double lambda) const override;
     const std::string& name() const override;
 

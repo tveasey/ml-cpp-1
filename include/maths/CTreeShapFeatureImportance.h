@@ -107,10 +107,10 @@ private:
         double scale(std::size_t pathIndex) const { return s_Scale[pathIndex]; }
 
         //! Current depth in the tree
-        int depth() const { return static_cast<int>(s_NextIndex) - 1; };
+        int depth() const { return static_cast<int>(s_NextIndex) - 1; }
 
         //! Get next index.
-        size_t nextIndex() const { return s_NextIndex; }
+        std::size_t nextIndex() const { return s_NextIndex; }
 
         //! Set next index.
         void nextIndex(std::size_t nextIndex) { s_NextIndex = nextIndex; }

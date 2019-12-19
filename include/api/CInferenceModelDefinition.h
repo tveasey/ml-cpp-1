@@ -31,7 +31,8 @@ public:
 
 public:
     virtual ~CSerializableToJson() = default;
-    //! Serialize the object as JSON items under the \p parentObject using the specified \p writer.
+    //! Serialize the object as JSON items under the \p parentObject using
+    //! the specified \p writer.
     virtual void addToDocument(rapidjson::Value& parentObject,
                                TRapidJsonWriter& writer) const = 0;
 };
@@ -53,7 +54,8 @@ public:
     ~CWeightedMode() override = default;
     //! Construct with the \p weights vector.
     explicit CWeightedMode(TDoubleVec&& weights);
-    //! Construct with a weight vector of \p size with all entries equal to \p weight.
+    //! Construct with a weight vector of \p size with all entries equal
+    //! to \p weight.
     CWeightedMode(std::size_t size, double weight);
     void addToDocument(rapidjson::Value& parentObject, TRapidJsonWriter& writer) const override;
     const std::string& stringType() const override;
@@ -71,7 +73,8 @@ public:
     ~CWeightedSum() override = default;
     //! Construct with the \p weights vector.
     explicit CWeightedSum(TDoubleVec&& weights);
-    //! Construct with a weight vector of \p size with all entries equal to \p weight.
+    //! Construct with a weight vector of \p size with all entries equal
+    //! to \p weight.
     CWeightedSum(std::size_t size, double weight);
     void addToDocument(rapidjson::Value& parentObject, TRapidJsonWriter& writer) const override;
     const std::string& stringType() const override;
@@ -82,8 +85,9 @@ private:
 
 //! Allows to use logistic regression aggregation.
 //!
-//! Given a weights vector $\vec{w}$ as a parameter and an output vector from the ensemble $\vec{x}$,
-//! it computes the logistic regression function \f$1/(1 + \exp(-\vec{w}^T \vec{x}))\f$.
+//! Given a weights vector $\vec{w}$ as a parameter and an output vector
+//! from the ensemble $\vec{x}$, it computes the logistic regression function
+//! \f$1/(1 + \exp(-\vec{w}^T \vec{x}))\f$.
 class API_EXPORT CLogisticRegression final : public CAggregateOutput {
 public:
     using TDoubleVec = std::vector<double>;
@@ -92,7 +96,8 @@ public:
     ~CLogisticRegression() override = default;
     //! Construct with the \p weights vector.
     explicit CLogisticRegression(TDoubleVec&& weights);
-    //! Construct with a weight vector of \p size with all entries equal to \p weight.
+    //! Construct with a weight vector of \p size with all entries equal
+    //! to \p weight.
     CLogisticRegression(std::size_t size, double weight);
     void addToDocument(rapidjson::Value& parentObject, TRapidJsonWriter& writer) const override;
     const std::string& stringType() const override;
@@ -124,7 +129,8 @@ public:
     virtual void targetType(ETargetType targetType);
     //! Returns target type (regression or classification).
     virtual ETargetType targetType() const;
-    //! Adjust the feature names, e.g. to exclude not used feature names like the target column.
+    //! Adjust the feature names, e.g. to exclude not used feature names
+    //! like the target column.
     virtual TStringVec removeUnusedFeatures() = 0;
     virtual const TStringVecOptional& classificationLabels() const;
     virtual void classificationLabels(const TStringVec& classificationLabels);

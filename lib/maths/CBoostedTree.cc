@@ -94,6 +94,134 @@ double CArgMinMseImpl::value() const {
                : count / (count + this->lambda()) * CBasicStatistics::mean(m_MeanError);
 }
 
+CArgMinLogMseImpl::CArgMinLogMseImpl(double lambda)
+    : CArgMinLossImpl{lambda}, m_Buckets(128) {
+}
+
+std::unique_ptr<CArgMinLossImpl> CArgMinLogMseImpl::clone() const {
+    return std::make_unique<CArgMinLogMseImpl>(*this);
+}
+
+bool CArgMinLogMseImpl::nextPass() {
+    ++m_CurrentPass;
+    return this->bucketWidth() > 0.0 && m_CurrentPass < 2;
+}
+
+void CArgMinLogMseImpl::add(double prediction, double actual, double weight) {
+    prediction = std::exp(prediction);
+    double logPrediction{CTools::fastLog(1.0 + prediction)};
+    double logActual{CTools::fastLog(1.0 + actual)};
+    switch (m_CurrentPass) {
+    case 0: {
+        m_LogPredictionMinMax.add(logPrediction);
+        m_MeanLogActual.add(logActual, weight);
+        break;
+    }
+    case 1: {
+        double logError{logActual - logPrediction};
+        TVector example;
+        example(0) = CTools::pow2(logError);
+        example(1) = logError;
+        example(2) = prediction;
+        m_Buckets[this->bucket(logPrediction)].add(example, weight);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+void CArgMinLogMseImpl::merge(const CArgMinLossImpl& other) {
+    const auto* lmse = dynamic_cast<const CArgMinLogMseImpl*>(&other);
+    if (lmse != nullptr) {
+        switch (m_CurrentPass) {
+        case 0:
+            m_LogPredictionMinMax += lmse->m_LogPredictionMinMax;
+            m_MeanLogActual += lmse->m_MeanLogActual;
+            break;
+        case 1:
+            for (std::size_t i = 0; i < m_Buckets.size(); ++i) {
+                m_Buckets[i] += lmse->m_Buckets[i];
+            }
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+double CArgMinLogMseImpl::value() const {
+
+    using TMinAccumulator = CBasicStatistics::SMin<std::pair<double, double>>::TAccumulator;
+
+    std::function<double(double)> objective;
+    double minLogWeight;
+    double maxLogWeight;
+
+    if (this->bucketWidth() == 0.0) {
+        objective = [this](double logWeight) {
+            double weight{std::exp(logWeight)};
+            return CTools::fastLog(1.0 + weight) *
+                       CBasicStatistics::count(m_MeanLogActual) *
+                       (CTools::fastLog(1.0 + weight) -
+                        2.0 * CBasicStatistics::mean(m_MeanLogActual)) +
+                   this->lambda() * CTools::pow2(std::exp(logWeight));
+        };
+
+        minLogWeight = -4.0;
+        maxLogWeight = CBasicStatistics::mean(m_MeanLogActual);
+
+    } else {
+        objective = [this](double logWeight) {
+            double loss{0.0};
+            for (const auto& bucket : m_Buckets) {
+                double count{CBasicStatistics::count(bucket)};
+                double logMse{CBasicStatistics::mean(bucket)(0)};
+                double logMeanError{CBasicStatistics::mean(bucket)(1)};
+                double prediction{CBasicStatistics::mean(bucket)(2)};
+                double logPredictionRatio{CTools::fastLog(
+                    (1.0 + prediction * std::exp(logWeight)) / (1.0 + prediction))};
+                loss += count * (logMse - 2.0 * logMeanError * logPredictionRatio +
+                                 CTools::pow2(logPredictionRatio));
+            }
+            return loss + this->lambda() * CTools::pow2(std::exp(logWeight));
+        };
+
+        // If the weight smaller than the minimum log error every prediction is low.
+        // Conversely, if it's larger than the maximum log error every prediction is
+        // high. In both cases, we can reduce the error by making the weight larger,
+        // respectively smaller. Therefore, the optimal weight must lie between these
+        // values.
+        minLogWeight = std::numeric_limits<double>::max();
+        maxLogWeight = -minLogWeight;
+        for (const auto& bucket : m_Buckets) {
+            minLogWeight = std::min(minLogWeight, CBasicStatistics::mean(bucket)(1));
+            maxLogWeight = std::max(maxLogWeight, CBasicStatistics::mean(bucket)(1));
+        }
+    }
+
+    TMinAccumulator globalMinimum;
+
+    std::size_t intervals{10};
+    for (std::size_t i = intervals; i > 0; --i) {
+        double minimum;
+        double objectiveAtMinimum;
+        std::size_t maxIterations{5};
+        double a{(static_cast<double>(i) * minLogWeight +
+                  static_cast<double>(intervals - i) * maxLogWeight) /
+                 static_cast<double>(intervals)};
+        double b{(static_cast<double>(i - 1) * minLogWeight +
+                  static_cast<double>(intervals - i + 1) * maxLogWeight) /
+                 static_cast<double>(intervals)};
+        CSolvers::minimize(a, b, objective(a), objective(b), objective, 1e-3,
+                           maxIterations, minimum, objectiveAtMinimum);
+        LOG_TRACE(<< "minimum = " << minimum << " objective(minimum) = " << objectiveAtMinimum);
+        globalMinimum.add({objectiveAtMinimum, minimum});
+    }
+
+    return globalMinimum[0].second;
+}
+
 CArgMinLogisticImpl::CArgMinLogisticImpl(double lambda)
     : CArgMinLossImpl{lambda}, m_CategoryCounts{0},
       m_BucketCategoryCounts(128, TVector{0.0}) {
@@ -104,8 +232,8 @@ std::unique_ptr<CArgMinLossImpl> CArgMinLogisticImpl::clone() const {
 }
 
 bool CArgMinLogisticImpl::nextPass() {
-    m_CurrentPass += this->bucketWidth() > 0.0 ? 1 : 2;
-    return m_CurrentPass < 2;
+    ++m_CurrentPass;
+    return this->bucketWidth() > 0.0 && m_CurrentPass < 2;
 }
 
 void CArgMinLogisticImpl::add(double prediction, double actual, double weight) {
@@ -264,6 +392,10 @@ bool CMse::isCurvatureConstant() const {
     return true;
 }
 
+double CMse::transform(double prediction) const {
+    return prediction;
+}
+
 CArgMinLoss CMse::minimizer(double lambda) const {
     return this->makeMinimizer(CArgMinMseImpl{lambda});
 }
@@ -273,6 +405,61 @@ const std::string& CMse::name() const {
 }
 
 const std::string CMse::NAME{"mse"};
+
+std::unique_ptr<CLoss> CLogMse::clone() const {
+    return std::make_unique<CLogMse>(*this);
+}
+
+double CLogMse::value(double logPrediction, double actual, double weight) const {
+    double prediction{std::exp(logPrediction)};
+    double log1PlusPrediction{CTools::fastLog(1.0 + prediction)};
+    double log1PlusActual{CTools::fastLog(1.0 + actual)};
+    return weight * CTools::pow2(log1PlusPrediction - log1PlusActual);
+}
+
+double CLogMse::gradient(double logPrediction, double actual, double weight) const {
+    // Apply L'Hopital's rule in the limit prediction -> actual.
+    double prediction{std::exp(logPrediction)};
+    double logActual{CTools::fastLog(actual)};
+    double log1PlusPrediction{CTools::fastLog(1.0 + prediction)};
+    double log1PlusActual{CTools::fastLog(1.0 + actual)};
+    if (prediction == actual) {
+        return 0.0;
+    }
+    return 2.0 * weight * CTools::pow2(log1PlusPrediction - log1PlusActual) /
+           (logPrediction - logActual);
+}
+
+double CLogMse::curvature(double logPrediction, double actual, double weight) const {
+    // Apply L'Hopital's rule in the limit prediction -> actual.
+    double prediction{std::exp(logPrediction)};
+    double logActual{CTools::fastLog(actual)};
+    double log1PlusPrediction{CTools::fastLog(1.0 + prediction)};
+    double log1PlusActual{CTools::fastLog(1.0 + actual)};
+    if (prediction == actual) {
+        return 2.0 * weight * CTools::pow2(actual / (1.0 + actual));
+    }
+    return 2.0 * weight *
+           CTools::pow2((log1PlusPrediction - log1PlusActual) / (logPrediction - logActual));
+}
+
+bool CLogMse::isCurvatureConstant() const {
+    return false;
+}
+
+double CLogMse::transform(double prediction) const {
+    return std::exp(prediction);
+}
+
+CArgMinLoss CLogMse::minimizer(double lambda) const {
+    return this->makeMinimizer(CArgMinLogMseImpl{lambda});
+}
+
+const std::string& CLogMse::name() const {
+    return NAME;
+}
+
+const std::string CLogMse::NAME{"log_mse"};
 
 std::unique_ptr<CLoss> CLogistic::clone() const {
     return std::make_unique<CLogistic>(*this);
@@ -302,6 +489,10 @@ double CLogistic::curvature(double prediction, double /*actual*/, double weight)
 
 bool CLogistic::isCurvatureConstant() const {
     return false;
+}
+
+double CLogistic::transform(double prediction) const {
+    return CTools::logisticFunction(prediction);
 }
 
 CArgMinLoss CLogistic::minimizer(double lambda) const {

@@ -829,6 +829,160 @@ BOOST_AUTO_TEST_CASE(testDepthBasedRegularization) {
     }
 }
 
+BOOST_AUTO_TEST_CASE(testLogMeanSquareMinimizerEdgeCases) {
+
+    // Test all predictions are equal.
+
+    using maths::boosted_tree_detail::CArgMinLogMseImpl;
+
+    test::CRandomNumbers rng;
+    TDoubleVec actuals;
+
+    for (auto lambda : {0.0, 10.0}) {
+
+        LOG_DEBUG(<< "lambda = " << lambda);
+
+        // The true objective.
+        auto objective = [&](double weight) {
+            double loss{0.0};
+            for (auto actual : actuals) {
+                loss += maths::CTools::pow2(maths::CTools::fastLog(1.0 + actual) -
+                                            maths::CTools::fastLog(1.0 + std::exp(weight)));
+            }
+            return loss + lambda * maths::CTools::pow2(std::exp(weight));
+        };
+
+        for (std::size_t t = 0; t < 10; ++t) {
+
+            rng.generateLogNormalSamples(1.0, 3.0, 100, actuals);
+
+            double min{std::numeric_limits<double>::max()};
+            double max{-min};
+            for (auto actual : actuals) {
+                min = std::min(min, maths::CTools::fastLog(actual));
+                max = std::max(max, maths::CTools::fastLog(actual));
+            }
+
+            double expected;
+            double objectiveAtExpected;
+            std::size_t maxIterations{20};
+            maths::CSolvers::minimize(min, max, objective(min), objective(max),
+                                      objective, 1e-3, maxIterations, expected,
+                                      objectiveAtExpected);
+            LOG_DEBUG(<< "expected = " << expected
+                      << " objective at expected = " << objectiveAtExpected);
+
+            CArgMinLogMseImpl argmin{lambda};
+            std::size_t numberPasses{0};
+
+            do {
+                ++numberPasses;
+                for (auto actual : actuals) {
+                    argmin.add(0.0, actual);
+                }
+            } while (argmin.nextPass());
+            double actual{argmin.value()};
+            LOG_DEBUG(<< "actual = " << actual
+                      << " objective at actual = " << objective(actual));
+
+            // We should be within 1% for the value and 0.01% for the objective
+            // at the value.
+            BOOST_REQUIRE_EQUAL(std::size_t{1}, numberPasses);
+            BOOST_REQUIRE_CLOSE_ABSOLUTE(expected, actual, 1.0);
+            BOOST_REQUIRE_CLOSE(objectiveAtExpected, objective(actual), 1e-2);
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testLogMeanSquareMinimizer) {
+
+    // Test that we a good approximation of the additive term for the prediction
+    // which minimises the log-MSE.
+
+    using maths::boosted_tree_detail::CArgMinLogMseImpl;
+
+    test::CRandomNumbers rng;
+    TDoubleVec predictions;
+    TDoubleVec actuals;
+
+    for (auto lambda : {0.0, 10.0}) {
+
+        LOG_DEBUG(<< "lambda = " << lambda);
+
+        // The true objective.
+        auto objective = [&](double weight) {
+            double loss{0.0};
+            for (std::size_t i = 0; i < actuals.size(); ++i) {
+                loss += maths::CTools::pow2(
+                    maths::CTools::fastLog(1.0 + actuals[i]) -
+                    maths::CTools::fastLog(1.0 + std::exp(std::log(predictions[i]) + weight)));
+            }
+            return loss + lambda * maths::CTools::pow2(std::exp(weight));
+        };
+
+        // This loop is fuzzing the predictions and testing we get consistently
+        // good estimates of the true minimizer.
+        for (std::size_t t = 0; t < 10; ++t) {
+
+            rng.generateLogNormalSamples(1.0, 4.0, 1000, actuals);
+            predictions.resize(actuals.size());
+
+            TDoubleVec errors;
+            rng.generateNormalSamples(10.0, 16.0, actuals.size(), errors);
+
+            double min{std::numeric_limits<double>::max()};
+            double max{-min};
+            for (std::size_t i = 0; i < actuals.size(); ++i) {
+                predictions[i] = actuals[i] + std::max(-actuals[i] + 0.001, errors[i]);
+                min = std::min(min, maths::CTools::fastLog(actuals[i] / predictions[i]));
+                max = std::max(max, maths::CTools::fastLog(actuals[i] / predictions[i]));
+            }
+
+            double expected;
+            double objectiveAtExpected;
+            std::size_t maxIterations{20};
+            maths::CSolvers::minimize(min, max, objective(min), objective(max),
+                                      objective, 1e-3, maxIterations, expected,
+                                      objectiveAtExpected);
+            LOG_DEBUG(<< "expected = " << expected
+                      << " objective at expected = " << objectiveAtExpected);
+
+            CArgMinLogMseImpl argmin{lambda};
+            CArgMinLogMseImpl argminPartition[2]{{lambda}, {lambda}};
+            auto nextPass = [&] {
+                bool done{argmin.nextPass() == false};
+                done &= (argminPartition[0].nextPass() == false);
+                done &= (argminPartition[1].nextPass() == false);
+                return done == false;
+            };
+
+            do {
+                for (std::size_t i = 0; i < actuals.size() / 2; ++i) {
+                    argmin.add(std::log(predictions[i]), actuals[i]);
+                    argminPartition[0].add(std::log(predictions[i]), actuals[i]);
+                }
+                for (std::size_t i = actuals.size() / 2; i < actuals.size(); ++i) {
+                    argmin.add(std::log(predictions[i]), actuals[i]);
+                    argminPartition[1].add(std::log(predictions[i]), actuals[i]);
+                }
+                argminPartition[0].merge(argminPartition[1]);
+                argminPartition[1] = argminPartition[0];
+            } while (nextPass());
+
+            double actual{argmin.value()};
+            double actualPartition{argminPartition[0].value()};
+            LOG_DEBUG(<< "actual = " << actual
+                      << " objective at actual = " << objective(actual));
+
+            // We should be within 1% for the value and 0.001% for the objective
+            // at the value.
+            BOOST_REQUIRE_CLOSE(actual, actualPartition, 1e-8);
+            BOOST_REQUIRE_CLOSE(expected, actual, 1);
+            BOOST_REQUIRE_CLOSE(objectiveAtExpected, objective(actual), 1e-3);
+        }
+    }
+}
+
 BOOST_AUTO_TEST_CASE(testLogisticMinimizerEdgeCases) {
 
     using maths::boosted_tree_detail::CArgMinLogisticImpl;
@@ -991,9 +1145,8 @@ BOOST_AUTO_TEST_CASE(testLogisticMinimizerRandom) {
             // We should be within 1% for the value and 0.001% for the objective
             // at the value.
             BOOST_REQUIRE_EQUAL(actual, actualPartition);
-            BOOST_REQUIRE_CLOSE_ABSOLUTE(expected, actual, 0.01 * std::fabs(expected));
-            BOOST_REQUIRE_CLOSE_ABSOLUTE(objectiveAtExpected, objective(actual),
-                                         1e-5 * objectiveAtExpected);
+            BOOST_REQUIRE_CLOSE(expected, actual, 0.01);
+            BOOST_REQUIRE_CLOSE(objectiveAtExpected, objective(actual), 1e-3);
         }
     }
 }
