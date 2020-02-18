@@ -167,7 +167,7 @@ CDataFrameTrainBoostedTreeRunner::CDataFrameTrainBoostedTreeRunner(
         m_BoostedTreeFactory->bayesianOptimisationRestarts(bayesianOptimisationRestarts);
     }
     if (numTopFeatureImportanceValues > 0) {
-        m_BoostedTreeFactory->topShapValues(numTopFeatureImportanceValues);
+        m_BoostedTreeFactory->numberTopShapValues(numTopFeatureImportanceValues);
     }
 }
 
@@ -206,8 +206,8 @@ const maths::CBoostedTreeFactory& CDataFrameTrainBoostedTreeRunner::boostedTreeF
     return *m_BoostedTreeFactory;
 }
 
-std::size_t CDataFrameTrainBoostedTreeRunner::topShapValues() const {
-    return m_BoostedTree == nullptr ? 0 : m_BoostedTree->topShapValues();
+std::size_t CDataFrameTrainBoostedTreeRunner::numberTopShapValues() const {
+    return m_BoostedTree == nullptr ? 0 : m_BoostedTree->numberTopShapValues();
 }
 
 void CDataFrameTrainBoostedTreeRunner::runImpl(core::CDataFrame& frame) {

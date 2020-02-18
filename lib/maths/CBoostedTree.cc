@@ -523,9 +523,9 @@ CBoostedTree::TSizeRange CBoostedTree::columnsHoldingShapValues() const {
     return m_Impl->columnsHoldingShapValues();
 }
 
-std::size_t CBoostedTree::topShapValues() const {
+std::size_t CBoostedTree::numberTopShapValues() const {
     if (m_Impl) {
-        return m_Impl->topShapValues();
+        return m_Impl->numberTopShapValues();
     }
     return 0;
 }

@@ -76,10 +76,10 @@ void CDataFrameTrainBoostedTreeRegressionRunner::writeOneRow(
     writer.Double(row[columnHoldingPrediction]);
     writer.Key(IS_TRAINING_FIELD_NAME);
     writer.Bool(maths::CDataFrameUtils::isMissing(row[columnHoldingDependentVariable]) == false);
-    if (this->topShapValues() > 0) {
+    if (this->numberTopShapValues() > 0) {
         auto largestShapValues =
             maths::CBasicStatistics::orderStatisticsAccumulator<std::size_t>(
-                this->topShapValues(), [&row](std::size_t lhs, std::size_t rhs) {
+                this->numberTopShapValues(), [&row](std::size_t lhs, std::size_t rhs) {
                     return std::fabs(row[lhs]) > std::fabs(row[rhs]);
                 });
         for (auto col : this->boostedTree().columnsHoldingShapValues()) {

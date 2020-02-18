@@ -63,7 +63,7 @@ public:
     const maths::CBoostedTreeFactory& boostedTreeFactory() const;
 
     //! The number of (largest magnitude) SHAP values to return.
-    std::size_t topShapValues() const;
+    std::size_t numberTopShapValues() const;
 
     //! \return Reference to the analysis state.
     const CDataFrameAnalysisInstrumentation& instrumentation() const override;

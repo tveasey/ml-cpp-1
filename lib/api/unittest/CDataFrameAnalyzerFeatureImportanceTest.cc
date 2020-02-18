@@ -243,9 +243,9 @@ BOOST_FIXTURE_TEST_CASE(testRegressionFeatureImportanceAllShap, SFixture) {
     // the significance is proportional to the multiplier. Also make sure that the SHAP values
     // are indeed a local approximation of the prediction up to the constant bias term.
 
-    std::size_t topShapValues{5}; //Note, number of requested shap values is larger than the number of regressors
+    std::size_t numberTopShapValues{5}; //Note, number of requested shap values is larger than the number of regressors
     TDoubleVec weights{50, 150, 50, -50};
-    auto results{runRegression(topShapValues, weights)};
+    auto results{runRegression(numberTopShapValues, weights)};
 
     TMeanVarAccumulator bias;
     double c1Sum{0.0}, c2Sum{0.0}, c3Sum{0.0}, c4Sum{0.0};
@@ -287,8 +287,8 @@ BOOST_FIXTURE_TEST_CASE(testRegressionFeatureImportanceAllShap, SFixture) {
 BOOST_FIXTURE_TEST_CASE(testRegressionFeatureImportanceNoImportance, SFixture) {
     // Test that feature importance calculates low SHAP values if regressors have no weight.
     // We also add high noise variance.
-    std::size_t topShapValues{4};
-    auto results = runRegression(topShapValues, {10.0, 0.0, 0.0, 0.0}, 10.0);
+    std::size_t numberTopShapValues{4};
+    auto results = runRegression(numberTopShapValues, {10.0, 0.0, 0.0, 0.0}, 10.0);
 
     TMeanAccumulator cNoImportanceMean;
     for (const auto& result : results.GetArray()) {
@@ -316,9 +316,9 @@ BOOST_FIXTURE_TEST_CASE(testClassificationFeatureImportanceAllShap, SFixture) {
     // values are indeed a local approximation of the predicted log-odds up to the constant
     // bias term.
 
-    std::size_t topShapValues{4};
+    std::size_t numberTopShapValues{4};
     TMeanVarAccumulator bias;
-    auto results{runClassification(topShapValues, {0.5, -0.7, 0.2, -0.2})};
+    auto results{runClassification(numberTopShapValues, {0.5, -0.7, 0.2, -0.2})};
 
     double c1Sum{0.0}, c2Sum{0.0}, c3Sum{0.0}, c4Sum{0.0};
     for (const auto& result : results.GetArray()) {
@@ -363,8 +363,8 @@ BOOST_FIXTURE_TEST_CASE(testClassificationFeatureImportanceAllShap, SFixture) {
 
 BOOST_FIXTURE_TEST_CASE(testRegressionFeatureImportanceNoShap, SFixture) {
     // Test that if topShapValue is set to 0, no feature importance values are returned.
-    std::size_t topShapValues{0};
-    auto results{runRegression(topShapValues, {50.0, 150.0, 50.0, -50.0})};
+    std::size_t numberTopShapValues{0};
+    auto results{runRegression(numberTopShapValues, {50.0, 150.0, 50.0, -50.0})};
 
     for (const auto& result : results.GetArray()) {
         if (result.HasMember("row_results")) {
@@ -385,8 +385,8 @@ BOOST_FIXTURE_TEST_CASE(testMissingFeatures, SFixture) {
     // We randomly omit 10% of all data in a simple additive model target=c1+c2+c3+c4. Hence,
     // calculated feature importances should be very similar and the bias should be close
     // to 0.
-    std::size_t topShapValues{4};
-    auto results = runRegressionWithMissingFeatures(topShapValues);
+    std::size_t numberTopShapValues{4};
+    auto results = runRegressionWithMissingFeatures(numberTopShapValues);
 
     TMeanVarAccumulator bias;
     double c1Sum{0.0}, c2Sum{0.0}, c3Sum{0.0}, c4Sum{0.0};

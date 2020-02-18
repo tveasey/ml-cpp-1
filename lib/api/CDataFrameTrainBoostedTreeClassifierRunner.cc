@@ -177,10 +177,10 @@ void CDataFrameTrainBoostedTreeClassifierRunner::writeOneRow(
         writer.EndArray();
     }
 
-    if (this->topShapValues() > 0) {
+    if (this->numberTopShapValues() > 0) {
         auto largestShapValues =
             maths::CBasicStatistics::orderStatisticsAccumulator<std::size_t>(
-                this->topShapValues(), [&row](std::size_t lhs, std::size_t rhs) {
+                this->numberTopShapValues(), [&row](std::size_t lhs, std::size_t rhs) {
                     return std::fabs(row[lhs]) > std::fabs(row[rhs]);
                 });
         for (auto col : this->boostedTree().columnsHoldingShapValues()) {

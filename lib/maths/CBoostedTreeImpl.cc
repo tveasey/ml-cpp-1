@@ -347,8 +347,9 @@ std::size_t CBoostedTreeImpl::estimateMemoryUsage(std::size_t numberRows,
                                          PACKED_BIT_VECTOR_MAXIMUM_ROWS_PER_BYTE};
     std::size_t bayesianOptimisationMemoryUsage{CBayesianOptimisation::estimateMemoryUsage(
         this->numberHyperparametersToTune(), m_NumberRounds)};
-    std::size_t shapMemoryUsage{
-        m_TopShapValues > 0 ? numberRows * numberColumns * sizeof(CFloatStorage) : 0};
+    std::size_t shapMemoryUsage{m_NumberTopShapValues > 0
+                                    ? numberRows * numberColumns * sizeof(CFloatStorage)
+                                    : 0};
     return sizeof(*this) + forestMemoryUsage + extraColumnsMemoryUsage +
            foldRoundLossMemoryUsage + hyperparametersMemoryUsage +
            std::max(leafNodeStatisticsMemoryUsage, shapMemoryUsage) + // not concurrent
@@ -1236,7 +1237,7 @@ const std::string STOP_CROSS_VALIDATION_EARLY_TAG{"stop_cross_validation_eraly"}
 const std::string TESTING_ROW_MASKS_TAG{"testing_row_masks"};
 const std::string TRAINING_ROW_MASKS_TAG{"training_row_masks"};
 const std::string TRAINING_PROGRESS_TAG{"training_progress"};
-const std::string TOP_SHAP_VALUES_TAG{"top_shap_values"};
+const std::string NUMBER_TOP_SHAP_VALUES_TAG{"top_shap_values"};
 const std::string FIRST_SHAP_COLUMN_INDEX{"first_shap_column_index"};
 const std::string LAST_SHAP_COLUMN_INDEX{"last_shap_column_index"};
 }
@@ -1308,7 +1309,7 @@ void CBoostedTreeImpl::acceptPersistInserter(core::CStatePersistInserter& insert
     core::CPersistUtils::persist(MAXIMUM_NUMBER_TREES_OVERRIDE_TAG,
                                  m_MaximumNumberTreesOverride, inserter);
     inserter.insertValue(LOSS_TAG, m_Loss->name());
-    core::CPersistUtils::persist(TOP_SHAP_VALUES_TAG, m_TopShapValues, inserter);
+    core::CPersistUtils::persist(NUMBER_TOP_SHAP_VALUES_TAG, m_NumberTopShapValues, inserter);
     core::CPersistUtils::persist(FIRST_SHAP_COLUMN_INDEX, m_FirstShapColumnIndex, inserter);
     core::CPersistUtils::persist(LAST_SHAP_COLUMN_INDEX, m_LastShapColumnIndex, inserter);
 }
@@ -1407,8 +1408,9 @@ bool CBoostedTreeImpl::acceptRestoreTraverser(core::CStateRestoreTraverser& trav
                 core::CPersistUtils::restore(MAXIMUM_NUMBER_TREES_OVERRIDE_TAG,
                                              m_MaximumNumberTreesOverride, traverser))
         RESTORE(LOSS_TAG, restoreLoss(m_Loss, traverser))
-        RESTORE(TOP_SHAP_VALUES_TAG,
-                core::CPersistUtils::restore(TOP_SHAP_VALUES_TAG, m_TopShapValues, traverser))
+        RESTORE(NUMBER_TOP_SHAP_VALUES_TAG,
+                core::CPersistUtils::restore(NUMBER_TOP_SHAP_VALUES_TAG,
+                                             m_NumberTopShapValues, traverser))
         RESTORE(FIRST_SHAP_COLUMN_INDEX,
                 core::CPersistUtils::restore(FIRST_SHAP_COLUMN_INDEX,
                                              m_FirstShapColumnIndex, traverser))
@@ -1463,7 +1465,7 @@ const CBoostedTreeHyperparameters& CBoostedTreeImpl::bestHyperparameters() const
 }
 
 void CBoostedTreeImpl::computeShapValues(core::CDataFrame& frame) {
-    if (m_TopShapValues > 0) {
+    if (m_NumberTopShapValues > 0) {
         if (m_BestForestTestLoss == INF) {
             HANDLE_FATAL(<< "Internal error: no model available for prediction. "
                          << "Please report this problem.");
@@ -1480,7 +1482,7 @@ void CBoostedTreeImpl::computeShapValues(core::CDataFrame& frame) {
 
         m_FirstShapColumnIndex = offset;
         m_LastShapColumnIndex = frame.numberColumns() - 1;
-        TStrVec columnNames(frame.columnNames());
+        TStrVec columnNames{frame.columnNames()};
         for (std::size_t i = 0; i < m_NumberInputColumns; ++i) {
             columnNames[offset + i] = CDataFramePredictiveModel::SHAP_PREFIX +
                                       frame.columnNames()[i];
@@ -1510,8 +1512,8 @@ CBoostedTreeImpl::TSizeRange CBoostedTreeImpl::columnsHoldingShapValues() const 
     return TSizeRange{m_FirstShapColumnIndex, m_LastShapColumnIndex + 1};
 }
 
-std::size_t CBoostedTreeImpl::topShapValues() const {
-    return m_TopShapValues;
+std::size_t CBoostedTreeImpl::numberTopShapValues() const {
+    return m_NumberTopShapValues;
 }
 
 std::size_t CBoostedTreeImpl::numberInputColumns() const {

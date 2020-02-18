@@ -457,7 +457,7 @@ public:
     TSizeRange columnsHoldingShapValues() const override;
 
     //! Get the number of largest SHAP values that will be returned for every row.
-    std::size_t topShapValues() const override;
+    std::size_t numberTopShapValues() const override;
 
     //! Get the probability threshold at which to classify a row as class one.
     double probabilityAtWhichToAssignClassOne() const override;

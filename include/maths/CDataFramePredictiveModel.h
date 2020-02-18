@@ -67,7 +67,7 @@ public:
     virtual std::size_t columnHoldingPrediction() const = 0;
 
     //! Get the number of largest SHAP values that will be returned for every row.
-    virtual std::size_t topShapValues() const = 0;
+    virtual std::size_t numberTopShapValues() const = 0;
 
     //! Get the optional vector of column indices with SHAP values
     virtual TSizeRange columnsHoldingShapValues() const = 0;

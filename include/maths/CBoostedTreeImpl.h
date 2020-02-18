@@ -131,7 +131,7 @@ public:
     TSizeRange columnsHoldingShapValues() const;
 
     //! Get the number of largest SHAP values that will be returned for every row.
-    std::size_t topShapValues() const;
+    std::size_t numberTopShapValues() const;
 
     //! Get the number of columns in the original data frame.
     std::size_t numberInputColumns() const;
@@ -334,7 +334,7 @@ private:
     std::size_t m_NumberRounds = 1;
     std::size_t m_CurrentRound = 0;
     core::CLoopProgress m_TrainingProgress;
-    std::size_t m_TopShapValues = 0;
+    std::size_t m_NumberTopShapValues = 0;
     std::size_t m_FirstShapColumnIndex = 0;
     std::size_t m_LastShapColumnIndex = 0;
     TAnalysisInstrumentationPtr m_Instrumentation; // no persist/restore
