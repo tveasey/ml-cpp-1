@@ -7,7 +7,7 @@
 #include <core/CDataFrame.h>
 
 #include <maths/CBasicStatistics.h>
-#include <maths/CDataFrameRegressionModel.h>
+#include <maths/CDataFramePredictiveModel.h>
 #include <maths/CTools.h>
 
 #include <api/CDataFrameAnalyzer.h>
@@ -25,14 +25,13 @@ BOOST_AUTO_TEST_SUITE(CDataFrameAnalyzerFeatureImportanceTest)
 using namespace ml;
 
 namespace {
-using TBoolVec = std::vector<bool>;
-using TSizeVec = std::vector<std::size_t>;
-using TRowItr = core::CDataFrame::TRowItr;
-using TRowRef = core::CDataFrame::TRowRef;
-using TDataFrameUPtr = std::unique_ptr<core::CDataFrame>;
 using TDoubleVec = std::vector<double>;
 using TStrVec = std::vector<std::string>;
-using TMeanVarAccumulator = ml::maths::CBasicStatistics::SSampleMeanVar<double>::TAccumulator;
+using TRowItr = core::CDataFrame::TRowItr;
+using TRowRef = core::CDataFrame::TRowRef;
+using TMeanAccumulator = maths::CBasicStatistics::SSampleMean<double>::TAccumulator;
+using TMeanAccumulatorVec = std::vector<TMeanAccumulator>;
+using TMeanVarAccumulator = maths::CBasicStatistics::SSampleMeanVar<double>::TAccumulator;
 
 void setupLinearRegressionData(const TStrVec& fieldNames,
                                TStrVec& fieldValues,
@@ -56,11 +55,41 @@ void setupLinearRegressionData(const TStrVec& fieldNames,
             row[j] = values[i + j];
         }
 
+        fieldValues[0] = target(row);
         for (std::size_t j = 0; j < row.size(); ++j) {
-            fieldValues[j] = core::CStringUtils::typeToStringPrecise(
+            fieldValues[j + 1] = core::CStringUtils::typeToStringPrecise(
                 row[j], core::CIEEE754::E_DoublePrecision);
         }
-        fieldValues[weights.size()] = target(row);
+
+        analyzer.handleRecord(fieldNames, fieldValues);
+    }
+}
+
+void setupRegressionDataWithMissingFeatures(const TStrVec& fieldNames,
+                                            TStrVec& fieldValues,
+                                            api::CDataFrameAnalyzer& analyzer,
+                                            std::size_t rows,
+                                            std::size_t cols) {
+    test::CRandomNumbers rng;
+    auto target = [](const TDoubleVec& regressors) {
+        double result{0.0};
+        for (auto regressor : regressors) {
+            result += regressor;
+        }
+        return core::CStringUtils::typeToStringPrecise(result, core::CIEEE754::E_DoublePrecision);
+    };
+
+    for (std::size_t i = 0; i < rows; ++i) {
+        TDoubleVec regressors;
+        rng.generateUniformSamples(0.0, 10.0, cols - 1, regressors);
+
+        fieldValues[0] = target(regressors);
+        for (std::size_t j = 0; j < regressors.size(); ++j) {
+            if (regressors[j] <= 9.0) {
+                fieldValues[j + 1] = core::CStringUtils::typeToStringPrecise(
+                    regressors[j], core::CIEEE754::E_DoublePrecision);
+            }
+        }
 
         analyzer.handleRecord(fieldNames, fieldValues);
     }
@@ -88,11 +117,11 @@ void setupBinaryClassificationData(const TStrVec& fieldNames,
             row[j] = values[i + j];
         }
 
+        fieldValues[0] = target(row);
         for (std::size_t j = 0; j < row.size(); ++j) {
-            fieldValues[j] = core::CStringUtils::typeToStringPrecise(
+            fieldValues[j + 1] = core::CStringUtils::typeToStringPrecise(
                 row[j], core::CIEEE754::E_DoublePrecision);
         }
-        fieldValues[weights.size()] = target(row);
 
         analyzer.handleRecord(fieldNames, fieldValues);
     }
@@ -106,11 +135,12 @@ struct SFixture {
         };
         api::CDataFrameAnalyzer analyzer{
             test::CDataFrameAnalysisSpecificationFactory::predictionSpec(
-                "regression", "c5", s_Rows, 5, 8000000, 0, 0, {"c1"}, s_Alpha,
-                s_Lambda, s_Gamma, s_SoftTreeDepthLimit, s_SoftTreeDepthTolerance,
-                s_Eta, s_MaximumNumberTrees, s_FeatureBagFraction, shapValues),
+                test::CDataFrameAnalysisSpecificationFactory::regression(),
+                "target", s_Rows, 5, 26000000, 0, 0, {"c1"}, s_Alpha, s_Lambda,
+                s_Gamma, s_SoftTreeDepthLimit, s_SoftTreeDepthTolerance, s_Eta,
+                s_MaximumNumberTrees, s_FeatureBagFraction, shapValues),
             outputWriterFactory};
-        TStrVec fieldNames{"c1", "c2", "c3", "c4", "c5", ".", "."};
+        TStrVec fieldNames{"target", "c1", "c2", "c3", "c4", ".", "."};
         TStrVec fieldValues{"", "", "", "", "", "0", ""};
         test::CRandomNumbers rng;
 
@@ -126,6 +156,17 @@ struct SFixture {
 
         analyzer.handleRecord(fieldNames, {"", "", "", "", "", "", "$"});
 
+        LOG_DEBUG(<< "estimated memory usage = "
+                  << core::CProgramCounters::counter(counter_t::E_DFTPMEstimatedPeakMemoryUsage));
+        LOG_DEBUG(<< "peak memory = "
+                  << core::CProgramCounters::counter(counter_t::E_DFTPMPeakMemoryUsage));
+        LOG_DEBUG(<< "time to train = " << core::CProgramCounters::counter(counter_t::E_DFTPMTimeToTrain)
+                  << "ms");
+
+        BOOST_TEST_REQUIRE(
+            core::CProgramCounters::counter(counter_t::E_DFTPMPeakMemoryUsage) <
+            core::CProgramCounters::counter(counter_t::E_DFTPMEstimatedPeakMemoryUsage));
+
         rapidjson::Document results;
         rapidjson::ParseResult ok(results.Parse(s_Output.str()));
         BOOST_TEST_REQUIRE(static_cast<bool>(ok) == true);
@@ -138,11 +179,12 @@ struct SFixture {
         };
         api::CDataFrameAnalyzer analyzer{
             test::CDataFrameAnalysisSpecificationFactory::predictionSpec(
-                "classification", "c5", s_Rows, 5, 8000000, 0, 0, {"c5"}, s_Alpha,
+                test::CDataFrameAnalysisSpecificationFactory::classification(),
+                "target", s_Rows, 5, 26000000, 0, 0, {"target"}, s_Alpha,
                 s_Lambda, s_Gamma, s_SoftTreeDepthLimit, s_SoftTreeDepthTolerance,
                 s_Eta, s_MaximumNumberTrees, s_FeatureBagFraction, shapValues),
             outputWriterFactory};
-        TStrVec fieldNames{"c1", "c2", "c3", "c4", "c5", ".", "."};
+        TStrVec fieldNames{"target", "c1", "c2", "c3", "c4", ".", "."};
         TStrVec fieldValues{"", "", "", "", "", "0", ""};
         test::CRandomNumbers rng;
 
@@ -152,6 +194,52 @@ struct SFixture {
         setupBinaryClassificationData(fieldNames, fieldValues, analyzer, weights, values);
 
         analyzer.handleRecord(fieldNames, {"", "", "", "", "", "", "$"});
+
+        LOG_DEBUG(<< "estimated memory usage = "
+                  << core::CProgramCounters::counter(counter_t::E_DFTPMEstimatedPeakMemoryUsage));
+        LOG_DEBUG(<< "peak memory = "
+                  << core::CProgramCounters::counter(counter_t::E_DFTPMPeakMemoryUsage));
+        LOG_DEBUG(<< "time to train = " << core::CProgramCounters::counter(counter_t::E_DFTPMTimeToTrain)
+                  << "ms");
+
+        BOOST_TEST_REQUIRE(
+            core::CProgramCounters::counter(counter_t::E_DFTPMPeakMemoryUsage) <
+            core::CProgramCounters::counter(counter_t::E_DFTPMEstimatedPeakMemoryUsage));
+
+        rapidjson::Document results;
+        rapidjson::ParseResult ok(results.Parse(s_Output.str()));
+        BOOST_TEST_REQUIRE(static_cast<bool>(ok) == true);
+        return results;
+    }
+
+    rapidjson::Document runRegressionWithMissingFeatures(std::size_t shapValues) {
+        auto outputWriterFactory = [&]() {
+            return std::make_unique<core::CJsonOutputStreamWrapper>(s_Output);
+        };
+        api::CDataFrameAnalyzer analyzer{
+            test::CDataFrameAnalysisSpecificationFactory::predictionSpec(
+                test::CDataFrameAnalysisSpecificationFactory::regression(),
+                "target", s_Rows, 5, 26000000, 0, 0, {}, s_Alpha, s_Lambda,
+                s_Gamma, s_SoftTreeDepthLimit, s_SoftTreeDepthTolerance, s_Eta,
+                s_MaximumNumberTrees, s_FeatureBagFraction, shapValues),
+            outputWriterFactory};
+        TStrVec fieldNames{"target", "c1", "c2", "c3", "c4", ".", "."};
+        TStrVec fieldValues{"", "", "", "", "", "0", ""};
+
+        setupRegressionDataWithMissingFeatures(fieldNames, fieldValues, analyzer, s_Rows, 5);
+
+        analyzer.handleRecord(fieldNames, {"", "", "", "", "", "", "$"});
+
+        LOG_DEBUG(<< "estimated memory usage = "
+                  << core::CProgramCounters::counter(counter_t::E_DFTPMEstimatedPeakMemoryUsage));
+        LOG_DEBUG(<< "peak memory = "
+                  << core::CProgramCounters::counter(counter_t::E_DFTPMPeakMemoryUsage));
+        LOG_DEBUG(<< "time to train = " << core::CProgramCounters::counter(counter_t::E_DFTPMTimeToTrain)
+                  << "ms");
+
+        BOOST_TEST_REQUIRE(
+            core::CProgramCounters::counter(counter_t::E_DFTPMPeakMemoryUsage) <
+            core::CProgramCounters::counter(counter_t::E_DFTPMEstimatedPeakMemoryUsage));
 
         rapidjson::Document results;
         rapidjson::ParseResult ok(results.Parse(s_Output.str()));
@@ -171,15 +259,24 @@ struct SFixture {
     int s_Rows{2000};
     std::stringstream s_Output;
 };
+
+template<typename RESULTS>
+double readShapValue(const RESULTS& results, std::string shapField) {
+    shapField = maths::CDataFramePredictiveModel::SHAP_PREFIX + shapField;
+    if (results["row_results"]["results"]["ml"].HasMember(shapField)) {
+        return results["row_results"]["results"]["ml"][shapField].GetDouble();
+    }
+    return 0.0;
+}
 }
 
-BOOST_FIXTURE_TEST_CASE(testRunBoostedTreeRegressionFeatureImportanceAllShap, SFixture) {
+BOOST_FIXTURE_TEST_CASE(testRegressionFeatureImportanceAllShap, SFixture) {
     // Test that feature importance statistically correctly recognize the impact of regressors
     // in a linear model. In particular, that the ordering is as expected and for IID features
     // the significance is proportional to the multiplier. Also make sure that the SHAP values
     // are indeed a local approximation of the prediction up to the constant bias term.
 
-    std::size_t topShapValues{4};
+    std::size_t topShapValues{5}; //Note, number of requested shap values is larger than the number of regressors
     TDoubleVec weights{50, 150, 50, -50};
     auto results{runRegression(topShapValues, weights)};
 
@@ -187,22 +284,22 @@ BOOST_FIXTURE_TEST_CASE(testRunBoostedTreeRegressionFeatureImportanceAllShap, SF
     double c1Sum{0.0}, c2Sum{0.0}, c3Sum{0.0}, c4Sum{0.0};
     for (const auto& result : results.GetArray()) {
         if (result.HasMember("row_results")) {
-            double c1{result["row_results"]["results"]["ml"][maths::CDataFrameRegressionModel::SHAP_PREFIX + "c1"]
-                          .GetDouble()};
-            double c2{result["row_results"]["results"]["ml"][maths::CDataFrameRegressionModel::SHAP_PREFIX + "c2"]
-                          .GetDouble()};
-            double c3{result["row_results"]["results"]["ml"][maths::CDataFrameRegressionModel::SHAP_PREFIX + "c3"]
-                          .GetDouble()};
-            double c4{result["row_results"]["results"]["ml"][maths::CDataFrameRegressionModel::SHAP_PREFIX + "c4"]
-                          .GetDouble()};
+            double c1{readShapValue(result, "c1")};
+            double c2{readShapValue(result, "c2")};
+            double c3{readShapValue(result, "c3")};
+            double c4{readShapValue(result, "c4")};
             double prediction{
-                result["row_results"]["results"]["ml"]["c5_prediction"].GetDouble()};
+                result["row_results"]["results"]["ml"]["target_prediction"].GetDouble()};
             // the difference between the prediction and the sum of all SHAP values constitutes bias
             bias.add(prediction - (c1 + c2 + c3 + c4));
             c1Sum += std::fabs(c1);
             c2Sum += std::fabs(c2);
             c3Sum += std::fabs(c3);
             c4Sum += std::fabs(c4);
+            // assert that no SHAP value for the dependent variable is returned
+            BOOST_TEST_REQUIRE(result["row_results"]["results"]["ml"].HasMember(
+                                   maths::CDataFramePredictiveModel::SHAP_PREFIX +
+                                   "target") == false);
         }
     }
 
@@ -214,40 +311,38 @@ BOOST_FIXTURE_TEST_CASE(testRunBoostedTreeRegressionFeatureImportanceAllShap, SF
     // randomly on [-10, 10].
     BOOST_TEST_REQUIRE(c1Sum > c3Sum);
     BOOST_TEST_REQUIRE(c1Sum > c4Sum);
-    BOOST_REQUIRE_CLOSE(weights[1] / weights[2], c2Sum / c3Sum, 5.0); // ratio within 5% of ratio of coefficients
+    BOOST_REQUIRE_CLOSE(weights[1] / weights[2], c2Sum / c3Sum, 10.0); // ratio within 10% of ratio of coefficients
     BOOST_REQUIRE_CLOSE(c3Sum, c4Sum, 5.0); // c3 and c4 within 5% of each other
     // make sure the local approximation differs from the prediction always by the same bias (up to a numeric error)
-    BOOST_REQUIRE_SMALL(ml::maths::CBasicStatistics::variance(bias), 1e-6);
+    BOOST_REQUIRE_SMALL(maths::CBasicStatistics::variance(bias), 1e-6);
 }
 
-BOOST_FIXTURE_TEST_CASE(testRunBoostedTreeRegressionFeatureImportanceNoImportance, SFixture) {
+BOOST_FIXTURE_TEST_CASE(testRegressionFeatureImportanceNoImportance, SFixture) {
     // Test that feature importance calculates low SHAP values if regressors have no weight.
     // We also add high noise variance.
     std::size_t topShapValues{4};
-    auto results{runRegression(topShapValues, {10.0, 0.0, 0.0, 0.0}, 10.0)};
+    auto results = runRegression(topShapValues, {10.0, 0.0, 0.0, 0.0}, 10.0);
 
+    TMeanAccumulator cNoImportanceMean;
     for (const auto& result : results.GetArray()) {
         if (result.HasMember("row_results")) {
-            double c1{result["row_results"]["results"]["ml"][maths::CDataFrameRegressionModel::SHAP_PREFIX + "c1"]
-                          .GetDouble()};
-            double c2{result["row_results"]["results"]["ml"][maths::CDataFrameRegressionModel::SHAP_PREFIX + "c2"]
-                          .GetDouble()};
-            double c3{result["row_results"]["results"]["ml"][maths::CDataFrameRegressionModel::SHAP_PREFIX + "c3"]
-                          .GetDouble()};
-            double c4{result["row_results"]["results"]["ml"][maths::CDataFrameRegressionModel::SHAP_PREFIX + "c4"]
-                          .GetDouble()};
+            double c1{readShapValue(result, "c1")};
             double prediction{
-                result["row_results"]["results"]["ml"]["c5_prediction"].GetDouble()};
-            // c1 explain 97% of the prediction value, i.e. the difference from the prediction is less than 1%.
-            BOOST_REQUIRE_CLOSE(c1, prediction, 3.0);
-            BOOST_REQUIRE_SMALL(c2, 0.25);
-            BOOST_REQUIRE_SMALL(c3, 0.25);
-            BOOST_REQUIRE_SMALL(c4, 0.25);
+                result["row_results"]["results"]["ml"]["target_prediction"].GetDouble()};
+            // c1 explains 95% of the prediction value, i.e. the difference from the prediction is less than 2%.
+            BOOST_REQUIRE_CLOSE(c1, prediction, 5.0);
+            for (const auto& feature : {"c2", "c3", "c4"}) {
+                double c = readShapValue(result, feature);
+                BOOST_REQUIRE_SMALL(c, 2.0);
+                cNoImportanceMean.add(std::fabs(c));
+            }
         }
     }
+
+    BOOST_REQUIRE_SMALL(maths::CBasicStatistics::mean(cNoImportanceMean), 0.1);
 }
 
-BOOST_FIXTURE_TEST_CASE(testRunBoostedTreeClassificationFeatureImportanceAllShap, SFixture) {
+BOOST_FIXTURE_TEST_CASE(testClassificationFeatureImportanceAllShap, SFixture) {
     // Test that feature importance works correctly for classification. In particular, test that
     // feature importance statistically correctly recognizes the impact of regressors if the
     // log-odds of the classes are generated by a linear model. Also make sure that the SHAP
@@ -256,32 +351,28 @@ BOOST_FIXTURE_TEST_CASE(testRunBoostedTreeClassificationFeatureImportanceAllShap
 
     std::size_t topShapValues{4};
     TMeanVarAccumulator bias;
-    auto results{runClassification(topShapValues, {0.5, -0.7, 0.25, -0.25})};
+    auto results{runClassification(topShapValues, {0.5, -0.7, 0.2, -0.2})};
 
     double c1Sum{0.0}, c2Sum{0.0}, c3Sum{0.0}, c4Sum{0.0};
     for (const auto& result : results.GetArray()) {
         if (result.HasMember("row_results")) {
-            double c1{result["row_results"]["results"]["ml"][maths::CDataFrameRegressionModel::SHAP_PREFIX + "c1"]
-                          .GetDouble()};
-            double c2{result["row_results"]["results"]["ml"][maths::CDataFrameRegressionModel::SHAP_PREFIX + "c2"]
-                          .GetDouble()};
-            double c3{result["row_results"]["results"]["ml"][maths::CDataFrameRegressionModel::SHAP_PREFIX + "c3"]
-                          .GetDouble()};
-            double c4{result["row_results"]["results"]["ml"][maths::CDataFrameRegressionModel::SHAP_PREFIX + "c4"]
-                          .GetDouble()};
+            double c1{readShapValue(result, "c1")};
+            double c2{readShapValue(result, "c2")};
+            double c3{readShapValue(result, "c3")};
+            double c4{readShapValue(result, "c4")};
             double predictionProbability{
                 result["row_results"]["results"]["ml"]["prediction_probability"].GetDouble()};
-            std::string c5Prediction{
-                result["row_results"]["results"]["ml"]["c5_prediction"].GetString()};
+            std::string targetPrediction{
+                result["row_results"]["results"]["ml"]["target_prediction"].GetString()};
             double logOdds{0.0};
-            if (c5Prediction == "bar") {
+            if (targetPrediction == "bar") {
                 logOdds = std::log(predictionProbability /
                                    (1.0 - predictionProbability + 1e-10));
-            } else if (c5Prediction == "foo") {
+            } else if (targetPrediction == "foo") {
                 logOdds = std::log((1.0 - predictionProbability) /
                                    (predictionProbability + 1e-10));
             } else {
-                BOOST_TEST_FAIL("Unknown predicted class " + c5Prediction);
+                BOOST_TEST_FAIL("Unknown predicted class " + targetPrediction);
             }
             // the difference between the prediction and the sum of all SHAP values constitutes bias
             bias.add(logOdds - (c1 + c2 + c3 + c4));
@@ -300,10 +391,10 @@ BOOST_FIXTURE_TEST_CASE(testRunBoostedTreeClassificationFeatureImportanceAllShap
     BOOST_TEST_REQUIRE(c1Sum > c4Sum);
     BOOST_REQUIRE_CLOSE(c3Sum, c4Sum, 40.0); // c3 and c4 within 40% of each other
     // make sure the local approximation differs from the prediction always by the same bias (up to a numeric error)
-    BOOST_REQUIRE_SMALL(ml::maths::CBasicStatistics::variance(bias), 1e-6);
+    BOOST_REQUIRE_SMALL(maths::CBasicStatistics::variance(bias), 1e-6);
 }
 
-BOOST_FIXTURE_TEST_CASE(testRunBoostedTreeRegressionFeatureImportanceNoShap, SFixture) {
+BOOST_FIXTURE_TEST_CASE(testRegressionFeatureImportanceNoShap, SFixture) {
     // Test that if topShapValue is set to 0, no feature importance values are returned.
     std::size_t topShapValues{0};
     auto results{runRegression(topShapValues, {50.0, 150.0, 50.0, -50.0})};
@@ -311,15 +402,49 @@ BOOST_FIXTURE_TEST_CASE(testRunBoostedTreeRegressionFeatureImportanceNoShap, SFi
     for (const auto& result : results.GetArray()) {
         if (result.HasMember("row_results")) {
             BOOST_TEST_REQUIRE(result["row_results"]["results"]["ml"].HasMember(
-                                   maths::CDataFrameRegressionModel::SHAP_PREFIX + "c1") == false);
+                                   maths::CDataFramePredictiveModel::SHAP_PREFIX + "c1") == false);
             BOOST_TEST_REQUIRE(result["row_results"]["results"]["ml"].HasMember(
-                                   maths::CDataFrameRegressionModel::SHAP_PREFIX + "c2") == false);
+                                   maths::CDataFramePredictiveModel::SHAP_PREFIX + "c2") == false);
             BOOST_TEST_REQUIRE(result["row_results"]["results"]["ml"].HasMember(
-                                   maths::CDataFrameRegressionModel::SHAP_PREFIX + "c3") == false);
+                                   maths::CDataFramePredictiveModel::SHAP_PREFIX + "c3") == false);
             BOOST_TEST_REQUIRE(result["row_results"]["results"]["ml"].HasMember(
-                                   maths::CDataFrameRegressionModel::SHAP_PREFIX + "c4") == false);
+                                   maths::CDataFramePredictiveModel::SHAP_PREFIX + "c4") == false);
         }
     }
+}
+
+BOOST_FIXTURE_TEST_CASE(testMissingFeatures, SFixture) {
+    // Test that feature importance behaves correctly when some features are missing:
+    // We randomly omit 10% of all data in a simple additive model target=c1+c2+c3+c4. Hence,
+    // calculated feature importances should be very similar and the bias should be close
+    // to 0.
+    std::size_t topShapValues{4};
+    auto results = runRegressionWithMissingFeatures(topShapValues);
+
+    TMeanVarAccumulator bias;
+    double c1Sum{0.0}, c2Sum{0.0}, c3Sum{0.0}, c4Sum{0.0};
+    for (const auto& result : results.GetArray()) {
+        if (result.HasMember("row_results")) {
+            double c1{readShapValue(result, "c1")};
+            double c2{readShapValue(result, "c2")};
+            double c3{readShapValue(result, "c3")};
+            double c4{readShapValue(result, "c4")};
+            double prediction{
+                result["row_results"]["results"]["ml"]["target_prediction"].GetDouble()};
+            // the difference between the prediction and the sum of all SHAP values constitutes bias
+            bias.add(prediction - (c1 + c2 + c3 + c4));
+            c1Sum += std::fabs(c1);
+            c2Sum += std::fabs(c2);
+            c3Sum += std::fabs(c3);
+            c4Sum += std::fabs(c4);
+        }
+    }
+
+    BOOST_REQUIRE_CLOSE(c1Sum, c2Sum, 15.0); // c1 and c2 within 15% of each other
+    BOOST_REQUIRE_CLOSE(c1Sum, c3Sum, 15.0); // c1 and c3 within 15% of each other
+    BOOST_REQUIRE_CLOSE(c1Sum, c4Sum, 15.0); // c1 and c4 within 15% of each other
+    // make sure the local approximation differs from the prediction always by the same bias (up to a numeric error)
+    BOOST_REQUIRE_SMALL(maths::CBasicStatistics::variance(bias), 1e-6);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

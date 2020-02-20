@@ -27,6 +27,8 @@ CBoostedTree.cc \
 CBoostedTreeFactory.cc \
 CBoostedTreeHyperparameters.cc \
 CBoostedTreeImpl.cc \
+CBoostedTreeLeafNodeStatistics.cc \
+CBoostedTreeUtils.cc \
 CCalendarCyclicTest.cc \
 CCalendarComponentAdaptiveBucketing.cc \
 CCalendarComponent.cc \
@@ -39,7 +41,7 @@ CConstantPrior.cc \
 CCooccurrences.cc \
 CCountMinSketch.cc \
 CDataFrameCategoryEncoder.cc \
-CDataFrameRegressionModel.cc \
+CDataFramePredictiveModel.cc \
 CDataFrameUtils.cc \
 CDecayRateController.cc \
 CDecompositionComponent.cc \

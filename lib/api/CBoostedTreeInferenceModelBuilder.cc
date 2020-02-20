@@ -84,27 +84,31 @@ CInferenceModelDefinition&& CBoostedTreeInferenceModelBuilder::build() {
     return std::move(m_Definition);
 }
 
-void CBoostedTreeInferenceModelBuilder::addNode(
-    std::size_t splitFeature,
-    double splitValue,
-    bool assignMissingToLeft,
-    double nodeValue,
-    double gain,
-    ml::maths::CBoostedTreeNode::TOptionalNodeIndex leftChild,
-    ml::maths::CBoostedTreeNode::TOptionalNodeIndex rightChild) {
+void CBoostedTreeInferenceModelBuilder::addNode(std::size_t splitFeature,
+                                                double splitValue,
+                                                bool assignMissingToLeft,
+                                                const TVector& nodeValue,
+                                                double gain,
+                                                std::size_t numberSamples,
+                                                maths::CBoostedTreeNode::TOptionalNodeIndex leftChild,
+                                                maths::CBoostedTreeNode::TOptionalNodeIndex rightChild) {
     auto ensemble{static_cast<CEnsemble*>(m_Definition.trainedModel().get())};
     // use dynamic cast to prevent using wrong type of trained models
     auto tree = dynamic_cast<CTree*>(ensemble->trainedModels().back().get());
     if (tree == nullptr) {
         HANDLE_FATAL(<< "Internal error. Tree points to a nullptr.")
     }
-    tree->treeStructure().emplace_back(tree->size(), splitValue, assignMissingToLeft, nodeValue,
-                                       splitFeature, leftChild, rightChild, gain);
+    // TODO fixme
+    tree->treeStructure().emplace_back(tree->size(), splitValue, assignMissingToLeft,
+                                       nodeValue(0), splitFeature, numberSamples,
+                                       leftChild, rightChild, gain);
 }
 
 CBoostedTreeInferenceModelBuilder::CBoostedTreeInferenceModelBuilder(TStrVec fieldNames,
                                                                      std::size_t dependentVariableColumnIndex,
-                                                                     TStrVecVec categoryNames) {
+                                                                     const TStrVecVec& categoryNames)
+    : m_CategoryNames{categoryNames} {
+
     // filter filed names containing empty string
     fieldNames.erase(std::remove(fieldNames.begin(), fieldNames.end(), ""),
                      fieldNames.end());
@@ -112,9 +116,8 @@ CBoostedTreeInferenceModelBuilder::CBoostedTreeInferenceModelBuilder(TStrVec fie
                      fieldNames.end());
     m_FieldNames = fieldNames;
 
-    this->categoryNames(categoryNames);
     m_Definition.dependentVariableColumnIndex(dependentVariableColumnIndex);
-    m_Definition.fieldNames(std::move(fieldNames), dependentVariableColumnIndex);
+    m_Definition.fieldNames(std::move(fieldNames));
     m_Definition.trainedModel(std::make_unique<CEnsemble>());
     m_Definition.typeString(INFERENCE_MODEL);
 }
@@ -130,49 +133,47 @@ CBoostedTreeInferenceModelBuilder::encodingMap(std::size_t inputColumnIndex,
     return map;
 }
 
-void CBoostedTreeInferenceModelBuilder::categoryNames(const TStrVecVec& categoryNames) {
-    m_CategoryNames = categoryNames;
-}
-
 CInferenceModelDefinition& CBoostedTreeInferenceModelBuilder::definition() {
     return m_Definition;
+}
+
+CRegressionInferenceModelBuilder::CRegressionInferenceModelBuilder(const TStrVec& fieldNames,
+                                                                   std::size_t dependentVariableColumnIndex,
+                                                                   const TStrVecVec& categoryNames)
+    : CBoostedTreeInferenceModelBuilder{fieldNames, dependentVariableColumnIndex, categoryNames} {
+}
+
+void CRegressionInferenceModelBuilder::addProbabilityAtWhichToAssignClassOne(double) {
 }
 
 void CRegressionInferenceModelBuilder::setTargetType() {
     this->definition().trainedModel()->targetType(CTrainedModel::ETargetType::E_Regression);
 }
 
-CRegressionInferenceModelBuilder::CRegressionInferenceModelBuilder(TStrVec fieldNames,
-                                                                   std::size_t dependentVariableColumnIndex,
-                                                                   const TStrVecVec& categoryNames)
-    : CBoostedTreeInferenceModelBuilder(fieldNames, dependentVariableColumnIndex, categoryNames) {
-}
-
 void CRegressionInferenceModelBuilder::setAggregateOutput(CEnsemble* ensemble) const {
     ensemble->aggregateOutput(std::make_unique<CWeightedSum>(ensemble->size(), 1.0));
+}
+
+CClassificationInferenceModelBuilder::CClassificationInferenceModelBuilder(
+    const TStrVec& fieldNames,
+    std::size_t dependentVariableColumnIndex,
+    const TStrVecVec& categoryNames)
+    : CBoostedTreeInferenceModelBuilder{fieldNames, dependentVariableColumnIndex, categoryNames} {
+    this->definition().trainedModel()->classificationLabels(
+        categoryNames[dependentVariableColumnIndex]);
+}
+
+void CClassificationInferenceModelBuilder::addProbabilityAtWhichToAssignClassOne(double probability) {
+    this->definition().trainedModel()->classificationWeights(
+        {0.5 / (1.0 - probability), 0.5 / probability});
 }
 
 void CClassificationInferenceModelBuilder::setTargetType() {
     this->definition().trainedModel()->targetType(CTrainedModel::ETargetType::E_Classification);
 }
 
-CClassificationInferenceModelBuilder::CClassificationInferenceModelBuilder(
-    TStrVec fieldNames,
-    std::size_t dependentVariableColumnIndex,
-    const TStrVecVec& categoryNames)
-    : CBoostedTreeInferenceModelBuilder(fieldNames, dependentVariableColumnIndex, categoryNames),
-      m_ClassificationLabels{categoryNames[dependentVariableColumnIndex]} {
-}
-
 void CClassificationInferenceModelBuilder::setAggregateOutput(CEnsemble* ensemble) const {
     ensemble->aggregateOutput(std::make_unique<CLogisticRegression>(ensemble->size(), 1.0));
-}
-
-CInferenceModelDefinition&& CClassificationInferenceModelBuilder::build() {
-    auto&& definition = this->CBoostedTreeInferenceModelBuilder::build();
-    const auto& trainedModel = definition.trainedModel();
-    trainedModel->classificationLabels(m_ClassificationLabels);
-    return std::move(definition);
 }
 }
 }

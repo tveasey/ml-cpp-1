@@ -26,18 +26,20 @@ public:
     using TStrVecVec = std::vector<TStrVec>;
     using TSizeStringUMap = std::unordered_map<std::size_t, std::string>;
     using TSizeStringUMapVec = std::vector<TSizeStringUMap>;
+    using TVector = maths::CBoostedTreeNode::TVector;
 
 public:
     CBoostedTreeInferenceModelBuilder(TStrVec fieldNames,
                                       std::size_t dependentVariableColumnIndex,
-                                      TStrVecVec categoryNames);
+                                      const TStrVecVec& categoryNames);
     ~CBoostedTreeInferenceModelBuilder() override = default;
     void addTree() override;
     void addNode(std::size_t splitFeature,
                  double splitValue,
                  bool assignMissingToLeft,
-                 double nodeValue,
+                 const TVector& nodeValue,
                  double gain,
+                 std::size_t numberSamples,
                  maths::CBoostedTreeNode::TOptionalNodeIndex leftChild,
                  maths::CBoostedTreeNode::TOptionalNodeIndex rightChild) override;
     void addIdentityEncoding(std::size_t inputColumnIndex) override;
@@ -50,8 +52,6 @@ public:
 
 protected:
     CInferenceModelDefinition& definition();
-    virtual void setTargetType() = 0;
-    virtual void setAggregateOutput(CEnsemble* ensemble) const = 0;
 
 private:
     using TOneHotEncodingUPtr = std::unique_ptr<COneHotEncoding>;
@@ -59,9 +59,9 @@ private:
     using TStringDoubleUMap = std::unordered_map<std::string, double>;
 
 private:
+    virtual void setTargetType() = 0;
+    virtual void setAggregateOutput(CEnsemble* ensemble) const = 0;
     TStringDoubleUMap encodingMap(std::size_t inputColumnIndex, const TDoubleVec& map_);
-
-    void categoryNames(const TStrVecVec& categoryNames);
 
 private:
     CInferenceModelDefinition m_Definition;
@@ -72,13 +72,13 @@ private:
 };
 
 class API_EXPORT CRegressionInferenceModelBuilder final : public CBoostedTreeInferenceModelBuilder {
-protected:
 public:
-    CRegressionInferenceModelBuilder(TStrVec fieldNames,
+    CRegressionInferenceModelBuilder(const TStrVec& fieldNames,
                                      std::size_t dependentVariableColumnIndex,
                                      const TStrVecVec& categoryNames);
+    void addProbabilityAtWhichToAssignClassOne(double probability) override;
 
-protected:
+private:
     void setTargetType() override;
     void setAggregateOutput(CEnsemble* ensemble) const override;
 };
@@ -86,18 +86,15 @@ protected:
 class API_EXPORT CClassificationInferenceModelBuilder final
     : public CBoostedTreeInferenceModelBuilder {
 public:
-    CClassificationInferenceModelBuilder(TStrVec fieldNames,
+    CClassificationInferenceModelBuilder(const TStrVec& fieldNames,
                                          std::size_t dependentVariableColumnIndex,
                                          const TStrVecVec& categoryNames);
     ~CClassificationInferenceModelBuilder() override = default;
-    CInferenceModelDefinition&& build() override;
-
-protected:
-    void setTargetType() override;
-    void setAggregateOutput(CEnsemble* ensemble) const override;
+    void addProbabilityAtWhichToAssignClassOne(double probability) override;
 
 private:
-    TStrVec m_ClassificationLabels;
+    void setTargetType() override;
+    void setAggregateOutput(CEnsemble* ensemble) const override;
 };
 }
 }

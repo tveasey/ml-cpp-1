@@ -10,6 +10,7 @@
 #include <core/CDataFrame.h>
 
 #include <maths/CBoostedTree.h>
+#include <maths/CDataFrameAnalysisInstrumentationInterface.h>
 #include <maths/CLinearAlgebra.h>
 #include <maths/ImportExport.h>
 
@@ -34,19 +35,19 @@ class MATHS_EXPORT CBoostedTreeFactory final {
 public:
     using TVector = CVectorNx1<double, 3>;
     using TBoostedTreeUPtr = std::unique_ptr<CBoostedTree>;
-    using TProgressCallback = CBoostedTree::TProgressCallback;
-    using TMemoryUsageCallback = CBoostedTree::TMemoryUsageCallback;
     using TTrainingStateCallback = CBoostedTree::TTrainingStateCallback;
     using TLossFunctionUPtr = CBoostedTree::TLossFunctionUPtr;
+    using TAnalysisInstrumentationPtr = CDataFrameAnalysisInstrumentationInterface*;
 
 public:
     //! Construct a boosted tree object from parameters.
-    static CBoostedTreeFactory constructFromParameters(std::size_t numberThreads);
+    static CBoostedTreeFactory constructFromParameters(std::size_t numberThreads,
+                                                       TLossFunctionUPtr loss);
 
     //! Construct a boosted tree object from its serialized version.
     //!
     //! \warning Throws runtime error on fail to restore.
-    static CBoostedTreeFactory constructFromString(std::istream& jsonStringStream);
+    static CBoostedTreeFactory constructFromString(std::istream& jsonStream);
 
     ~CBoostedTreeFactory();
     CBoostedTreeFactory(CBoostedTreeFactory&) = delete;
@@ -54,12 +55,17 @@ public:
     CBoostedTreeFactory(CBoostedTreeFactory&&);
     CBoostedTreeFactory& operator=(CBoostedTreeFactory&&);
 
+    //! Set the objective to use when choosing the class assignments.
+    CBoostedTreeFactory&
+    classAssignmentObjective(CBoostedTree::EClassAssignmentObjective objective);
     //! Set the minimum fraction with a category value to one-hot encode.
     CBoostedTreeFactory& minimumFrequencyToOneHotEncode(double frequency);
     //! Set the number of folds to use for estimating the generalisation error.
     CBoostedTreeFactory& numberFolds(std::size_t numberFolds);
-    //! Stratify the cross validation we do for regression.
+    //! Stratify the cross-validation we do for regression.
     CBoostedTreeFactory& stratifyRegressionCrossValidation(bool stratify);
+    //! Stop cross-validation early if the test loss is not promising.
+    CBoostedTreeFactory& stopCrossValidationEarly(bool stopEarly);
     //! The number of rows per feature to sample in the initial downsample.
     CBoostedTreeFactory& initialDownsampleRowsPerFeature(double rowsPerFeature);
     //! Set the sum of leaf depth penalties multiplier.
@@ -88,18 +94,12 @@ public:
     CBoostedTreeFactory& bayesianOptimisationRestarts(std::size_t restarts);
     //! Set the number of training examples we need per feature we'll include.
     CBoostedTreeFactory& rowsPerFeature(std::size_t rowsPerFeature);
-
     //! Set the number of training examples we need per feature we'll include.
     CBoostedTreeFactory& topShapValues(std::size_t topShapValues);
 
-    //! Set whether to try and balance within class accuracy. For classification
-    //! this reweights examples so approximately the same total loss is assigned
-    //! to every class.
-    CBoostedTreeFactory& balanceClassTrainingLoss(bool balance);
-    //! Set the callback function for progress monitoring.
-    CBoostedTreeFactory& progressCallback(TProgressCallback callback);
-    //! Set the callback function for memory monitoring.
-    CBoostedTreeFactory& memoryUsageCallback(TMemoryUsageCallback callback);
+    //! Set pointer to the analysis instrumentation.
+    CBoostedTreeFactory&
+    analysisInstrumentation(CDataFrameAnalysisInstrumentationInterface& instrumentation);
     //! Set the callback function for training state recording.
     CBoostedTreeFactory& trainingStateCallback(TTrainingStateCallback callback);
 
@@ -109,9 +109,7 @@ public:
     //! Get the number of columns training the model will add to the data frame.
     std::size_t numberExtraColumnsForTrain() const;
     //! Build a boosted tree object for a given data frame.
-    TBoostedTreeUPtr buildFor(core::CDataFrame& frame,
-                              TLossFunctionUPtr loss,
-                              std::size_t dependentVariable);
+    TBoostedTreeUPtr buildFor(core::CDataFrame& frame, std::size_t dependentVariable);
     //! Restore a boosted tree object for a given data frame.
     //! \warning A tree object can only be restored once.
     TBoostedTreeUPtr restoreFor(core::CDataFrame& frame, std::size_t dependentVariable);
@@ -128,10 +126,16 @@ private:
     using TApplyRegularizer = std::function<bool(CBoostedTreeImpl&, double)>;
 
 private:
-    CBoostedTreeFactory(std::size_t numberThreads);
+    CBoostedTreeFactory(std::size_t numberThreads, TLossFunctionUPtr loss);
 
     //! Compute the row masks for the missing values for each feature.
     void initializeMissingFeatureMasks(const core::CDataFrame& frame) const;
+
+    //! Set up the number of folds we'll use for cross-validation.
+    void initializeNumberFolds(core::CDataFrame& frame) const;
+
+    //! Resize the data frame with the extra columns used by train.
+    void resizeDataFrame(core::CDataFrame& frame) const;
 
     //! Set up cross validation.
     void initializeCrossValidation(core::CDataFrame& frame) const;
@@ -155,6 +159,9 @@ private:
 
     //! Estimates a good central value for the downsample factor search interval.
     void initializeUnsetDownsampleFactor(core::CDataFrame& frame);
+
+    //! Estimate a good central value for learn rate.
+    void initializeUnsetEta(core::CDataFrame& frame);
 
     //! Estimate the reduction in gain from a split and the total curvature of
     //! the loss function at a split.
@@ -186,17 +193,18 @@ private:
     //! Refresh progress monitoring after restoring from saved training state.
     void resumeRestoredTrainingProgressMonitoring();
 
-    //! The maximum number of trees to use in the hyperparameter optimisation loop.
-    std::size_t mainLoopMaximumNumberTrees() const;
+    //! The total number of progress steps used in the main loop.
+    std::size_t mainLoopNumberSteps(double eta) const;
 
-    static void noopRecordProgress(double);
-    static void noopRecordMemoryUsage(std::int64_t);
-    static void noopRecordTrainingState(CDataFrameRegressionModel::TPersistFunc);
+    //! The maximum number of trees to use in the hyperparameter optimisation loop.
+    std::size_t mainLoopMaximumNumberTrees(double eta) const;
+
+    //! Stubs out persistence.
+    static void noopRecordTrainingState(CBoostedTree::TPersistFunc);
 
 private:
     TOptionalDouble m_MinimumFrequencyToOneHotEncode;
     TOptionalSize m_BayesianOptimisationRestarts;
-    bool m_BalanceClassTrainingLoss = true;
     bool m_StratifyRegressionCrossValidation = true;
     double m_InitialDownsampleRowsPerFeature = 200.0;
     std::size_t m_NumberThreads;
@@ -206,10 +214,8 @@ private:
     TVector m_LogTreeSizePenaltyMultiplierSearchInterval;
     TVector m_LogLeafWeightPenaltyMultiplierSearchInterval;
     TVector m_SoftDepthLimitSearchInterval;
-    TProgressCallback m_RecordProgress = noopRecordProgress;
-    TMemoryUsageCallback m_RecordMemoryUsage = noopRecordMemoryUsage;
+    TVector m_LogEtaSearchInterval;
     TTrainingStateCallback m_RecordTrainingState = noopRecordTrainingState;
-    std::size_t m_TopShapValues = 0;
 };
 }
 }

@@ -35,11 +35,40 @@
 * The macOS build platform for the {ml} C++ code is now High Sierra running Xcode 10.1,
   or Ubuntu 18.04 running clang 6.0 for cross compilation. (See {ml-pull}867[#867].)
 
+== {es} version 7.7.0
+
+=== New Features
+
+* Add instrumentation to report statistics related to data frame analytics jobs, i.e.
+progress, memory usage, etc. (See {ml-pull}906[#906].)
+
+=== Enhancements
+
+* Improve computational performance of the feature importance computation. (See {ml-pull}1005[1005].)
+* Improve initialization of learn rate for better and more stable results in regression
+and classification. (See {ml-pull}948[#948].)
+* Add number of processed training samples to the definition of decision tree nodes.
+(See {ml-pull}991[#991].)
+* Add new model_size_stats fields to instrument categorization.  (See {ml-pull}948[#948]
+and {pull}51879[#51879], issue: {issue}50794[#50749].)
+* Improve upfront memory estimation for all data frame analyses, which were higher than
+necessary. This will improve the allocation of data frame analyses to cluster nodes.
+(See {ml-pull}1003[#1003].)
+* Upgrade the compiler used on Linux from gcc 7.3 to gcc 7.5, and the binutils used in
+the build from version 2.20 to 2.34.  (See {ml-pull}1013[#1013].)
+
+=== Bug Fixes
+
+* Use largest ordered subset of categorization tokens for category reverse search regex.
+(See {ml-pull}970[#970], issue: {ml-issue}949[#949].)
+* Account for the data frame's memory when estimating the peak memory used by classification
+and regression model training. (See {ml-pull}996[#996].)
+
 == {es} version 7.6.0
 
 === New Features
 
-* Add feature importance values to classification and regression results (using tree 
+* Add feature importance values to classification and regression results (using tree
 SHapley Additive exPlanation, or SHAP). (See {ml-pull}857[#857].)
 
 === Enhancements
@@ -64,12 +93,26 @@ is no longer decreasing. (See {ml-pull}875[#875].)
 * Improve performance updating quantile estimates. (See {ml-pull}881[#881].)
 * Migrate to use Bayesian Optimisation for initial hyperparameter value line searches and
 stop early if the expected improvement is too small. (See {ml-pull}903[#903].)
+* Stop cross-validation early if the predicted test loss has a small chance of being
+smaller than for the best parameter values found so far. (See {ml-pull}915[#915].)
+* Optimize decision threshold for classification to maximize minimum class recall.
+(See {ml-pull}926[#926].)
+* Include categorization memory usage in the `model_bytes` field in `model_size_stats`,
+so that it is taken into account in node assignment decisions. (See {ml-pull}927[#927],
+issue: {ml-issue}724[#724].)
 
 === Bug Fixes
 * Fixes potential memory corruption when determining seasonality. (See {ml-pull}852[#852].)
 * Prevent prediction_field_name clashing with other fields in ml results.
 (See {ml-pull}861[#861].)
+* Include out-of-order as well as in-order terms in categorization reverse searches.
+(See {ml-pull}950[#950], issue: {ml-issue}949[#949].)
 
+== {es} version 7.5.2
+
+=== Bug Fixes
+* Fixes potential memory corruption or inconsistent state when background persisting
+categorizer state. (See {ml-pull}921[#921].)
 
 == {es} version 7.5.0
 

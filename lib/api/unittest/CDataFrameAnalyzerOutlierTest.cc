@@ -15,10 +15,9 @@
 #include <api/CDataFrameAnalysisSpecification.h>
 #include <api/CDataFrameAnalyzer.h>
 
+#include <test/BoostTestCloseAbsolute.h>
 #include <test/CDataFrameAnalysisSpecificationFactory.h>
 #include <test/CRandomNumbers.h>
-
-#include <test/BoostTestCloseAbsolute.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -85,9 +84,10 @@ void addOutlierTestData(TStrVec fieldNames,
     }
 
     frame->finishWritingRows();
-
+    maths::CDataFrameAnalysisInstrumentationStub instrumentation;
     maths::COutliers::compute(
-        {1, 1, true, method, numberNeighbours, computeFeatureInfluence, 0.05}, *frame);
+        {1, 1, true, method, numberNeighbours, computeFeatureInfluence, 0.05},
+        *frame, instrumentation);
 
     expectedScores.resize(numberInliers + numberOutliers);
     expectedFeatureInfluences.resize(numberInliers + numberOutliers, TDoubleVec(5));
@@ -200,10 +200,17 @@ BOOST_AUTO_TEST_CASE(testRunOutlierDetection) {
 
     LOG_DEBUG(<< "number partitions = "
               << core::CProgramCounters::counter(counter_t::E_DFONumberPartitions));
+    LOG_DEBUG(<< "estimated memory usage = "
+              << core::CProgramCounters::counter(counter_t::E_DFOEstimatedPeakMemoryUsage));
     LOG_DEBUG(<< "peak memory = "
               << core::CProgramCounters::counter(counter_t::E_DFOPeakMemoryUsage));
+
     BOOST_TEST_REQUIRE(core::CProgramCounters::counter(counter_t::E_DFONumberPartitions) == 1);
     BOOST_TEST_REQUIRE(core::CProgramCounters::counter(counter_t::E_DFOPeakMemoryUsage) < 100000);
+    // Allow a 20% margin
+    BOOST_TEST_REQUIRE(
+        core::CProgramCounters::counter(counter_t::E_DFOPeakMemoryUsage) <
+        (120 * core::CProgramCounters::counter(counter_t::E_DFOEstimatedPeakMemoryUsage)) / 100);
 }
 
 BOOST_AUTO_TEST_CASE(testRunOutlierDetectionPartitioned) {
@@ -247,11 +254,17 @@ BOOST_AUTO_TEST_CASE(testRunOutlierDetectionPartitioned) {
 
     LOG_DEBUG(<< "number partitions = "
               << core::CProgramCounters::counter(counter_t::E_DFONumberPartitions));
+    LOG_DEBUG(<< "estimated memory usage = "
+              << core::CProgramCounters::counter(counter_t::E_DFOEstimatedPeakMemoryUsage));
     LOG_DEBUG(<< "peak memory = "
               << core::CProgramCounters::counter(counter_t::E_DFOPeakMemoryUsage));
+
     BOOST_TEST_REQUIRE(core::CProgramCounters::counter(counter_t::E_DFONumberPartitions) > 1);
-    BOOST_TEST_REQUIRE(core::CProgramCounters::counter(counter_t::E_DFOPeakMemoryUsage) <
-                       116000); // + 16%
+    // Allow a 20% margin
+    BOOST_TEST_REQUIRE(core::CProgramCounters::counter(counter_t::E_DFOPeakMemoryUsage) < 120000);
+    BOOST_TEST_REQUIRE(
+        core::CProgramCounters::counter(counter_t::E_DFOPeakMemoryUsage) <
+        (120 * core::CProgramCounters::counter(counter_t::E_DFOEstimatedPeakMemoryUsage)) / 100);
 }
 
 BOOST_AUTO_TEST_CASE(testRunOutlierFeatureInfluences) {
@@ -350,6 +363,42 @@ BOOST_AUTO_TEST_CASE(testRunOutlierDetectionWithParams) {
             BOOST_TEST_REQUIRE(expectedScore == expectedScores.end());
         }
     }
+}
+
+BOOST_AUTO_TEST_CASE(testOutlierDetectionStateReport) {
+
+    // Test the results the analyzer produces match running outlier detection
+    // directly.
+
+    std::stringstream output;
+    auto outputWriterFactory = [&output]() {
+        return std::make_unique<core::CJsonOutputStreamWrapper>(output);
+    };
+
+    api::CDataFrameAnalyzer analyzer{
+        test::CDataFrameAnalysisSpecificationFactory::outlierSpec(), outputWriterFactory};
+
+    TDoubleVec expectedScores;
+    TDoubleVecVec expectedFeatureInfluences;
+
+    TStrVec fieldNames{"c1", "c2", "c3", "c4", "c5", ".", "."};
+    TStrVec fieldValues{"", "", "", "", "", "0", ""};
+    addOutlierTestData(fieldNames, fieldValues, analyzer, expectedScores,
+                       expectedFeatureInfluences);
+    analyzer.handleRecord(fieldNames, {"", "", "", "", "", "", "$"});
+
+    rapidjson::Document results;
+    rapidjson::ParseResult ok(results.Parse(output.str()));
+    BOOST_TEST_REQUIRE(static_cast<bool>(ok) == true);
+
+    std::ostringstream stream;
+    {
+        core::CJsonOutputStreamWrapper wrapper{stream};
+        core::CRapidJsonConcurrentLineWriter writer{wrapper};
+        writer.write(results);
+        stream.flush();
+    }
+    LOG_DEBUG(<< stream.str());
 }
 
 BOOST_AUTO_TEST_CASE(testFlushMessage) {

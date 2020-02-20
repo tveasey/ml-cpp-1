@@ -14,6 +14,7 @@
 #include <core/Concurrency.h>
 
 #include <maths/CBasicStatistics.h>
+#include <maths/CDataFrameAnalysisInstrumentationInterface.h>
 #include <maths/CKdTree.h>
 #include <maths/CLinearAlgebraShims.h>
 #include <maths/COrthogonaliser.h>
@@ -689,14 +690,10 @@ public:
     //! \param[in] params The calculation parameters.
     //! \param[in] frame The data frame whose rows hold the coordinated of
     //! the points for which to compute outliers.
-    //! \param[in] recordProgress A function to which fractional progress
-    //! is written.
-    //! \param[in] recordMemoryUsage A function to which changes in the
-    //! memory being used is written.
+    //! \param[in] instrumentation Manages writing out telemetry.
     static void compute(const SComputeParameters& params,
                         core::CDataFrame& frame,
-                        TProgressCallback recordProgress = noopRecordProgress,
-                        TMemoryUsageCallback recordMemoryUsage = noopRecordMemoryUsage);
+                        CDataFrameAnalysisInstrumentationInterface& instrumentation);
 
     //! Estimate the amount of memory that will be used computing outliers
     //! for a data frame.

@@ -17,6 +17,7 @@ namespace {
 
 const std::string JSON_AGGREGATE_OUTPUT_TAG{"aggregate_output"};
 const std::string JSON_CLASSIFICATION_LABELS_TAG{"classification_labels"};
+const std::string JSON_CLASSIFICATION_WEIGHTS_TAG{"classification_weights"};
 const std::string JSON_DECISION_TYPE_TAG{"decision_type"};
 const std::string JSON_DEFAULT_LEFT_TAG{"default_left"};
 const std::string JSON_DEFAULT_VALUE_TAG{"default_value"};
@@ -28,12 +29,12 @@ const std::string JSON_FIELD_TAG{"field"};
 const std::string JSON_FREQUENCY_ENCODING_TAG{"frequency_encoding"};
 const std::string JSON_FREQUENCY_MAP_TAG{"frequency_map"};
 const std::string JSON_HOT_MAP_TAG{"hot_map"};
-const std::string JSON_INPUT_TAG{"input"};
 const std::string JSON_LEAF_VALUE_TAG{"leaf_value"};
 const std::string JSON_LEFT_CHILD_TAG{"left_child"};
 const std::string JSON_LOGISTIC_REGRESSION_TAG{"logistic_regression"};
 const std::string JSON_LT{"lt"};
 const std::string JSON_NODE_INDEX_TAG{"node_index"};
+const std::string JSON_NUMBER_SAMPLES_TAG{"number_samples"};
 const std::string JSON_ONE_HOT_ENCODING_TAG{"one_hot_encoding"};
 const std::string JSON_PREPROCESSORS_TAG{"preprocessors"};
 const std::string JSON_RIGHT_CHILD_TAG{"right_child"};
@@ -53,16 +54,24 @@ const std::string JSON_WEIGHTED_MODE_TAG{"weighted_mode"};
 const std::string JSON_WEIGHTED_SUM_TAG{"weighted_sum"};
 const std::string JSON_WEIGHTS_TAG{"weights"};
 
+auto toJson(const std::string& value, CSerializableToJson::TRapidJsonWriter& writer) {
+    rapidjson::Value result;
+    result.SetString(value, writer.getRawAllocator());
+    return result;
+}
+
+auto toJson(double value, CSerializableToJson::TRapidJsonWriter&) {
+    return rapidjson::Value{value};
+}
+
 template<typename T>
 void addJsonArray(const std::string& tag,
                   const std::vector<T>& vector,
                   rapidjson::Value& parentObject,
                   CSerializableToJson::TRapidJsonWriter& writer) {
-    rapidjson::Value array = writer.makeArray(vector.size());
-    for (const auto& item : vector) {
-        rapidjson::Value value;
-        value.SetString(core::CStringUtils::typeToString(item), writer.getRawAllocator());
-        array.PushBack(value, writer.getRawAllocator());
+    rapidjson::Value array{writer.makeArray(vector.size())};
+    for (const auto& value : vector) {
+        array.PushBack(toJson(value, writer), writer.getRawAllocator());
     }
     writer.addMember(tag, array, parentObject);
 }
@@ -71,6 +80,9 @@ void addJsonArray(const std::string& tag,
 void CTree::CTreeNode::addToDocument(rapidjson::Value& parentObject,
                                      TRapidJsonWriter& writer) const {
     writer.addMember(JSON_NODE_INDEX_TAG, rapidjson::Value(m_NodeIndex).Move(), parentObject);
+    writer.addMember(
+        JSON_NUMBER_SAMPLES_TAG,
+        rapidjson::Value(static_cast<std::uint64_t>(m_NumberSamples)).Move(), parentObject);
 
     if (m_LeftChild) {
         // internal node
@@ -109,12 +121,14 @@ CTree::CTreeNode::CTreeNode(TNodeIndex nodeIndex,
                             double threshold,
                             bool defaultLeft,
                             double leafValue,
-                            size_t splitFeature,
+                            std::size_t splitFeature,
+                            std::size_t numberSamples,
                             const TOptionalNodeIndex& leftChild,
                             const TOptionalNodeIndex& rightChild,
                             const TOptionalDouble& splitGain)
-    : m_DefaultLeft(defaultLeft), m_NodeIndex(nodeIndex), m_LeftChild(leftChild),
-      m_RightChild(rightChild), m_SplitFeature(splitFeature),
+    : m_DefaultLeft(defaultLeft), m_NodeIndex(nodeIndex),
+      m_LeftChild(leftChild), m_RightChild(rightChild),
+      m_SplitFeature(splitFeature), m_NumberSamples(numberSamples),
       m_Threshold(threshold), m_LeafValue(leafValue), m_SplitGain(splitGain) {
 }
 
@@ -122,7 +136,7 @@ size_t CTree::CTreeNode::splitFeature() const {
     return m_SplitFeature;
 }
 
-void CTree::CTreeNode::splitFeature(size_t splitFeature) {
+void CTree::CTreeNode::splitFeature(std::size_t splitFeature) {
     m_SplitFeature = splitFeature;
 }
 
@@ -148,7 +162,7 @@ void CEnsemble::addToDocument(rapidjson::Value& parentObject, TRapidJsonWriter& 
     writer.addMember(JSON_ENSEMBLE_TAG, ensembleObject, parentObject);
 }
 
-void CEnsemble::featureNames(const CTrainedModel::TStringVec& featureNames) {
+void CEnsemble::featureNames(const TStringVec& featureNames) {
     this->CTrainedModel::featureNames(featureNames);
     for (auto& trainedModel : m_TrainedModels) {
         trainedModel->featureNames(featureNames);
@@ -171,15 +185,11 @@ const CEnsemble::TAggregateOutputUPtr& CEnsemble::aggregateOutput() const {
     return m_AggregateOutput;
 }
 
-void CEnsemble::targetType(CTrainedModel::ETargetType targetType) {
+void CEnsemble::targetType(ETargetType targetType) {
     this->CTrainedModel::targetType(targetType);
     for (auto& trainedModel : m_TrainedModels) {
         trainedModel->targetType(targetType);
     }
-}
-
-CTrainedModel::ETargetType CEnsemble::targetType() const {
-    return this->CTrainedModel::targetType();
 }
 
 CTrainedModel::TStringVec CEnsemble::removeUnusedFeatures() {
@@ -200,15 +210,18 @@ const CTrainedModel::TStringVec& CEnsemble::featureNames() const {
     return this->CTrainedModel::featureNames();
 }
 
-void CEnsemble::classificationLabels(const CTrainedModel::TStringVec& classificationLabels) {
+void CEnsemble::classificationLabels(const TStringVec& classificationLabels) {
     this->CTrainedModel::classificationLabels(classificationLabels);
     for (auto& trainedModel : m_TrainedModels) {
         trainedModel->classificationLabels(classificationLabels);
     }
 }
 
-const CTrainedModel::TStringVecOptional& CEnsemble::classificationLabels() const {
-    return this->CTrainedModel::classificationLabels();
+void CEnsemble::classificationWeights(const TDoubleVec& classificationWeights) {
+    this->CTrainedModel::classificationWeights(classificationWeights);
+    for (auto& trainedModel : m_TrainedModels) {
+        trainedModel->classificationWeights(classificationWeights);
+    }
 }
 
 void CTree::addToDocument(rapidjson::Value& parentObject, TRapidJsonWriter& writer) const {
@@ -270,11 +283,7 @@ std::string CInferenceModelDefinition::jsonString() {
 }
 
 void CInferenceModelDefinition::addToDocument(rapidjson::Value& parentObject,
-                                              TRapidJsonWriter& writer) const { //input
-    rapidjson::Value inputObject = writer.makeObject();
-    m_Input.addToDocument(inputObject, writer);
-    writer.addMember(JSON_INPUT_TAG, inputObject, parentObject);
-
+                                              TRapidJsonWriter& writer) const {
     // preprocessors
     rapidjson::Value preprocessingArray = writer.makeArray();
     for (const auto& encoding : m_Preprocessors) {
@@ -286,7 +295,7 @@ void CInferenceModelDefinition::addToDocument(rapidjson::Value& parentObject,
     }
     writer.addMember(JSON_PREPROCESSORS_TAG, preprocessingArray, parentObject);
 
-    //trained_model
+    // trained_model
     if (m_TrainedModel) {
         rapidjson::Value trainedModelValue = writer.makeObject();
         m_TrainedModel->addToDocument(trainedModelValue, writer);
@@ -301,16 +310,13 @@ void CTrainedModel::addToDocument(rapidjson::Value& parentObject,
     addJsonArray(JSON_FEATURE_NAMES_TAG, m_FeatureNames, parentObject, writer);
 
     if (m_ClassificationLabels) {
-        rapidjson::Value classificationLabelsArray =
-            writer.makeArray(m_ClassificationLabels.get().size());
-        for (const auto& classificationLabel : *m_ClassificationLabels) {
-            rapidjson::Value classificationLabelValue;
-            classificationLabelValue.SetString(classificationLabel,
-                                               writer.getRawAllocator());
-            classificationLabelsArray.PushBack(classificationLabelValue,
-                                               writer.getRawAllocator());
-        }
-        writer.addMember(JSON_CLASSIFICATION_LABELS_TAG, classificationLabelsArray, parentObject);
+        addJsonArray(JSON_CLASSIFICATION_LABELS_TAG, *m_ClassificationLabels,
+                     parentObject, writer);
+    }
+
+    if (m_ClassificationWeights) {
+        addJsonArray(JSON_CLASSIFICATION_WEIGHTS_TAG, *m_ClassificationWeights,
+                     parentObject, writer);
     }
 
     switch (m_TargetType) {
@@ -343,11 +349,11 @@ CTrainedModel::TStringVec& CTrainedModel::featureNames() {
     return m_FeatureNames;
 }
 
-void CTrainedModel::featureNames(CTrainedModel::TStringVec&& featureNames) {
-    m_FeatureNames = featureNames;
+void CTrainedModel::featureNames(TStringVec&& featureNames) {
+    m_FeatureNames = std::move(featureNames);
 }
 
-const CTrainedModel::TStringVecOptional& CTrainedModel::classificationLabels() const {
+const CTrainedModel::TOptionalStringVec& CTrainedModel::classificationLabels() const {
     return m_ClassificationLabels;
 }
 
@@ -355,24 +361,24 @@ void CTrainedModel::classificationLabels(const TStringVec& classificationLabels)
     m_ClassificationLabels = classificationLabels;
 }
 
-void CInferenceModelDefinition::fieldNames(TStringVec&& fieldNames,
-                                           std::size_t dependentVariableColumnIndex) {
-    m_FieldNames = fieldNames;
-    fieldNames.erase(fieldNames.begin() +
-                     static_cast<std::ptrdiff_t>(dependentVariableColumnIndex));
-    m_Input.fieldNames(std::move(fieldNames));
+const CTrainedModel::TOptionalDoubleVec& CTrainedModel::classificationWeights() const {
+    return m_ClassificationWeights;
 }
 
-void CInferenceModelDefinition::trainedModel(std::unique_ptr<CTrainedModel>&& trainedModel) {
-    m_TrainedModel.swap(trainedModel);
+void CTrainedModel::classificationWeights(const TDoubleVec& classificationWeights) {
+    m_ClassificationWeights = classificationWeights;
 }
 
-std::unique_ptr<CTrainedModel>& CInferenceModelDefinition::trainedModel() {
+void CInferenceModelDefinition::fieldNames(TStringVec&& fieldNames) {
+    m_FieldNames = std::move(fieldNames);
+}
+
+void CInferenceModelDefinition::trainedModel(CEnsemble::TTrainedModelUPtr&& trainedModel) {
+    m_TrainedModel = std::move(trainedModel);
+}
+
+CEnsemble::TTrainedModelUPtr& CInferenceModelDefinition::trainedModel() {
     return m_TrainedModel;
-}
-
-const CInput& CInferenceModelDefinition::input() const {
-    return m_Input;
 }
 
 CInferenceModelDefinition::TApiEncodingUPtrVec& CInferenceModelDefinition::preprocessors() {
@@ -395,20 +401,8 @@ size_t CInferenceModelDefinition::dependentVariableColumnIndex() const {
     return m_DependentVariableColumnIndex;
 }
 
-void CInferenceModelDefinition::dependentVariableColumnIndex(size_t dependentVariableColumnIndex) {
+void CInferenceModelDefinition::dependentVariableColumnIndex(std::size_t dependentVariableColumnIndex) {
     m_DependentVariableColumnIndex = dependentVariableColumnIndex;
-}
-
-const CInput::TStringVec& CInput::fieldNames() const {
-    return m_FieldNames;
-}
-
-void CInput::fieldNames(TStringVec&& fieldNames) {
-    m_FieldNames = fieldNames;
-}
-
-void CInput::addToDocument(rapidjson::Value& parentObject, TRapidJsonWriter& writer) const {
-    addJsonArray(JSON_FIELD_NAMES_TAG, m_FieldNames, parentObject, writer);
 }
 
 const std::string& CTargetMeanEncoding::typeString() const {
@@ -526,11 +520,7 @@ CWeightedSum::CWeightedSum(std::size_t size, double weight)
 void CWeightedSum::addToDocument(rapidjson::Value& parentObject,
                                  CSerializableToJson::TRapidJsonWriter& writer) const {
     rapidjson::Value object = writer.makeObject();
-    rapidjson::Value array = writer.makeArray(m_Weights.size());
-    for (const auto item : m_Weights) {
-        array.PushBack(rapidjson::Value(item).Move(), writer.getRawAllocator());
-    }
-    writer.addMember(JSON_WEIGHTS_TAG, array, object);
+    addJsonArray(JSON_WEIGHTS_TAG, m_Weights, object, writer);
     writer.addMember(this->stringType(), object, parentObject);
 }
 
@@ -549,11 +539,7 @@ const std::string& CWeightedMode::stringType() const {
 void CWeightedMode::addToDocument(rapidjson::Value& parentObject,
                                   CSerializableToJson::TRapidJsonWriter& writer) const {
     rapidjson::Value object = writer.makeObject();
-    rapidjson::Value array = writer.makeArray(m_Weights.size());
-    for (const auto item : m_Weights) {
-        array.PushBack(rapidjson::Value(item).Move(), writer.getRawAllocator());
-    }
-    writer.addMember(JSON_WEIGHTS_TAG, array, object);
+    addJsonArray(JSON_WEIGHTS_TAG, m_Weights, object, writer);
     writer.addMember(this->stringType(), object, parentObject);
 }
 
@@ -561,7 +547,7 @@ CWeightedMode::CWeightedMode(std::size_t size, double weight)
     : m_Weights(size, weight) {
 }
 
-CLogisticRegression::CLogisticRegression(CLogisticRegression::TDoubleVec&& weights)
+CLogisticRegression::CLogisticRegression(TDoubleVec&& weights)
     : m_Weights(std::move(weights)) {
 }
 
@@ -572,11 +558,7 @@ CLogisticRegression::CLogisticRegression(std::size_t size, double weight)
 void CLogisticRegression::addToDocument(rapidjson::Value& parentObject,
                                         TRapidJsonWriter& writer) const {
     rapidjson::Value object = writer.makeObject();
-    rapidjson::Value array = writer.makeArray(m_Weights.size());
-    for (const auto item : m_Weights) {
-        array.PushBack(rapidjson::Value(item).Move(), writer.getRawAllocator());
-    }
-    writer.addMember(JSON_WEIGHTS_TAG, array, object);
+    addJsonArray(JSON_WEIGHTS_TAG, m_Weights, object, writer);
     writer.addMember(this->stringType(), object, parentObject);
 }
 

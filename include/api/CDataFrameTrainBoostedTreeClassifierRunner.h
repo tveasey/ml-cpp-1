@@ -25,14 +25,17 @@ public:
         E_PredictionFieldTypeBool
     };
 
+public:
+    static const std::string NUM_TOP_CLASSES;
+    static const std::string PREDICTION_FIELD_TYPE;
+    static const std::string CLASS_ASSIGNMENT_OBJECTIVE;
+
+public:
     static const CDataFrameAnalysisConfigReader& parameterReader();
 
     //! This is not intended to be called directly: use CDataFrameTrainBoostedTreeClassifierRunnerFactory.
     CDataFrameTrainBoostedTreeClassifierRunner(const CDataFrameAnalysisSpecification& spec,
                                                const CDataFrameAnalysisParameters& parameters);
-
-    //! This is not intended to be called directly: use CDataFrameTrainBoostedTreeClassifierRunnerFactory.
-    CDataFrameTrainBoostedTreeClassifierRunner(const CDataFrameAnalysisSpecification& spec);
 
     //! \return Indicator of columns for which empty value should be treated as missing.
     TBoolVec columnsForWhichEmptyIsMissing(const TStrVec& fieldNames) const override;
@@ -45,14 +48,11 @@ public:
     //! Write the prediction for \p row to \p writer.
     //! This is not intended to be called in production. Should only be used in tests.
     void writeOneRow(const core::CDataFrame& frame,
-                     const std::size_t columnHoldingDependentVariable,
-                     const std::size_t columnHoldingPrediction,
+                     std::size_t columnHoldingDependentVariable,
+                     std::size_t columnHoldingPrediction,
+                     double probabilityAtWhichToAssignClassOne,
                      const TRowRef& row,
                      core::CRapidJsonConcurrentLineWriter& writer) const;
-
-    //! Write the predicted category value as string, int or bool.
-    void writePredictedCategoryValue(const std::string& categoryValue,
-                                     core::CRapidJsonConcurrentLineWriter& writer) const;
 
     //! \return A serialisable definition of the trained classification model.
     TInferenceModelDefinitionUPtr
@@ -60,8 +60,11 @@ public:
                              const TStrVecVec& categoryNames) const override;
 
 private:
-    TLossFunctionUPtr chooseLossFunction(const core::CDataFrame& frame,
-                                         std::size_t dependentVariableColumn) const override;
+    void validate(const core::CDataFrame& frame,
+                  std::size_t dependentVariableColumn) const override;
+
+    void writePredictedCategoryValue(const std::string& categoryValue,
+                                     core::CRapidJsonConcurrentLineWriter& writer) const;
 
 private:
     std::size_t m_NumTopClasses;

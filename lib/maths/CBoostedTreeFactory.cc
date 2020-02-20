@@ -36,8 +36,8 @@ const double MIN_SOFT_DEPTH_LIMIT{2.0};
 const double MIN_SOFT_DEPTH_LIMIT_TOLERANCE{0.05};
 const double MAX_SOFT_DEPTH_LIMIT_TOLERANCE{0.25};
 const double MIN_ETA{1e-3};
-const double MIN_ETA_SCALE{0.3};
-const double MAX_ETA_SCALE{3.0};
+const double MIN_ETA_SCALE{0.5};
+const double MAX_ETA_SCALE{2.0};
 const double MIN_ETA_GROWTH_RATE_SCALE{0.5};
 const double MAX_ETA_GROWTH_RATE_SCALE{1.5};
 const double MIN_FEATURE_BAG_FRACTION{0.2};
@@ -46,7 +46,16 @@ const double MIN_DOWNSAMPLE_LINE_SEARCH_RANGE{2.0};
 const double MAX_DOWNSAMPLE_LINE_SEARCH_RANGE{144.0};
 const double MIN_DOWNSAMPLE_FACTOR_SCALE{0.3};
 const double MAX_DOWNSAMPLE_FACTOR_SCALE{3.0};
+// This isn't a hard limit but we increase the number of default training folds
+// if the initial downsample fraction would be larger than this.
+const double MAX_DESIRED_INITIAL_DOWNSAMPLE_FRACTION{0.5};
+const double MAX_NUMBER_FOLDS{5.0};
 const std::size_t MAX_NUMBER_TREES{static_cast<std::size_t>(2.0 / MIN_ETA + 0.5)};
+// We scale eta in the upfront calculation of the total number of steps we expect
+// for progress monitoring because we don't know what value we'll choose in the
+// line search. Assuming it is less than one avoids a large pause in progress if
+// it is reduced in the line search.
+const double MAIN_LOOP_ETA_SCALE_FOR_PROGRESS{0.5};
 
 double computeEta(std::size_t numberRegressors) {
     // eta is the learning rate. There is a lot of empirical evidence that
@@ -69,44 +78,26 @@ std::size_t computeMaximumNumberTrees(double eta) {
     return static_cast<std::size_t>(3.0 / eta / MIN_DOWNSAMPLE_FACTOR_SCALE + 0.5);
 }
 
-std::size_t scaleMaximumNumberTrees(std::size_t maximumNumberTrees) {
-    // We actively optimise for eta and allow it to be up to MIN_ETA_SCALE
-    // smaller than the initial value. We need to allow the number of trees
-    // to increase proportionally to avoid bias. In practice, we should use
-    // fewer if they don't significantly improve the validation error.
-    return static_cast<std::size_t>(
-        static_cast<double>(maximumNumberTrees) / MIN_ETA_SCALE + 0.5);
-}
-
 bool intervalIsEmpty(const CBoostedTreeFactory::TVector& interval) {
     return interval(MAX_REGULARIZER_INDEX) - interval(MIN_REGULARIZER_INDEX) == 0.0;
 }
 }
 
 CBoostedTreeFactory::TBoostedTreeUPtr
-CBoostedTreeFactory::buildFor(core::CDataFrame& frame,
-                              TLossFunctionUPtr loss,
-                              std::size_t dependentVariable) {
-
-    if (loss == nullptr) {
-        HANDLE_FATAL(<< "Internal error: must supply a loss function");
-        return nullptr;
-    }
-
-    this->initializeTrainingProgressMonitoring(frame);
+CBoostedTreeFactory::buildFor(core::CDataFrame& frame, std::size_t dependentVariable) {
 
     m_TreeImpl->m_DependentVariable = dependentVariable;
-    m_TreeImpl->m_Loss = std::move(loss);
 
+    this->initializeNumberFolds(frame);
+    this->initializeTrainingProgressMonitoring(frame);
     this->initializeMissingFeatureMasks(frame);
 
-    m_TreeImpl->m_NumberInputColumns = frame.numberColumns();
-    frame.resizeColumns(m_TreeImpl->m_NumberThreads,
-                        frame.numberColumns() + this->numberExtraColumnsForTrain());
+    this->resizeDataFrame(frame);
 
     this->initializeCrossValidation(frame);
     this->selectFeaturesAndEncodeCategories(frame);
     this->determineFeatureDataTypes(frame);
+    m_TreeImpl->m_Instrumentation->updateMemoryUsage(core::CMemory::dynamicSize(m_TreeImpl));
 
     if (this->initializeFeatureSampleDistribution()) {
         this->initializeHyperparameters(frame);
@@ -116,8 +107,8 @@ CBoostedTreeFactory::buildFor(core::CDataFrame& frame,
     auto treeImpl = std::make_unique<CBoostedTreeImpl>(m_NumberThreads,
                                                        m_TreeImpl->m_Loss->clone());
     std::swap(m_TreeImpl, treeImpl);
-    return TBoostedTreeUPtr{new CBoostedTree{frame, m_RecordProgress, m_RecordMemoryUsage,
-                                             m_RecordTrainingState, std::move(treeImpl)}};
+    return TBoostedTreeUPtr{
+        new CBoostedTree{frame, m_RecordTrainingState, std::move(treeImpl)}};
 }
 
 CBoostedTreeFactory::TBoostedTreeUPtr
@@ -130,13 +121,11 @@ CBoostedTreeFactory::restoreFor(core::CDataFrame& frame, std::size_t dependentVa
     }
 
     this->resumeRestoredTrainingProgressMonitoring();
+    this->resizeDataFrame(frame);
+    m_TreeImpl->m_Instrumentation->updateMemoryUsage(core::CMemory::dynamicSize(m_TreeImpl));
 
-    m_TreeImpl->m_NumberInputColumns = frame.numberColumns();
-    frame.resizeColumns(m_TreeImpl->m_NumberThreads,
-                        frame.numberColumns() + this->numberExtraColumnsForTrain());
-
-    return TBoostedTreeUPtr{new CBoostedTree{frame, m_RecordProgress, m_RecordMemoryUsage,
-                                             m_RecordTrainingState, std::move(m_TreeImpl)}};
+    return TBoostedTreeUPtr{
+        new CBoostedTree{frame, m_RecordTrainingState, std::move(m_TreeImpl)}};
 }
 
 std::size_t CBoostedTreeFactory::numberHyperparameterTuningRounds() const {
@@ -187,8 +176,8 @@ void CBoostedTreeFactory::initializeHyperparameterOptimisation() const {
     }
     if (m_TreeImpl->m_EtaOverride == boost::none) {
         double rate{m_TreeImpl->m_EtaGrowthRatePerTree - 1.0};
-        boundingBox.emplace_back(std::log(MIN_ETA_SCALE * m_TreeImpl->m_Eta),
-                                 std::log(MAX_ETA_SCALE * m_TreeImpl->m_Eta));
+        boundingBox.emplace_back(m_LogEtaSearchInterval(MIN_REGULARIZER_INDEX),
+                                 m_LogEtaSearchInterval(MAX_REGULARIZER_INDEX));
         boundingBox.emplace_back(1.0 + MIN_ETA_GROWTH_RATE_SCALE * rate,
                                  1.0 + MAX_ETA_GROWTH_RATE_SCALE * rate);
     }
@@ -214,10 +203,9 @@ void CBoostedTreeFactory::initializeMissingFeatureMasks(const core::CDataFrame& 
             for (std::size_t i = 0; i < row->numberColumns(); ++i) {
                 double value{(*row)[i]};
                 if (CDataFrameUtils::isMissing(value)) {
-                    m_TreeImpl->m_MissingFeatureRowMasks[i].extend(
-                        false, row->index() -
-                                   m_TreeImpl->m_MissingFeatureRowMasks[i].size());
-                    m_TreeImpl->m_MissingFeatureRowMasks[i].extend(true);
+                    auto& mask = m_TreeImpl->m_MissingFeatureRowMasks[i];
+                    mask.extend(false, row->index() - mask.size());
+                    mask.extend(true);
                 }
             }
         }
@@ -229,42 +217,85 @@ void CBoostedTreeFactory::initializeMissingFeatureMasks(const core::CDataFrame& 
     }
 }
 
+void CBoostedTreeFactory::initializeNumberFolds(core::CDataFrame& frame) const {
+    if (m_TreeImpl->m_NumberFoldsOverride == boost::none) {
+        auto result = frame.readRows(
+            m_NumberThreads,
+            core::bindRetrievableState(
+                [this](std::size_t& numberTrainingRows, TRowItr beginRows, TRowItr endRows) {
+                    for (auto row = beginRows; row != endRows; ++row) {
+                        double target{(*row)[m_TreeImpl->m_DependentVariable]};
+                        if (CDataFrameUtils::isMissing(target) == false) {
+                            ++numberTrainingRows;
+                        }
+                    }
+                },
+                std::size_t{0}));
+        std::size_t totalNumberTrainingRows{0};
+        for (const auto& numberTrainingRows : result.first) {
+            totalNumberTrainingRows += numberTrainingRows.s_FunctionState;
+        }
+        LOG_TRACE(<< "total number training rows = " << totalNumberTrainingRows);
+
+        // We want to choose the number of folds so we'll have enough training data
+        // after leaving out one fold. We choose the initial downsample size based
+        // on the same sort of criterion. So we require that leaving out one fold
+        // shouldn't mean than we have fewer rows than constant * desired downsample
+        // # rows if possible. We choose the constant to be two for no particularly
+        // good reason except that:
+        //   1. it isn't too large
+        //   2. it still means we'll have plenty of variation between random bags.
+        //
+        // In order to estimate this we use the number of input features as a proxy
+        // for the number of features we'll actually use after feature selection.
+        //
+        // So how does the following work: we'd like "c * f * # rows" training rows.
+        // For k folds we'll have "(1 - 1 / k) * # rows" training rows. So we want
+        // to find the smallest integer k s.t. c * f * # rows <= (1 - 1 / k) * # rows.
+        // This gives k = ceil(1 / (1 - c * f)). However, we also upper bound this
+        // by MAX_NUMBER_FOLDS.
+
+        double initialDownsampleFraction{(m_InitialDownsampleRowsPerFeature *
+                                          static_cast<double>(frame.numberColumns() - 1)) /
+                                         static_cast<double>(totalNumberTrainingRows)};
+
+        m_TreeImpl->m_NumberFolds = static_cast<std::size_t>(
+            std::ceil(1.0 / std::max(1.0 - initialDownsampleFraction / MAX_DESIRED_INITIAL_DOWNSAMPLE_FRACTION,
+                                     1.0 / MAX_NUMBER_FOLDS)));
+        LOG_TRACE(<< "initial downsample fraction = " << initialDownsampleFraction
+                  << " # folds = " << m_TreeImpl->m_NumberFolds);
+    } else {
+        m_TreeImpl->m_NumberFolds = *m_TreeImpl->m_NumberFoldsOverride;
+    }
+}
+
+void CBoostedTreeFactory::resizeDataFrame(core::CDataFrame& frame) const {
+    m_TreeImpl->m_NumberInputColumns = frame.numberColumns();
+    frame.resizeColumns(m_TreeImpl->m_NumberThreads,
+                        frame.numberColumns() + this->numberExtraColumnsForTrain());
+    m_TreeImpl->m_Instrumentation->updateMemoryUsage(core::CMemory::dynamicSize(frame));
+}
+
 void CBoostedTreeFactory::initializeCrossValidation(core::CDataFrame& frame) const {
 
     core::CPackedBitVector allTrainingRowsMask{m_TreeImpl->allTrainingRowsMask()};
-
-    TDoubleVec frequencies;
-    core::CDataFrame::TRowFunc writeRowWeight;
+    std::size_t dependentVariable{m_TreeImpl->m_DependentVariable};
 
     std::size_t numberBuckets(m_StratifyRegressionCrossValidation ? 10 : 1);
-    std::tie(m_TreeImpl->m_TrainingRowMasks, m_TreeImpl->m_TestingRowMasks, frequencies) =
+    std::tie(m_TreeImpl->m_TrainingRowMasks, m_TreeImpl->m_TestingRowMasks, std::ignore) =
         CDataFrameUtils::stratifiedCrossValidationRowMasks(
-            m_TreeImpl->m_NumberThreads, frame, m_TreeImpl->m_DependentVariable,
-            m_TreeImpl->m_Rng, m_TreeImpl->m_NumberFolds, numberBuckets, allTrainingRowsMask);
+            m_TreeImpl->m_NumberThreads, frame, dependentVariable, m_TreeImpl->m_Rng,
+            m_TreeImpl->m_NumberFolds, numberBuckets, allTrainingRowsMask);
 
-    if (frame.columnIsCategorical()[m_TreeImpl->m_DependentVariable]) {
-        writeRowWeight = [&](TRowItr beginRows, TRowItr endRows) {
-            for (auto row = beginRows; row != endRows; ++row) {
-                if (m_BalanceClassTrainingLoss) {
-                    // Weight by inverse category frequency.
-                    std::size_t category{static_cast<std::size_t>(
-                        (*row)[m_TreeImpl->m_DependentVariable])};
-                    row->writeColumn(exampleWeightColumn(row->numberColumns()),
-                                     1.0 / frequencies[category]);
-                } else {
-                    row->writeColumn(exampleWeightColumn(row->numberColumns()), 1.0);
-                }
-            }
-        };
-    } else {
-        writeRowWeight = [&](TRowItr beginRows, TRowItr endRows) {
-            for (auto row = beginRows; row != endRows; ++row) {
-                row->writeColumn(exampleWeightColumn(row->numberColumns()), 1.0);
-            }
-        };
-    }
-
-    frame.writeColumns(m_NumberThreads, 0, frame.numberRows(), writeRowWeight,
+    frame.writeColumns(m_NumberThreads, 0, frame.numberRows(),
+                       [&](TRowItr beginRows, TRowItr endRows) {
+                           std::size_t column{exampleWeightColumn(
+                               m_TreeImpl->m_NumberInputColumns,
+                               m_TreeImpl->m_Loss->numberParameters())};
+                           for (auto row = beginRows; row != endRows; ++row) {
+                               row->writeColumn(column, 1.0);
+                           }
+                       },
                        &allTrainingRowsMask);
 }
 
@@ -284,7 +315,7 @@ void CBoostedTreeFactory::selectFeaturesAndEncodeCategories(const core::CDataFra
             .minimumFrequencyToOneHotEncode(m_MinimumFrequencyToOneHotEncode)
             .rowMask(m_TreeImpl->allTrainingRowsMask())
             .columnMask(std::move(regressors)));
-    m_TreeImpl->m_TrainingProgress.increment(1);
+    m_TreeImpl->m_TrainingProgress.increment(100);
 }
 
 void CBoostedTreeFactory::determineFeatureDataTypes(const core::CDataFrame& frame) const {
@@ -346,10 +377,10 @@ void CBoostedTreeFactory::initializeHyperparameters(core::CDataFrame& frame) {
     }
 
     double numberFeatures{static_cast<double>(m_TreeImpl->m_Encoder->numberEncodedColumns())};
-    double downSampleFactor{m_InitialDownsampleRowsPerFeature * numberFeatures /
+    double downsampleFactor{m_InitialDownsampleRowsPerFeature * numberFeatures /
                             m_TreeImpl->m_TrainingRowMasks[0].manhattan()};
     m_TreeImpl->m_DownsampleFactor = m_TreeImpl->m_DownsampleFactorOverride.value_or(
-        CTools::truncate(downSampleFactor, 0.05, 0.5));
+        CTools::truncate(downsampleFactor, 0.05, 0.5));
 
     m_TreeImpl->m_Regularization
         .depthPenaltyMultiplier(
@@ -368,11 +399,7 @@ void CBoostedTreeFactory::initializeHyperparameters(core::CDataFrame& frame) {
     }
 
     this->initializeUnsetDownsampleFactor(frame);
-
-    if (m_TreeImpl->m_MaximumNumberTreesOverride == boost::none) {
-        m_TreeImpl->m_MaximumNumberTrees =
-            scaleMaximumNumberTrees(m_TreeImpl->m_MaximumNumberTrees);
-    }
+    this->initializeUnsetEta(frame);
 }
 
 void CBoostedTreeFactory::initializeUnsetRegularizationHyperparameters(core::CDataFrame& frame) {
@@ -671,6 +698,53 @@ void CBoostedTreeFactory::initializeUnsetDownsampleFactor(core::CDataFrame& fram
     }
 }
 
+void CBoostedTreeFactory::initializeUnsetEta(core::CDataFrame& frame) {
+
+    if (m_TreeImpl->m_EtaOverride == boost::none) {
+        double searchIntervalSize{5.0 * MAX_ETA_SCALE / MIN_ETA_SCALE};
+        double logMaxEta{std::log(std::sqrt(searchIntervalSize) * m_TreeImpl->m_Eta)};
+        double logMinEta{logMaxEta - std::log(searchIntervalSize)};
+        double meanLogEta{(logMaxEta + logMinEta) / 2.0};
+        double mainLoopSearchInterval{std::log(0.2 * searchIntervalSize)};
+        LOG_TRACE(<< "mean log eta = " << meanLogEta);
+
+        auto applyEta = [](CBoostedTreeImpl& tree, double eta) {
+            tree.m_Eta = std::exp(eta);
+            tree.m_EtaGrowthRatePerTree = 1.0 + tree.m_Eta / 2.0;
+            tree.m_MaximumNumberTrees = computeMaximumNumberTrees(tree.m_Eta);
+            return true;
+        };
+
+        double eta{m_TreeImpl->m_Eta};
+
+        TVector fallback;
+        fallback(MIN_REGULARIZER_INDEX) = logMinEta;
+        fallback(BEST_REGULARIZER_INDEX) = meanLogEta;
+        fallback(MAX_REGULARIZER_INDEX) = logMaxEta;
+
+        m_LogEtaSearchInterval =
+            this->testLossLineSearch(frame, applyEta, logMinEta, logMaxEta,
+                                     -mainLoopSearchInterval / 2.0,
+                                     mainLoopSearchInterval / 2.0)
+                .value_or(fallback);
+        m_LogEtaSearchInterval = min(m_LogEtaSearchInterval, TVector{0.0});
+        LOG_TRACE(<< "log eta search interval = ["
+                  << m_LogEtaSearchInterval.toDelimited() << "]");
+        applyEta(*m_TreeImpl, m_LogEtaSearchInterval(BEST_REGULARIZER_INDEX));
+
+        if (intervalIsEmpty(m_LogEtaSearchInterval)) {
+            m_TreeImpl->m_EtaOverride = m_TreeImpl->m_Eta;
+        } else {
+            m_TreeImpl->m_MaximumNumberTrees =
+                computeMaximumNumberTrees(MIN_ETA_SCALE * m_TreeImpl->m_Eta);
+        }
+
+        m_TreeImpl->m_TrainingProgress.incrementRange(
+            static_cast<int>(this->mainLoopNumberSteps(m_TreeImpl->m_Eta)) -
+            static_cast<int>(this->mainLoopNumberSteps(MAIN_LOOP_ETA_SCALE_FOR_PROGRESS * eta)));
+    }
+}
+
 CBoostedTreeFactory::TDoubleDoublePrVec
 CBoostedTreeFactory::estimateTreeGainAndCurvature(core::CDataFrame& frame,
                                                   const TDoubleVec& percentiles) const {
@@ -679,8 +753,8 @@ CBoostedTreeFactory::estimateTreeGainAndCurvature(core::CDataFrame& frame,
     std::swap(maximumNumberOfTrees, m_TreeImpl->m_MaximumNumberTrees);
     CBoostedTreeImpl::TNodeVecVec forest;
     std::tie(forest, std::ignore) = m_TreeImpl->trainForest(
-        frame, m_TreeImpl->m_TrainingRowMasks[0], m_TreeImpl->m_TestingRowMasks[0],
-        m_TreeImpl->m_TrainingProgress, m_RecordMemoryUsage);
+        frame, m_TreeImpl->m_TrainingRowMasks[0],
+        m_TreeImpl->m_TestingRowMasks[0], m_TreeImpl->m_TrainingProgress);
     std::swap(maximumNumberOfTrees, m_TreeImpl->m_MaximumNumberTrees);
 
     TDoubleDoublePrVec result;
@@ -747,8 +821,8 @@ CBoostedTreeFactory::testLossLineSearch(core::CDataFrame& frame,
         CBoostedTreeImpl::TNodeVecVec forest;
         double testLoss;
         std::tie(forest, testLoss) = m_TreeImpl->trainForest(
-            frame, m_TreeImpl->m_TrainingRowMasks[0], m_TreeImpl->m_TestingRowMasks[0],
-            m_TreeImpl->m_TrainingProgress, m_RecordMemoryUsage);
+            frame, m_TreeImpl->m_TrainingRowMasks[0],
+            m_TreeImpl->m_TestingRowMasks[0], m_TreeImpl->m_TrainingProgress);
         bopt.add(boptVector(regularizer), testLoss, 0.0);
         minTestLoss.add(testLoss);
         testLosses.emplace_back(regularizer, testLoss);
@@ -768,8 +842,8 @@ CBoostedTreeFactory::testLossLineSearch(core::CDataFrame& frame,
         CBoostedTreeImpl::TNodeVecVec forest;
         double testLoss;
         std::tie(forest, testLoss) = m_TreeImpl->trainForest(
-            frame, m_TreeImpl->m_TrainingRowMasks[0], m_TreeImpl->m_TestingRowMasks[0],
-            m_TreeImpl->m_TrainingProgress, m_RecordMemoryUsage);
+            frame, m_TreeImpl->m_TrainingRowMasks[0],
+            m_TreeImpl->m_TestingRowMasks[0], m_TreeImpl->m_TrainingProgress);
         bopt.add(regularizer, testLoss, 0.0);
         minTestLoss.add(testLoss);
         testLosses.emplace_back(regularizer(0), testLoss);
@@ -842,7 +916,7 @@ CBoostedTreeFactory::testLossLineSearch(core::CDataFrame& frame,
     TVector interval{{returnedIntervalLeftEndOffset, 0.0, returnedIntervalRightEndOffset}};
     if (minGoodRegularizer > intervalLeftEnd) {
         interval(MIN_REGULARIZER_INDEX) = std::max(
-            maxGoodRegularizer - bestRegularizer, interval(MIN_REGULARIZER_INDEX));
+            minGoodRegularizer - bestRegularizer, interval(MIN_REGULARIZER_INDEX));
     }
     if (maxGoodRegularizer < intervalRightEnd) {
         interval(MAX_REGULARIZER_INDEX) = std::min(
@@ -877,14 +951,15 @@ CBoostedTreeFactory::testLossLineSearch(core::CDataFrame& frame,
     return TOptionalVector{interval};
 }
 
-CBoostedTreeFactory CBoostedTreeFactory::constructFromParameters(std::size_t numberThreads) {
-    return {numberThreads};
+CBoostedTreeFactory CBoostedTreeFactory::constructFromParameters(std::size_t numberThreads,
+                                                                 TLossFunctionUPtr loss) {
+    return {numberThreads, std::move(loss)};
 }
 
-CBoostedTreeFactory CBoostedTreeFactory::constructFromString(std::istream& jsonStringStream) {
-    CBoostedTreeFactory result{1};
+CBoostedTreeFactory CBoostedTreeFactory::constructFromString(std::istream& jsonStream) {
+    CBoostedTreeFactory result{1, nullptr};
     try {
-        core::CJsonStateRestoreTraverser traverser(jsonStringStream);
+        core::CJsonStateRestoreTraverser traverser(jsonStream);
         if (result.m_TreeImpl->acceptRestoreTraverser(traverser) == false ||
             traverser.haveBadState()) {
             throw std::runtime_error{"failed to restore boosted tree"};
@@ -895,11 +970,11 @@ CBoostedTreeFactory CBoostedTreeFactory::constructFromString(std::istream& jsonS
     return result;
 }
 
-CBoostedTreeFactory::CBoostedTreeFactory(std::size_t numberThreads)
+CBoostedTreeFactory::CBoostedTreeFactory(std::size_t numberThreads, TLossFunctionUPtr loss)
     : m_NumberThreads{numberThreads},
-      m_TreeImpl{std::make_unique<CBoostedTreeImpl>(numberThreads, nullptr)},
+      m_TreeImpl{std::make_unique<CBoostedTreeImpl>(numberThreads, std::move(loss))},
       m_LogDepthPenaltyMultiplierSearchInterval{0.0}, m_LogTreeSizePenaltyMultiplierSearchInterval{0.0},
-      m_LogLeafWeightPenaltyMultiplierSearchInterval{0.0}, m_TopShapValues{0} {
+      m_LogLeafWeightPenaltyMultiplierSearchInterval{0.0} {
 }
 
 CBoostedTreeFactory::CBoostedTreeFactory(CBoostedTreeFactory&&) = default;
@@ -907,6 +982,12 @@ CBoostedTreeFactory::CBoostedTreeFactory(CBoostedTreeFactory&&) = default;
 CBoostedTreeFactory& CBoostedTreeFactory::operator=(CBoostedTreeFactory&&) = default;
 
 CBoostedTreeFactory::~CBoostedTreeFactory() = default;
+
+CBoostedTreeFactory&
+CBoostedTreeFactory::classAssignmentObjective(CBoostedTree::EClassAssignmentObjective objective) {
+    m_TreeImpl->m_ClassAssignmentObjective = objective;
+    return *this;
+}
 
 CBoostedTreeFactory& CBoostedTreeFactory::minimumFrequencyToOneHotEncode(double frequency) {
     if (frequency >= 1.0) {
@@ -922,12 +1003,17 @@ CBoostedTreeFactory& CBoostedTreeFactory::numberFolds(std::size_t numberFolds) {
         LOG_WARN(<< "Must use at least two-folds for cross validation");
         numberFolds = 2;
     }
-    m_TreeImpl->m_NumberFolds = numberFolds;
+    m_TreeImpl->m_NumberFoldsOverride = numberFolds;
     return *this;
 }
 
 CBoostedTreeFactory& CBoostedTreeFactory::stratifyRegressionCrossValidation(bool stratify) {
     m_StratifyRegressionCrossValidation = stratify;
+    return *this;
+}
+
+CBoostedTreeFactory& CBoostedTreeFactory::stopCrossValidationEarly(bool stopEarly) {
+    m_TreeImpl->m_StopCrossValidationEarly = stopEarly;
     return *this;
 }
 
@@ -1039,18 +1125,14 @@ CBoostedTreeFactory& CBoostedTreeFactory::rowsPerFeature(std::size_t rowsPerFeat
     return *this;
 }
 
-CBoostedTreeFactory& CBoostedTreeFactory::balanceClassTrainingLoss(bool balance) {
-    m_BalanceClassTrainingLoss = balance;
+CBoostedTreeFactory& CBoostedTreeFactory::topShapValues(std::size_t topShapValues) {
+    m_TreeImpl->m_TopShapValues = topShapValues;
     return *this;
 }
 
-CBoostedTreeFactory& CBoostedTreeFactory::progressCallback(TProgressCallback callback) {
-    m_RecordProgress = std::move(callback);
-    return *this;
-}
-
-CBoostedTreeFactory& CBoostedTreeFactory::memoryUsageCallback(TMemoryUsageCallback callback) {
-    m_RecordMemoryUsage = std::move(callback);
+CBoostedTreeFactory& CBoostedTreeFactory::analysisInstrumentation(
+    CDataFrameAnalysisInstrumentationInterface& instrumentation) {
+    m_TreeImpl->m_Instrumentation = &instrumentation;
     return *this;
 }
 
@@ -1061,18 +1143,17 @@ CBoostedTreeFactory& CBoostedTreeFactory::trainingStateCallback(TTrainingStateCa
 
 std::size_t CBoostedTreeFactory::estimateMemoryUsage(std::size_t numberRows,
                                                      std::size_t numberColumns) const {
-    std::size_t shapValuesExtraColumns =
-        (m_TopShapValues > 0) ? numberRows * numberColumns * sizeof(CFloatStorage) : 0;
-    std::size_t maximumNumberTrees{this->mainLoopMaximumNumberTrees()};
+    std::size_t maximumNumberTrees{this->mainLoopMaximumNumberTrees(
+        m_TreeImpl->m_EtaOverride != boost::none ? *m_TreeImpl->m_EtaOverride
+                                                 : computeEta(numberColumns))};
     std::swap(maximumNumberTrees, m_TreeImpl->m_MaximumNumberTrees);
-    std::size_t result{m_TreeImpl->estimateMemoryUsage(numberRows, numberColumns) +
-                       shapValuesExtraColumns};
+    std::size_t result{m_TreeImpl->estimateMemoryUsage(numberRows, numberColumns)};
     std::swap(maximumNumberTrees, m_TreeImpl->m_MaximumNumberTrees);
     return result;
 }
 
 std::size_t CBoostedTreeFactory::numberExtraColumnsForTrain() const {
-    return CBoostedTreeImpl::numberExtraColumnsForTrain();
+    return CBoostedTreeImpl::numberExtraColumnsForTrain(m_TreeImpl->m_Loss->numberParameters());
 }
 
 void CBoostedTreeFactory::initializeTrainingProgressMonitoring(const core::CDataFrame& frame) {
@@ -1081,20 +1162,23 @@ void CBoostedTreeFactory::initializeTrainingProgressMonitoring(const core::CData
     //
     // This comprises:
     //  - The cost of category encoding and feature selection which we count as
-    //    one unit,
+    //    one hundred units,
     //  - One unit for estimating the expected gain and sum curvature per node,
     //  - LINE_SEARCH_ITERATIONS * "maximum number trees" units per regularization
     //    parameter which isn't user defined,
     //  - LINE_SEARCH_ITERATIONS * "maximum number trees" per forest for training
     //    the downsampling factor if it isn't user defined,
+    //  - LINE_SEARCH_ITERATIONS * "maximum number trees" per forest for the learn
+    //    learn rate if it isn't user defined,
     //  - The main optimisation loop which costs number folds * maximum number
     //    trees per forest units per iteration,
     //  - The cost of the final train which we count as an extra loop.
 
-    std::size_t totalNumberSteps{2};
     double eta{m_TreeImpl->m_EtaOverride != boost::none
                    ? *m_TreeImpl->m_EtaOverride
                    : computeEta(frame.numberColumns())};
+
+    std::size_t totalNumberSteps{101};
     std::size_t lineSearchMaximumNumberTrees{computeMaximumNumberTrees(eta)};
     if (m_TreeImpl->m_RegularizationOverride.softTreeDepthLimit() == boost::none) {
         totalNumberSteps += MAX_LINE_SEARCH_ITERATIONS * lineSearchMaximumNumberTrees;
@@ -1111,40 +1195,35 @@ void CBoostedTreeFactory::initializeTrainingProgressMonitoring(const core::CData
     if (m_TreeImpl->m_DownsampleFactorOverride == boost::none) {
         totalNumberSteps += MAX_LINE_SEARCH_ITERATIONS * lineSearchMaximumNumberTrees;
     }
-    totalNumberSteps += (this->numberHyperparameterTuningRounds() + 1) *
-                        this->mainLoopMaximumNumberTrees() * m_TreeImpl->m_NumberFolds;
+    if (m_TreeImpl->m_EtaOverride == boost::none) {
+        totalNumberSteps += MAX_LINE_SEARCH_ITERATIONS *
+                            computeMaximumNumberTrees(MAIN_LOOP_ETA_SCALE_FOR_PROGRESS * eta);
+    }
+    totalNumberSteps += this->mainLoopNumberSteps(MAIN_LOOP_ETA_SCALE_FOR_PROGRESS * eta);
     LOG_TRACE(<< "total number steps = " << totalNumberSteps);
-    m_TreeImpl->m_TrainingProgress =
-        core::CLoopProgress{totalNumberSteps, m_RecordProgress, 1.0, 1024};
+    m_TreeImpl->m_TrainingProgress = core::CLoopProgress{
+        totalNumberSteps, m_TreeImpl->m_Instrumentation->progressCallback(), 1.0, 1024};
 }
 
 void CBoostedTreeFactory::resumeRestoredTrainingProgressMonitoring() {
-    m_TreeImpl->m_TrainingProgress.progressCallback(m_RecordProgress);
+    m_TreeImpl->m_TrainingProgress.progressCallback(
+        m_TreeImpl->m_Instrumentation->progressCallback());
     m_TreeImpl->m_TrainingProgress.resumeRestored();
 }
 
-std::size_t CBoostedTreeFactory::mainLoopMaximumNumberTrees() const {
+std::size_t CBoostedTreeFactory::mainLoopNumberSteps(double eta) const {
+    return (this->numberHyperparameterTuningRounds() + 1) *
+           this->mainLoopMaximumNumberTrees(eta) * m_TreeImpl->m_NumberFolds;
+}
+
+std::size_t CBoostedTreeFactory::mainLoopMaximumNumberTrees(double eta) const {
     if (m_TreeImpl->m_MaximumNumberTreesOverride == boost::none) {
-        std::size_t maximumNumberTrees{computeMaximumNumberTrees(m_TreeImpl->m_Eta)};
-        maximumNumberTrees = scaleMaximumNumberTrees(maximumNumberTrees);
-        return maximumNumberTrees;
+        return computeMaximumNumberTrees(MIN_ETA_SCALE * eta);
     }
     return *m_TreeImpl->m_MaximumNumberTreesOverride;
 }
 
-void CBoostedTreeFactory::noopRecordTrainingState(std::function<void(core::CStatePersistInserter&)>) {
-}
-
-void CBoostedTreeFactory::noopRecordProgress(double) {
-}
-
-void CBoostedTreeFactory::noopRecordMemoryUsage(std::int64_t) {
-}
-
-CBoostedTreeFactory& CBoostedTreeFactory::topShapValues(std::size_t topShapValues) {
-    m_TopShapValues = topShapValues;
-    m_TreeImpl->m_TopShapValues = topShapValues;
-    return *this;
+void CBoostedTreeFactory::noopRecordTrainingState(CBoostedTree::TPersistFunc) {
 }
 }
 }

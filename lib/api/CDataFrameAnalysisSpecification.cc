@@ -226,7 +226,7 @@ void CDataFrameAnalysisSpecification::initializeRunner(const rapidjson::Value& j
     auto analysis = ANALYSIS_READER.read(jsonAnalysis);
 
     m_AnalysisName = analysis[NAME].as<std::string>();
-    LOG_INFO(<< "Parsed analysis with name '" << m_AnalysisName << "'");
+    LOG_TRACE(<< "Parsed analysis with name '" << m_AnalysisName << "'");
 
     for (const auto& factory : m_RunnerFactories) {
         if (m_AnalysisName == factory->name()) {
@@ -269,7 +269,7 @@ const std::string& CDataFrameAnalysisSpecification::analysisName() const {
     return m_AnalysisName;
 }
 
-const CDataFrameAnalysisRunner* CDataFrameAnalysisSpecification::runner() {
+CDataFrameAnalysisRunner* CDataFrameAnalysisSpecification::runner() {
     return m_Runner.get();
 }
 }
