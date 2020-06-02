@@ -7,9 +7,13 @@
 #ifndef INCLUDE_ml_maths_CTimeSeriesSegmentation_h
 #define INCLUDE_ml_maths_CTimeSeriesSegmentation_h
 
+#include <core/CoreTypes.h>
+
 #include <maths/CBasicStatistics.h>
 #include <maths/Constants.h>
 #include <maths/MathsTypes.h>
+
+#include <boost/circular_buffer.hpp>
 
 #include <vector>
 
@@ -24,6 +28,8 @@ public:
     using TSizeVec = std::vector<std::size_t>;
     using TFloatMeanAccumulator = CBasicStatistics::SSampleMean<CFloatStorage>::TAccumulator;
     using TFloatMeanAccumulatorVec = std::vector<TFloatMeanAccumulator>;
+    using TFloatMeanAccumulatorCBuf = boost::circular_buffer<TFloatMeanAccumulator>;
+    using TMeanPredictor = std::function<double(double, double)>;
 
     //! Perform top-down recursive segmentation with linear models.
     //!
@@ -146,6 +152,55 @@ public:
                                         const TDoubleVec& model,
                                         const TDoubleVec& scales);
 
+    //! Test for the presence of piecewise linear discontinuities in \p values
+    //! after removing the predictions of \p model.
+    //!
+    //! \param[in] model The blackbox time series model whose prediction residuals
+    //! are tested for a piecewise linear change.
+    //! \param[in] valueStep The value step to apply to \p model.
+    //! \param[in] gradientStep The gradient step to apply to \p model.
+    //! \return The statistical significance of the change.
+    static double
+    stepChangepointSignificance(const TFloatMeanAccumulatorCBuf& values,
+                                double startTime,
+                                double dt,
+                                const TMeanPredictor& model,
+                                double& valueStep,
+                                double& gradientStep,
+                                double outlierFraction = SEASONAL_OUTLIER_FRACTION,
+                                double outlierWeight = SEASONAL_OUTLIER_WEIGHT);
+
+    //! Test for a linear scale change point in \p values w.r.t. \p model.
+    //!
+    //! \param[in] model The blackbox time series model to test for a linear scale
+    //! change-point.
+    //! \param[in] scale The scale to apply to \p model.
+    //! \return The statistical significance of the change.
+    static double
+    linearScaleChangepointSignificance(const TFloatMeanAccumulatorCBuf& values,
+                                       double startTime,
+                                       double dt,
+                                       const TMeanPredictor& model,
+                                       double& scale,
+                                       double outlierFraction = SEASONAL_OUTLIER_FRACTION,
+                                       double outlierWeight = SEASONAL_OUTLIER_WEIGHT);
+
+    //! Test for the presence of piecewise linear discontinuities in \p values
+    //! after removing the predictions of \p model.
+    //!
+    //! \param[in] model The blackbox time series model to test for a time shift
+    //! change-point.
+    //! \param[in] shift The time shift to apply to \p model.
+    //! \return The statistical significance of the change.
+    static double
+    timeShiftChangepointSignificance(const TFloatMeanAccumulatorCBuf& values,
+                                     double startTime,
+                                     double dt,
+                                     const TMeanPredictor& model,
+                                     double& shift,
+                                     double outlierFraction = SEASONAL_OUTLIER_FRACTION,
+                                     double outlierWeight = SEASONAL_OUTLIER_WEIGHT);
+
 private:
     using TPredictor = std::function<double(double)>;
     using TDoubleVecFloatMeanAccumulatorVecPr = std::pair<TDoubleVec, TFloatMeanAccumulatorVec>;
@@ -158,6 +213,7 @@ private:
                                           std::size_t offset,
                                           double startTime,
                                           double dt,
+                                          double minSegmentLength,
                                           double significanceToSegment,
                                           double outliersFraction,
                                           double outlierWeight,
@@ -190,6 +246,32 @@ private:
                                                  TFloatMeanAccumulatorVec& reweighted,
                                                  TDoubleVec& model,
                                                  TDoubleVec& scales);
+
+    //! Check if there is a linear scale change-point in \p values w.r.t. \p model.
+    //!
+    //! \return The significance of the variance decrease associated with the scale.
+    template<typename ITR>
+    static double linearScaleChangepointSignificance(ITR begin,
+                                                     ITR end,
+                                                     double startTime,
+                                                     double dt,
+                                                     double outlierFraction,
+                                                     double outlierWeight,
+                                                     const TMeanPredictor& model,
+                                                     double& scale);
+
+    //! Check if there is a time shift in \p values w.r.t. \p model.
+    //!
+    //! \return The significance of the variance decrease associated with the shift.
+    template<typename ITR>
+    static double timeShiftChangepointSignificance(ITR begin,
+                                                   ITR end,
+                                                   double startTime,
+                                                   double dt,
+                                                   double outlierFraction,
+                                                   double outlierWeight,
+                                                   const TMeanPredictor& model,
+                                                   double& shift);
 };
 }
 }

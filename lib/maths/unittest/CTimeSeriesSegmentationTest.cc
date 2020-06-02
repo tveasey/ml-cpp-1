@@ -8,6 +8,7 @@
 #include <core/Constants.h>
 #include <core/CoreTypes.h>
 
+#include <maths/CBasicStatistics.h>
 #include <maths/CTimeSeriesSegmentation.h>
 
 #include <test/BoostTestCloseAbsolute.h>
@@ -15,6 +16,8 @@
 
 #include "TestUtils.h"
 
+#include <boost/circular_buffer.hpp>
+#include <boost/math/constants/constants.hpp>
 #include <boost/test/unit_test.hpp>
 
 #include <fstream>
@@ -29,6 +32,7 @@ using TSizeVec = std::vector<std::size_t>;
 using TFloatMeanAccumulator =
     maths::CBasicStatistics::SSampleMean<maths::CFloatStorage>::TAccumulator;
 using TFloatMeanAccumulatorVec = std::vector<TFloatMeanAccumulator>;
+using TFloatMeanAccumulatorCBuf = boost::circular_buffer<TFloatMeanAccumulator>;
 using TMeanVarAccumulator = maths::CBasicStatistics::SSampleMeanVar<double>::TAccumulator;
 using TSegmentation = maths::CTimeSeriesSegmentation;
 
@@ -430,6 +434,254 @@ BOOST_AUTO_TEST_CASE(testRemovePiecewiseLinearDiscontinuities) {
                 0.2 * static_cast<double>(i) - 2.0,
                 static_cast<double>(maths::CBasicStatistics::mean(values[i])), 1e-4);
         }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testStepChangepointSignificance) {
+
+    test::CRandomNumbers rng;
+
+    LOG_DEBUG(<< "No change");
+    {
+        TFloatMeanAccumulatorCBuf values{64};
+
+        TDoubleVec samples;
+        rng.generateNormalSamples(5.0, 0.2, 64, samples);
+        for (const auto& sample : samples) {
+            values.push_back(maths::CBasicStatistics::momentsAccumulator<maths::CFloatStorage>(
+                1.0, sample));
+        }
+
+        double valueStep;
+        double gradientStep;
+        double significance{maths::CTimeSeriesSegmentation::stepChangepointSignificance(
+            values, 0.0, 1.0, [](double, double) { return 5.0; }, valueStep, gradientStep)};
+        LOG_DEBUG(<< "significance = " << significance << " value step = " << valueStep
+                  << " gradient step = " << gradientStep);
+        BOOST_REQUIRE_EQUAL(1.0, significance);
+    }
+
+    LOG_DEBUG(<< "Piecewise Constant");
+    {
+        TFloatMeanAccumulatorCBuf values{64};
+
+        TDoubleVec samples;
+        rng.generateNormalSamples(5.0, 0.2, 24, samples);
+        for (const auto& sample : samples) {
+            values.push_back(maths::CBasicStatistics::momentsAccumulator<maths::CFloatStorage>(
+                1.0, sample));
+        }
+        rng.generateNormalSamples(10.0, 0.2, 40, samples);
+        for (const auto& sample : samples) {
+            values.push_back(maths::CBasicStatistics::momentsAccumulator<maths::CFloatStorage>(
+                1.0, sample));
+        }
+
+        double valueStep;
+        double gradientStep;
+        double significance{maths::CTimeSeriesSegmentation::stepChangepointSignificance(
+            values, 0.0, 1.0, [](double, double) { return 5.0; }, valueStep, gradientStep)};
+        LOG_DEBUG(<< "significance = " << significance << " value step = " << valueStep
+                  << " gradient step = " << gradientStep);
+        BOOST_REQUIRE(significance < 1e-10);
+        BOOST_REQUIRE_CLOSE(5.0, valueStep, 5.0 /*%*/);
+        BOOST_REQUIRE(std::fabs(gradientStep) < 0.01);
+    }
+
+    LOG_DEBUG(<< "Gradient Shift");
+    {
+        TFloatMeanAccumulatorCBuf values{64};
+
+        auto trendBefore = [](std::size_t i) {
+            return 0.1 * static_cast<double>(i);
+        };
+        auto trendAfter = [](double offset, std::size_t i) {
+            return offset + 0.2 * static_cast<double>(i);
+        };
+
+        TDoubleVec samples;
+        rng.generateNormalSamples(0.0, 0.1, 34, samples);
+        for (std::size_t i = 0; i < samples.size(); ++i) {
+            values.push_back(maths::CBasicStatistics::momentsAccumulator<maths::CFloatStorage>(
+                1.0, trendBefore(i) + samples[i]));
+        }
+        double offset{trendBefore(samples.size() - 1)};
+        rng.generateNormalSamples(0.0, 0.1, 30, samples);
+        for (std::size_t i = 0; i < samples.size(); ++i) {
+            values.push_back(maths::CBasicStatistics::momentsAccumulator<maths::CFloatStorage>(
+                1.0, trendAfter(offset, i) + samples[i]));
+        }
+
+        double valueStep;
+        double gradientStep;
+        double significance{maths::CTimeSeriesSegmentation::stepChangepointSignificance(
+            values, 0.0, 1.0, [](double a, double b) { return 0.05 * (a + b); },
+            valueStep, gradientStep)};
+        LOG_DEBUG(<< "significance = " << significance << " value step = " << valueStep
+                  << " gradient step = " << gradientStep);
+        BOOST_REQUIRE(significance < 1e-5);
+        BOOST_REQUIRE(std::fabs(valueStep) < 0.7);
+        BOOST_REQUIRE_CLOSE(0.1, gradientStep, 5.0 /*%*/);
+    }
+
+    LOG_DEBUG(<< "Piecewise Constant Plus Periodic");
+    {
+        TFloatMeanAccumulatorCBuf values{48};
+
+        TDoubleVec samples;
+        rng.generateNormalSamples(5.0, 0.2, 24, samples);
+        for (std::size_t i = 0; i < samples.size(); ++i) {
+            values.push_back(maths::CBasicStatistics::momentsAccumulator<maths::CFloatStorage>(
+                1.0, samples[i] + 2.0 * std::sin(boost::math::constants::two_pi<double>() *
+                                                 static_cast<double>(i) / 24.0)));
+        }
+        rng.generateNormalSamples(10.0, 0.2, 24, samples);
+        for (std::size_t i = 0; i < samples.size(); ++i) {
+            values.push_back(maths::CBasicStatistics::momentsAccumulator<maths::CFloatStorage>(
+                1.0, samples[i] + 2.0 * std::sin(boost::math::constants::two_pi<double>() *
+                                                 static_cast<double>(i) / 24.0)));
+        }
+
+        double valueStep;
+        double gradientStep;
+        double significance{maths::CTimeSeriesSegmentation::stepChangepointSignificance(
+            values, 0.0, 1.0,
+            [](double a, double b) {
+                return 5.0 + 2.0 * std::sin(boost::math::constants::two_pi<double>() *
+                                            (a + b) / 48.0);
+            },
+            valueStep, gradientStep)};
+        LOG_DEBUG(<< "significance = " << significance << " value step = " << valueStep
+                  << " gradient step = " << gradientStep);
+        BOOST_REQUIRE(significance < 1e-9);
+        BOOST_REQUIRE_CLOSE(5.0, valueStep, 5.0 /*%*/);
+        BOOST_REQUIRE(std::fabs(gradientStep) < 0.01);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testLinearScaleChangepointSignificance) {
+
+    test::CRandomNumbers rng;
+
+    LOG_DEBUG(<< "No change");
+    {
+        TFloatMeanAccumulatorCBuf values{48};
+
+        TDoubleVec samples;
+        rng.generateNormalSamples(4.0, 0.2, 48, samples);
+        for (std::size_t i = 0; i < samples.size(); ++i) {
+            values.push_back(maths::CBasicStatistics::momentsAccumulator<maths::CFloatStorage>(
+                1.0, samples[i] + 2.0 * std::sin(boost::math::constants::two_pi<double>() *
+                                                 static_cast<double>(i) / 24.0)));
+        }
+
+        double scale;
+        double significance{maths::CTimeSeriesSegmentation::linearScaleChangepointSignificance(
+            values, 0.0, 1.0,
+            [](double a, double b) {
+                return 2.0 * std::sin(boost::math::constants::two_pi<double>() *
+                                      (a + b) / 48.0);
+            },
+            scale)};
+        LOG_DEBUG(<< "significance = " << significance << " scale = " << scale);
+        BOOST_REQUIRE(significance > 0.9);
+    }
+
+    LOG_DEBUG(<< "Scale up");
+    {
+        TFloatMeanAccumulatorCBuf values{48};
+
+        TDoubleVec samples;
+        rng.generateNormalSamples(0.0, 0.2, 48, samples);
+        for (std::size_t i = 0; i < 20; ++i) {
+            values.push_back(maths::CBasicStatistics::momentsAccumulator<maths::CFloatStorage>(
+                1.0, samples[i] + 2.0 * std::sin(boost::math::constants::two_pi<double>() *
+                                                 static_cast<double>(i) / 24.0)));
+        }
+        for (std::size_t i = 20; i < samples.size(); ++i) {
+            values.push_back(maths::CBasicStatistics::momentsAccumulator<maths::CFloatStorage>(
+                1.0, samples[i] + 4.0 * std::sin(boost::math::constants::two_pi<double>() *
+                                                 static_cast<double>(i) / 24.0)));
+        }
+
+        double scale;
+        double significance{maths::CTimeSeriesSegmentation::linearScaleChangepointSignificance(
+            values, 0.0, 1.0,
+            [](double a, double b) {
+                return 2.0 * std::sin(boost::math::constants::two_pi<double>() *
+                                      (a + b) / 48.0);
+            },
+            scale)};
+        LOG_DEBUG(<< "significance = " << significance << " scale = " << scale);
+        BOOST_REQUIRE(significance < 1e-10);
+        BOOST_REQUIRE_CLOSE(2.0, scale, 5.0 /*%*/);
+    }
+
+    LOG_DEBUG(<< "Scale down");
+    {
+        TFloatMeanAccumulatorCBuf values{48};
+
+        TDoubleVec samples;
+        rng.generateNormalSamples(0.0, 0.2, 48, samples);
+        for (std::size_t i = 0; i < 27; ++i) {
+            values.push_back(maths::CBasicStatistics::momentsAccumulator<maths::CFloatStorage>(
+                1.0, samples[i] + 5.0 * std::sin(boost::math::constants::two_pi<double>() *
+                                                 static_cast<double>(i) / 24.0)));
+        }
+        for (std::size_t i = 27; i < samples.size(); ++i) {
+            values.push_back(maths::CBasicStatistics::momentsAccumulator<maths::CFloatStorage>(
+                1.0, samples[i] + 1.0 * std::sin(boost::math::constants::two_pi<double>() *
+                                                 static_cast<double>(i) / 24.0)));
+        }
+
+        double scale;
+        double significance{maths::CTimeSeriesSegmentation::linearScaleChangepointSignificance(
+            values, 0.0, 1.0,
+            [](double a, double b) {
+                return 5.0 * std::sin(boost::math::constants::two_pi<double>() *
+                                      (a + b) / 48.0);
+            },
+            scale)};
+        LOG_DEBUG(<< "significance = " << significance << " scale = " << scale);
+        BOOST_REQUIRE(significance < 1e-10);
+        BOOST_REQUIRE_CLOSE(0.2, scale, 20.0 /*%*/);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testTimeShiftChangepointSignificance) {
+
+    test::CRandomNumbers rng;
+
+    TDoubleVec significances{0.2, 1e-5, 1e-9};
+
+    for (double actualShift : {-3.0, -2.0, -1.0, 1.0, 2.0, 3.0}) {
+        TFloatMeanAccumulatorCBuf values{48};
+
+        TDoubleVec samples;
+        rng.generateNormalSamples(4.0, 0.2, 48, samples);
+        for (std::size_t i = 0; i < 29; ++i) {
+            values.push_back(maths::CBasicStatistics::momentsAccumulator<maths::CFloatStorage>(
+                1.0, samples[i] + 5.0 * std::sin(boost::math::constants::two_pi<double>() *
+                                                 static_cast<double>(i) / 24.0)));
+        }
+        for (std::size_t i = 29; i < samples.size(); ++i) {
+            values.push_back(maths::CBasicStatistics::momentsAccumulator<maths::CFloatStorage>(
+                1.0, samples[i] +
+                         5.0 * std::sin(boost::math::constants::two_pi<double>() *
+                                        (static_cast<double>(i) + actualShift) / 24.0)));
+        }
+
+        double estimatedShift;
+        double significance{maths::CTimeSeriesSegmentation::timeShiftChangepointSignificance(
+            values, 0.0, 1.0,
+            [](double a, double) {
+                return 5.0 * std::sin(boost::math::constants::two_pi<double>() * a / 24.0);
+            },
+            estimatedShift)};
+        LOG_DEBUG(<< "significance = " << significance << " shift = " << estimatedShift);
+        BOOST_REQUIRE(significance <
+                      significances[static_cast<std::size_t>(std::fabs(actualShift) - 1)]);
+        BOOST_REQUIRE_EQUAL(actualShift, estimatedShift);
     }
 }
 
