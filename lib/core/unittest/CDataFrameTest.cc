@@ -36,7 +36,9 @@ using TFloatVecItr = TFloatVec::iterator;
 using TFloatVecCItr = TFloatVec::const_iterator;
 using TSizeFloatVecUMap = boost::unordered_map<std::size_t, TFloatVec>;
 using TRowItr = core::CDataFrame::TRowItr;
-using TReadFunc = std::function<void(TRowItr, TRowItr)>;
+using TRowFunc = std::function<void(TRowItr, TRowItr)>;
+using TRowDataItr = core::CDataFrame::TRowDataItr;
+using TRowDataFunc = std::function<void(TRowDataItr, TRowDataItr)>;
 using TFactoryFunc = std::function<std::unique_ptr<core::CDataFrame>()>;
 
 TFloatVec testData(std::size_t numberRows, std::size_t numberColumns) {
@@ -269,7 +271,7 @@ BOOST_FIXTURE_TEST_CASE(testReadRange, CTestFixture) {
     std::size_t rows{5000};
     std::size_t cols{10};
     std::size_t capacity{1000};
-    TFloatVec components{testData(rows, cols)};
+    TFloatVec data{testData(rows, cols)};
 
     TFactoryFunc makeOnDisk = [=] {
         return core::makeDiskStorageDataFrame(test::CTestTmpDir::tmpDir(), cols, rows, capacity)
@@ -289,8 +291,8 @@ BOOST_FIXTURE_TEST_CASE(testReadRange, CTestFixture) {
         for (std::size_t threads : {1, 3}) {
             LOG_DEBUG(<< "# threads = " << threads);
 
-            for (std::size_t i = 0; i < components.size(); i += cols) {
-                frame->writeRow(makeWriter(components, cols, i));
+            for (std::size_t i = 0; i < data.size(); i += cols) {
+                frame->writeRow(makeWriter(data, cols, i));
             }
             frame->finishWritingRows();
 
@@ -311,7 +313,7 @@ BOOST_FIXTURE_TEST_CASE(testReadRange, CTestFixture) {
                                     passed = false;
                                 }
                                 if (passed) {
-                                    auto column = components.begin() + row->index() * cols;
+                                    auto column = data.begin() + row->index() * cols;
                                     for (std::size_t i = 0; i < cols; ++i, ++column) {
                                         if ((*row)[i] != *column) {
                                             LOG_ERROR(<< "Unexpected column value for "
@@ -324,6 +326,60 @@ BOOST_FIXTURE_TEST_CASE(testReadRange, CTestFixture) {
                         });
                     BOOST_TEST_REQUIRE(passed);
                 }
+            }
+        }
+    }
+}
+
+BOOST_FIXTURE_TEST_CASE(testReadDataRange, CTestFixture) {
+
+    // Check we get the only the rows rows we request.
+
+    std::size_t rows{5000};
+    std::size_t cols{10};
+    std::size_t capacity{1000};
+    TFloatVec data{testData(rows, cols)};
+
+    TFactoryFunc makeOnDisk = [=] {
+        return core::makeDiskStorageDataFrame(test::CTestTmpDir::tmpDir(), cols, rows, capacity)
+            .first;
+    };
+    TFactoryFunc makeMainMemory = [=] {
+        return core::makeMainStorageDataFrame(cols, capacity).first;
+    };
+
+    std::string type[]{"on disk", "main memory"};
+    std::size_t t{0};
+    for (const auto& factory : {makeOnDisk, makeMainMemory}) {
+        LOG_DEBUG(<< "Test read range " << type[t++]);
+
+        auto frame = factory();
+
+        for (std::size_t i = 0; i < data.size(); i += cols) {
+            frame->writeRow(makeWriter(data, cols, i));
+        }
+        frame->finishWritingRows();
+
+        for (std::size_t beginRowsInRange : {0, 1000, 1500}) {
+            for (std::size_t endRowsInRange : {500, 2000, 5000}) {
+                LOG_DEBUG(<< "Reading [" << beginRowsInRange << "," << endRowsInRange << ")");
+                TDoubleVec expectedColSums(cols, 0.0);
+                for (std::size_t i = beginRowsInRange; i < endRowsInRange; ++i) {
+                    for (std::size_t j = 0; j < 10; ++j) {
+                        expectedColSums[j] += data[i * cols + j];
+                    }
+                }
+                TDoubleVec actualColSums(cols, 0.0);
+                frame->readRowsData(1, beginRowsInRange, endRowsInRange,
+                                    [&](TRowDataItr beginRows, TRowDataItr endRows) {
+                                        for (auto row = beginRows; row != endRows; ++row) {
+                                            for (std::size_t i = 0; i < cols; ++i) {
+                                                actualColSums[i] += (*row)[i];
+                                            }
+                                        }
+                                    });
+                BOOST_REQUIRE_EQUAL(core::CContainerPrinter::print(expectedColSums),
+                                    core::CContainerPrinter::print(actualColSums));
             }
         }
     }
@@ -616,7 +672,7 @@ BOOST_FIXTURE_TEST_CASE(testWriteColumns, CTestFixture) {
         frame->finishWritingRows();
 
         frame->resizeColumns(2, 18);
-        frame->writeColumns(2, [&](TRowItr beginRows, TRowItr endRows) mutable {
+        frame->writeColumns(2, [&](TRowItr beginRows, TRowItr endRows) {
             for (auto row = beginRows; row != endRows; ++row) {
                 for (std::size_t j = 15; j < 18; ++j) {
                     std::size_t index{row->index() * (cols + extraCols) + j};
@@ -628,6 +684,63 @@ BOOST_FIXTURE_TEST_CASE(testWriteColumns, CTestFixture) {
         bool successful;
         bool passed{true};
         std::size_t i{0};
+        std::tie(std::ignore, successful) = frame->readRows(
+            1, std::bind(makeReader(components, cols + extraCols, passed),
+                         std::ref(i), std::placeholders::_1, std::placeholders::_2));
+        BOOST_TEST_REQUIRE(successful);
+        BOOST_TEST_REQUIRE(passed);
+    }
+}
+
+BOOST_FIXTURE_TEST_CASE(testWriteColumnsData, CTestFixture) {
+
+    // Test writing of extra column values using the data only interface.
+
+    std::size_t rows{5000};
+    std::size_t cols{15};
+    std::size_t extraCols{3};
+    std::size_t capacity{1000};
+    TFloatVec components{testData(rows, cols + extraCols)};
+
+    TFactoryFunc makeOnDisk = [=] {
+        return core::makeDiskStorageDataFrame(
+                   test::CTestTmpDir::tmpDir(), cols, rows, capacity,
+                   core::CDataFrame::EReadWriteToStorage::E_Async)
+            .first;
+    };
+    TFactoryFunc makeMainMemory = [=] {
+        return core::makeMainStorageDataFrame(
+                   cols, capacity, core::CDataFrame::EReadWriteToStorage::E_Sync)
+            .first;
+    };
+
+    std::string type[]{"on disk", "main memory"};
+    std::size_t t{0};
+    for (const auto& factory : {makeOnDisk, makeMainMemory}) {
+        LOG_DEBUG(<< "Test write columns " << type[t++]);
+
+        auto frame = factory();
+
+        for (std::size_t i = 0; i < components.size(); i += cols + extraCols) {
+            frame->writeRow(makeWriter(components, cols, i));
+        }
+        frame->finishWritingRows();
+
+        frame->resizeColumns(2, 18);
+        std::size_t i{0};
+        frame->writeColumnsData(1, [&](TRowDataItr beginRows, TRowDataItr endRows) {
+            for (auto row = beginRows; row != endRows; ++row) {
+                for (std::size_t j = 15; j < 18; ++j) {
+                    std::size_t index{i * (cols + extraCols) + j};
+                    row->writeColumn(j, components[index]);
+                }
+                ++i;
+            }
+        });
+
+        bool successful;
+        bool passed{true};
+        i = 0;
         std::tie(std::ignore, successful) = frame->readRows(
             1, std::bind(makeReader(components, cols + extraCols, passed),
                          std::ref(i), std::placeholders::_1, std::placeholders::_2));

@@ -114,7 +114,37 @@ private:
     std::int32_t m_DocHash;
 };
 
-//! \brief Decorates CRowCRef to give it pointer semantics.
+//! \brief The lightest wrapper around the data of a single row of the data frame.
+//!
+//! DESCRIPTION:\n
+//! Many operations on a data frame don't require either the row index or the
+//! row document hash. Compared to CRowRef this 16 bytes as opposed to 24 bytes
+//! and only provides interface for reading and writing row data.
+class CRowDataRef {
+public:
+    CRowDataRef(TFloatVecItr beginColumns, TFloatVecItr endColumns)
+        : m_BeginColumns{beginColumns}, m_EndColumns{endColumns} {}
+
+    CFloatStorage operator[](std::size_t i) const {
+        return *(m_BeginColumns + i);
+    }
+
+    std::size_t numberColumns() const {
+        return std::distance(m_BeginColumns, m_EndColumns);
+    }
+
+    void writeColumn(std::size_t column, double value) const {
+        m_BeginColumns[column] = value;
+    }
+
+    CFloatStorage* data() const { return &(*m_BeginColumns); }
+
+private:
+    TFloatVecItr m_BeginColumns;
+    TFloatVecItr m_EndColumns;
+};
+
+//! \brief Decorates CRowRef to give it pointer semantics.
 class CORE_EXPORT CRowPtr final : public CRowRef {
 public:
     template<typename... ARGS>
@@ -122,6 +152,16 @@ public:
 
     CRowPtr* operator->() { return this; }
     const CRowPtr* operator->() const { return this; }
+};
+
+//! \brief Decorates CRowDataRef to give it pointer semantics.
+class CORE_EXPORT CRowDataPtr final : public CRowDataRef {
+public:
+    template<typename... ARGS>
+    CRowDataPtr(ARGS&&... args) : CRowDataRef{std::forward<ARGS>(args)...} {}
+
+    CRowDataPtr* operator->() { return this; }
+    const CRowDataPtr* operator->() const { return this; }
 };
 
 //! \brief A forward iterator over rows of the data frame.
@@ -165,6 +205,64 @@ private:
     std::size_t m_Index = 0;
     TFloatVecItr m_RowItr;
     TInt32VecCItr m_DocHashItr;
+    TOptionalPopMaskedRow m_PopMaskedRow;
+};
+
+class CORE_EXPORT CRowDataIterator final {
+public:
+    CRowDataIterator() = default;
+
+    //! \param[in] numberColumns The number of columns in the data frame.
+    //! \param[in] rowCapacity The capacity of each row in the data frame.
+    //! \param[in] index The row index.
+    //! \param[in] rowItr The iterator for the columns of the rows starting
+    //! at \p index.
+    //! \param[in] popMaskedRow Gets the next row in the mask.
+    CRowDataIterator(std::size_t numberColumns,
+                     std::size_t rowCapacity,
+                     std::size_t index,
+                     TFloatVecItr rowItr,
+                     const TOptionalPopMaskedRow& popMaskedRow)
+        : m_NumberColumns{numberColumns}, m_RowCapacity{rowCapacity},
+          m_Index{index}, m_RowItr{rowItr}, m_PopMaskedRow{popMaskedRow} {}
+
+    //! \name Forward Iterator Contract
+    //@{
+    bool operator==(const CRowDataIterator& rhs) const {
+        return m_RowItr == rhs.m_RowItr;
+    }
+    bool operator!=(const CRowDataIterator& rhs) const {
+        return m_RowItr != rhs.m_RowItr;
+    }
+    CRowDataRef operator*() const {
+        return CRowDataRef{m_RowItr, m_RowItr + m_NumberColumns};
+    }
+    CRowDataPtr operator->() const {
+        return CRowDataPtr{m_RowItr, m_RowItr + m_NumberColumns};
+    }
+    CRowDataIterator& operator++() {
+        if (m_PopMaskedRow != boost::none) {
+            std::size_t nextIndex{(*m_PopMaskedRow)()};
+            m_RowItr += m_RowCapacity * (nextIndex - m_Index);
+            m_Index = nextIndex;
+        } else {
+            ++m_Index;
+            m_RowItr += m_RowCapacity;
+        }
+        return *this;
+    }
+    CRowDataIterator operator++(int) {
+        CRowDataIterator result{*this};
+        this->operator++();
+        return result;
+    }
+    //@}
+
+private:
+    std::size_t m_NumberColumns = 0;
+    std::size_t m_RowCapacity = 0;
+    std::size_t m_Index = 0;
+    TFloatVecItr m_RowItr;
     TOptionalPopMaskedRow m_PopMaskedRow;
 };
 }
@@ -232,6 +330,11 @@ public:
     using TRowFunc = std::function<void(TRowItr, TRowItr)>;
     using TRowFuncVec = std::vector<TRowFunc>;
     using TRowFuncVecBoolPr = std::pair<TRowFuncVec, bool>;
+    using TRowDataRef = data_frame_detail::CRowDataRef;
+    using TRowDataItr = data_frame_detail::CRowDataIterator;
+    using TRowDataFunc = std::function<void(TRowDataItr, TRowDataItr)>;
+    using TRowDataFuncVec = std::vector<TRowDataFunc>;
+    using TRowDataFuncVecBoolPr = std::pair<TRowDataFuncVec, bool>;
     using TWriteFunc = std::function<void(TFloatVecItr, std::int32_t&)>;
     using TRowSlicePtr = std::shared_ptr<CDataFrameRowSlice>;
     using TRowSlicePtrVec = std::vector<TRowSlicePtr>;
@@ -313,7 +416,7 @@ public:
     //! \warning This only supports alignments less than or equal the row alignment.
     TSizeVec resizeColumns(std::size_t numberThreads, const TSizeAlignmentPrVec& extraColumns);
 
-    //! This reads rows using one or more readers.
+    //! Read rows using one or more copies of \p reader.
     //!
     //! One reader is bound to one thread. Each thread reads a disjoint subset
     //! of slices of the data frame with the i'th reader reading slices
@@ -343,6 +446,20 @@ public:
     //! Convenience overload which reads all rows.
     TRowFuncVecBoolPr readRows(std::size_t numberThreads, TRowFunc reader) const {
         return this->readRows(numberThreads, 0, this->numberRows(), std::move(reader));
+    }
+
+    //! Read rows' data using one or more copies of \p reader.
+    //!
+    //! For more information see readRows.
+    TRowDataFuncVecBoolPr readRowsData(std::size_t numberThreads,
+                                       std::size_t beginRows,
+                                       std::size_t endRows,
+                                       TRowDataFunc reader,
+                                       const CPackedBitVector* rowMask = nullptr) const;
+
+    //! Convenience overload which reads all rows' data.
+    TRowDataFuncVecBoolPr readRowsData(std::size_t numberThreads, TRowDataFunc reader) const {
+        return this->readRowsData(numberThreads, 0, this->numberRows(), std::move(reader));
     }
 
     //! Convenience overload for typed readers.
@@ -380,7 +497,37 @@ public:
         return this->readRows(numberThreads, 0, this->numberRows(), std::move(reader));
     }
 
-    //! Overwrite a number of columns with \p writer.
+    //! Convenience overload for typed data readers.
+    //!
+    //! \note READER must implement the TRowDataFunc contract.
+    template<typename READER>
+    std::pair<std::vector<READER>, bool>
+    readRowsData(std::size_t numberThreads,
+                 std::size_t beginRows,
+                 std::size_t endRows,
+                 READER reader,
+                 const CPackedBitVector* rowMask = nullptr) const {
+
+        TRowDataFuncVecBoolPr result{this->readRowsData(
+            numberThreads, beginRows, endRows, TRowDataFunc{std::move(reader)}, rowMask)};
+
+        std::vector<READER> readers;
+        readers.reserve(result.first.size());
+        for (auto& reader_ : result.first) {
+            readers.emplace_back(std::move(*reader_.target<READER>()));
+        }
+
+        return {std::move(readers), result.second};
+    }
+
+    //! Convenience overload for typed reading of all rows' data.
+    template<typename READER>
+    std::pair<std::vector<READER>, bool>
+    readRowsData(std::size_t numberThreads, READER reader) const {
+        return this->readRows(numberThreads, 0, this->numberRows(), std::move(reader));
+    }
+
+    //! Overwrite rows using one or more copies of \p writer.
     //!
     //! The caller must ensure that the columns overwritten are in range.
     //!
@@ -404,8 +551,23 @@ public:
                                    const CPackedBitVector* rowMask = nullptr);
 
     //! Convenience overload which writes all rows.
-    TRowFuncVecBoolPr writeColumns(std::size_t numberThreads, TRowFunc reader) {
-        return this->writeColumns(numberThreads, 0, this->numberRows(), std::move(reader));
+    TRowFuncVecBoolPr writeColumns(std::size_t numberThreads, TRowFunc writer) {
+        return this->writeColumns(numberThreads, 0, this->numberRows(), std::move(writer));
+    }
+
+    //! Overwrite rows' data using one or more copies of \p writer.
+    //!
+    //! See writeColumns for more details.
+    TRowDataFuncVecBoolPr writeColumnsData(std::size_t numberThreads,
+                                           std::size_t beginRows,
+                                           std::size_t endRows,
+                                           TRowDataFunc writer,
+                                           const CPackedBitVector* rowMask = nullptr);
+
+    //! Convenience overload which writes all rows.
+    TRowDataFuncVecBoolPr writeColumnsData(std::size_t numberThreads, TRowDataFunc writer) {
+        return this->writeColumnsData(numberThreads, 0, this->numberRows(),
+                                      std::move(writer));
     }
 
     //! Convenience overload for typed writers.
@@ -423,7 +585,7 @@ public:
                  const CPackedBitVector* rowMask = nullptr) {
 
         TRowFuncVecBoolPr result{this->writeColumns(
-            numberThreads, beginRows, endRows, TRowFunc(std::move(writer)), rowMask)};
+            numberThreads, beginRows, endRows, TRowFunc{std::move(writer)}, rowMask)};
 
         std::vector<WRITER> writers;
         writers.reserve(result.first.size());
@@ -434,11 +596,42 @@ public:
         return {std::move(writers), result.second};
     }
 
-    //! Convenience overload for typed reading of all rows.
+    //! Convenience overload for typed writing of all rows.
     template<typename WRITER>
     std::pair<std::vector<WRITER>, bool>
     writeColumns(std::size_t numberThreads, WRITER writer) {
         return this->writeColumns(numberThreads, 0, this->numberRows(), std::move(writer));
+    }
+
+    //! Convenience overload for typed writers.
+    //!
+    //! \note WRITER must implement the TRowDataFunc contract.
+    template<typename WRITER>
+    std::pair<std::vector<WRITER>, bool>
+    writeColumnsData(std::size_t numberThreads,
+                     std::size_t beginRows,
+                     std::size_t endRows,
+                     WRITER writer,
+                     const CPackedBitVector* rowMask = nullptr) {
+
+        TRowDataFuncVecBoolPr result{this->writeColumnsData(
+            numberThreads, beginRows, endRows, TRowDataFunc{std::move(writer)}, rowMask)};
+
+        std::vector<WRITER> writers;
+        writers.reserve(result.first.size());
+        for (auto& writer_ : result.first) {
+            writers.emplace_back(std::move(*writer_.target<WRITER>()));
+        }
+
+        return {std::move(writers), result.second};
+    }
+
+    //! Convenience overload for typed writing of all rows.
+    template<typename WRITER>
+    std::pair<std::vector<WRITER>, bool>
+    writeColumnsData(std::size_t numberThreads, WRITER writer) {
+        return this->writeColumnsData(numberThreads, 0, this->numberRows(),
+                                      std::move(writer));
     }
 
     //! Parses the strings in \p columnValues and writes one row via writeRow.
@@ -546,23 +739,41 @@ private:
     using TRowSliceWriterPtr = std::unique_ptr<CDataFrameRowSliceWriter>;
 
 private:
-    TRowFuncVecBoolPr parallelApplyToAllRows(std::size_t numberThreads,
-                                             std::size_t beginRows,
-                                             std::size_t endRows,
-                                             TRowFunc&& func,
-                                             const CPackedBitVector* rowMask,
-                                             bool commitResult) const;
-    TRowFuncVecBoolPr sequentialApplyToAllRows(std::size_t beginRows,
-                                               std::size_t endRows,
-                                               TRowFunc& func,
-                                               const CPackedBitVector* rowMask,
-                                               bool commitResult) const;
+    template<typename ROW_FUNC>
+    std::pair<std::vector<ROW_FUNC>, bool>
+    parallelApplyToAllRows(std::size_t numberThreads,
+                           std::size_t beginRows,
+                           std::size_t endRows,
+                           ROW_FUNC&& func,
+                           const CPackedBitVector* rowMask,
+                           bool commitResult) const;
+    template<typename ROW_FUNC>
+    std::pair<std::vector<ROW_FUNC>, bool>
+    sequentialApplyToAllRows(std::size_t beginRows,
+                             std::size_t endRows,
+                             ROW_FUNC& func,
+                             const CPackedBitVector* rowMask,
+                             bool commitResult) const;
 
-    void applyToRowsOfOneSlice(TRowFunc& func,
+    template<typename ROW_FUNC>
+    void applyToRowsOfOneSlice(ROW_FUNC& func,
                                std::size_t firstRowToRead,
                                std::size_t endRowsToRead,
                                const TOptionalPopMaskedRow& popMaskedRow,
                                const CDataFrameRowSliceHandle& slice) const;
+
+    TRowItr makeIterator(const TRowFunc& func,
+                         std::size_t row,
+                         std::size_t beginDataRow,
+                         std::size_t rowHash,
+                         const TOptionalPopMaskedRow& popMaskedRow,
+                         const CDataFrameRowSliceHandle& slice) const;
+    TRowDataItr makeIterator(const TRowDataFunc& func,
+                             std::size_t row,
+                             std::size_t beginDataRow,
+                             std::size_t rowHash,
+                             const TOptionalPopMaskedRow& popMaskedRow,
+                             const CDataFrameRowSliceHandle& slice) const;
 
     TRowSlicePtrVecCItr beginSlices(std::size_t beginRows) const;
     TRowSlicePtrVecCItr endSlices(std::size_t endRows) const;

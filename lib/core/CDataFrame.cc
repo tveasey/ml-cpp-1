@@ -98,12 +98,6 @@ CRowIterator& CRowIterator::operator++() {
     }
     return *this;
 }
-
-CRowIterator CRowIterator::operator++(int) {
-    CRowIterator result{*this};
-    this->operator++();
-    return result;
-}
 }
 
 using namespace data_frame_detail;
@@ -201,11 +195,51 @@ CDataFrame::TRowFuncVecBoolPr CDataFrame::readRows(std::size_t numberThreads,
                : this->sequentialApplyToAllRows(beginRows, endRows, reader, rowMask, false);
 }
 
+CDataFrame::TRowDataFuncVecBoolPr
+CDataFrame::readRowsData(std::size_t numberThreads,
+                         std::size_t beginRows,
+                         std::size_t endRows,
+                         TRowDataFunc reader,
+                         const CPackedBitVector* rowMask) const {
+
+    beginRows = std::min(beginRows, m_NumberRows);
+    endRows = std::min(endRows, m_NumberRows);
+
+    if (beginRows >= endRows) {
+        return {{std::move(reader)}, true};
+    }
+
+    return numberThreads > 1
+               ? this->parallelApplyToAllRows(numberThreads, beginRows, endRows,
+                                              std::move(reader), rowMask, false)
+               : this->sequentialApplyToAllRows(beginRows, endRows, reader, rowMask, false);
+}
+
 CDataFrame::TRowFuncVecBoolPr CDataFrame::writeColumns(std::size_t numberThreads,
                                                        std::size_t beginRows,
                                                        std::size_t endRows,
                                                        TRowFunc writer,
                                                        const CPackedBitVector* rowMask) {
+
+    beginRows = std::min(beginRows, m_NumberRows);
+    endRows = std::min(endRows, m_NumberRows);
+
+    if (beginRows >= endRows) {
+        return {{std::move(writer)}, true};
+    }
+
+    return numberThreads > 1
+               ? this->parallelApplyToAllRows(numberThreads, beginRows, endRows,
+                                              std::move(writer), rowMask, true)
+               : this->sequentialApplyToAllRows(beginRows, endRows, writer, rowMask, true);
+}
+
+CDataFrame::TRowDataFuncVecBoolPr
+CDataFrame::writeColumnsData(std::size_t numberThreads,
+                             std::size_t beginRows,
+                             std::size_t endRows,
+                             TRowDataFunc writer,
+                             const CPackedBitVector* rowMask) {
 
     beginRows = std::min(beginRows, m_NumberRows);
     endRows = std::min(endRows, m_NumberRows);
@@ -403,11 +437,12 @@ std::size_t CDataFrame::estimateMemoryUsage(bool inMainMemory,
                : 0;
 }
 
-CDataFrame::TRowFuncVecBoolPr
+template<typename ROW_FUNC>
+std::pair<std::vector<ROW_FUNC>, bool>
 CDataFrame::parallelApplyToAllRows(std::size_t numberThreads,
                                    std::size_t beginRows,
                                    std::size_t endRows,
-                                   TRowFunc&& func,
+                                   ROW_FUNC&& func,
                                    const CPackedBitVector* rowMask,
                                    bool commitResult) const {
 
@@ -428,7 +463,7 @@ CDataFrame::parallelApplyToAllRows(std::size_t numberThreads,
     auto results = parallel_for_each(
         numberThreads, this->beginSlices(beginRows), this->endSlices(endRows),
         bindRetrievableState(
-            [=, &successful](TRowFunc& func_, const TRowSlicePtr& slice) mutable {
+            [=, &successful](ROW_FUNC& func_, const TRowSlicePtr& slice) mutable {
                 if (successful.load() == false) {
                     return;
                 }
@@ -463,7 +498,7 @@ CDataFrame::parallelApplyToAllRows(std::size_t numberThreads,
             },
             std::move(func)));
 
-    TRowFuncVec funcs;
+    std::vector<ROW_FUNC> funcs;
     funcs.reserve(results.size());
     for (auto& result : results) {
         funcs.emplace_back(std::move(result.s_FunctionState));
@@ -472,10 +507,11 @@ CDataFrame::parallelApplyToAllRows(std::size_t numberThreads,
     return {std::move(funcs), successful.load()};
 }
 
-CDataFrame::TRowFuncVecBoolPr
+template<typename ROW_FUNC>
+std::pair<std::vector<ROW_FUNC>, bool>
 CDataFrame::sequentialApplyToAllRows(std::size_t beginRows,
                                      std::size_t endRows,
-                                     TRowFunc& func,
+                                     ROW_FUNC& func,
                                      const CPackedBitVector* rowMask,
                                      bool commitResult) const {
 
@@ -578,14 +614,15 @@ CDataFrame::sequentialApplyToAllRows(std::size_t beginRows,
     // TRowFuncVec funcs{std::move(func)}; moves func into an std::inializer_list
     // but then *copies* from the list because the standard requires its elements
     // are treated as constant, see 8.5.4/5.
-    TRowFuncVec funcs;
+    std::vector<ROW_FUNC> funcs;
     funcs.reserve(1);
     funcs.emplace_back(std::move(func));
 
-    return TRowFuncVecBoolPr{std::move(funcs), true};
+    return {std::move(funcs), true};
 }
 
-void CDataFrame::applyToRowsOfOneSlice(TRowFunc& func,
+template<typename ROW_FUNC>
+void CDataFrame::applyToRowsOfOneSlice(ROW_FUNC& func,
                                        std::size_t firstRowToRead,
                                        std::size_t endRowsToRead,
                                        const TOptionalPopMaskedRow& popMaskedRow,
@@ -600,12 +637,34 @@ void CDataFrame::applyToRowsOfOneSlice(TRowFunc& func,
     std::size_t beginRowData{offsetOfFirstRowToRead * m_RowCapacity};
     std::size_t endRowData{offsetOfEndRowsToRead * m_RowCapacity};
 
-    func(CRowIterator{m_NumberColumns, m_RowCapacity, firstRowToRead,
-                      slice.beginRows() + beginRowData,
-                      slice.beginDocHashes() + offsetOfFirstRowToRead, popMaskedRow},
-         CRowIterator{m_NumberColumns, m_RowCapacity, endRowsToRead,
-                      slice.beginRows() + endRowData,
-                      slice.beginDocHashes() + offsetOfEndRowsToRead, popMaskedRow});
+    func(this->makeIterator(func, firstRowToRead, beginRowData,
+                            offsetOfFirstRowToRead, popMaskedRow, slice),
+         this->makeIterator(func, endRowsToRead, endRowData,
+                            offsetOfEndRowsToRead, popMaskedRow, slice));
+}
+
+CDataFrame::TRowItr CDataFrame::makeIterator(const TRowFunc& /*used to select the iterator*/,
+                                             std::size_t row,
+                                             std::size_t beginRowData,
+                                             std::size_t rowHash,
+                                             const TOptionalPopMaskedRow& popMaskedRow,
+                                             const CDataFrameRowSliceHandle& slice) const {
+    return {m_NumberColumns,
+            m_RowCapacity,
+            row,
+            slice.beginRows() + beginRowData,
+            slice.beginDocHashes() + rowHash,
+            popMaskedRow};
+}
+
+CDataFrame::TRowDataItr
+CDataFrame::makeIterator(const TRowDataFunc& /*used to select the iterator*/,
+                         std::size_t row,
+                         std::size_t beginRowData,
+                         std::size_t /*no hashes*/,
+                         const TOptionalPopMaskedRow& popMaskedRow,
+                         const CDataFrameRowSliceHandle& slice) const {
+    return {m_NumberColumns, m_RowCapacity, row, slice.beginRows() + beginRowData, popMaskedRow};
 }
 
 CDataFrame::TRowSlicePtrVecCItr CDataFrame::beginSlices(std::size_t beginRows) const {
