@@ -31,12 +31,69 @@ core::CFloatStorage truncateToFloatRange(double value) {
 
 namespace data_frame_detail {
 
+CRowDataRef::CRowDataRef(TFloatVecItr beginColumns, TFloatVecItr endColumns)
+    : m_BeginColumns{beginColumns}, m_EndColumns{endColumns} {
+}
+
+CFloatStorage CRowDataRef::operator[](std::size_t i) const {
+    return m_BeginColumns[i];
+}
+
+std::size_t CRowDataRef::numberColumns() const {
+    return std::distance(m_BeginColumns, m_EndColumns);
+}
+
+void CRowDataRef::writeColumn(std::size_t column, double value) const {
+    m_BeginColumns[column] = value;
+}
+
+CFloatStorage* CRowDataRef::data() const {
+    return &(*m_BeginColumns);
+}
+
+CRowDataIterator::CRowDataIterator(std::size_t numberColumns,
+                                   std::size_t rowCapacity,
+                                   std::size_t index,
+                                   TFloatVecItr rowItr,
+                                   const TOptionalPopMaskedRow& popMaskedRow)
+    : m_NumberColumns{numberColumns}, m_RowCapacity{rowCapacity},
+      m_Index{index}, m_RowItr{rowItr}, m_PopMaskedRow{popMaskedRow} {
+}
+
+bool CRowDataIterator::operator==(const CRowDataIterator& rhs) const {
+    return m_RowItr == rhs.m_RowItr;
+}
+
+bool CRowDataIterator::operator!=(const CRowDataIterator& rhs) const {
+    return m_RowItr != rhs.m_RowItr;
+}
+
+CRowDataRef CRowDataIterator::operator*() const {
+    return {m_RowItr, m_RowItr + m_NumberColumns};
+}
+
+CRowDataPtr CRowDataIterator::operator->() const {
+    return {m_RowItr, m_RowItr + m_NumberColumns};
+}
+
+CRowDataIterator& CRowDataIterator::operator++() {
+    if (m_PopMaskedRow != boost::none) {
+        std::size_t nextIndex{(*m_PopMaskedRow)()};
+        m_RowItr += m_RowCapacity * (nextIndex - m_Index);
+        m_Index = nextIndex;
+    } else {
+        ++m_Index;
+        m_RowItr += m_RowCapacity;
+    }
+    return *this;
+}
+
 CRowRef::CRowRef(std::size_t index, TFloatVecItr beginColumns, TFloatVecItr endColumns, std::int32_t docHash)
     : m_Index{index}, m_BeginColumns{beginColumns}, m_EndColumns{endColumns}, m_DocHash{docHash} {
 }
 
 CFloatStorage CRowRef::operator[](std::size_t i) const {
-    return *(m_BeginColumns + i);
+    return m_BeginColumns[i];
 }
 
 std::size_t CRowRef::index() const {
@@ -78,11 +135,11 @@ bool CRowIterator::operator!=(const CRowIterator& rhs) const {
 }
 
 CRowRef CRowIterator::operator*() const {
-    return CRowRef{m_Index, m_RowItr, m_RowItr + m_NumberColumns, *m_DocHashItr};
+    return {m_Index, m_RowItr, m_RowItr + m_NumberColumns, *m_DocHashItr};
 }
 
 CRowPtr CRowIterator::operator->() const {
-    return CRowPtr{m_Index, m_RowItr, m_RowItr + m_NumberColumns, *m_DocHashItr};
+    return {m_Index, m_RowItr, m_RowItr + m_NumberColumns, *m_DocHashItr};
 }
 
 CRowIterator& CRowIterator::operator++() {

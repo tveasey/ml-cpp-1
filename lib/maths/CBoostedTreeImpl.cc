@@ -1022,10 +1022,10 @@ void CBoostedTreeImpl::refreshPredictionsAndLossDerivatives(core::CDataFrame& fr
                     const auto& rootNode = root(tree);
                     for (auto row_ = beginRows; row_ != endRows; ++row_) {
                         auto row = *row_;
-                        auto prediction = readPrediction(row, m_ExtraColumns,
-                                                         numberLossParameters);
                         double actual{readActual(row, m_DependentVariable)};
                         double weight{readExampleWeight(row, m_ExtraColumns)};
+                        auto prediction = readPrediction(row, m_ExtraColumns,
+                                                         numberLossParameters);
                         leafValues_[rootNode.leafIndex(m_Encoder->encode(row), tree)]
                             .add(prediction, actual, weight);
                     }
@@ -1057,9 +1057,9 @@ void CBoostedTreeImpl::refreshPredictionsAndLossDerivatives(core::CDataFrame& fr
             const auto& rootNode = root(tree);
             for (auto row_ = beginRows; row_ != endRows; ++row_) {
                 auto row = *row_;
-                auto prediction = readPrediction(row, m_ExtraColumns, numberLossParameters);
                 double actual{readActual(row, m_DependentVariable)};
                 double weight{readExampleWeight(row, m_ExtraColumns)};
+                auto prediction = readPrediction(row, m_ExtraColumns, numberLossParameters);
                 prediction += rootNode.value(m_Encoder->encode(row), tree);
                 writeLossGradient(row, m_ExtraColumns, *m_Loss, prediction, actual, weight);
                 writeLossCurvature(row, m_ExtraColumns, *m_Loss, prediction, actual, weight);
