@@ -290,7 +290,7 @@ void CDataFrameAnalyzer::writeResultsOf(const CDataFrameAnalysisRunner& analysis
             writer.Key(RESULTS);
             writer.StartObject();
             writer.Key(m_AnalysisSpecification->resultsField());
-            analysis.writeOneRow(*m_DataFrame, *row, writer);
+            analysis.writeOneRow(*m_DataFrame, row->rowDataRef(), writer);
             writer.EndObject();
             writer.EndObject();
             writer.EndObject();

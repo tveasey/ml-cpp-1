@@ -43,7 +43,7 @@ public:
 
     //! Write the extra columns of \p row added by outlier analysis to \p writer.
     void writeOneRow(const core::CDataFrame& frame,
-                     const TRowRef& row,
+                     const TRowDataRef& row,
                      core::CRapidJsonConcurrentLineWriter& writer) const override;
 
     //! Validate if \p frame is suitable for running the analysis on.

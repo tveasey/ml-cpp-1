@@ -32,23 +32,20 @@ class CDataFrameCategoryEncoder;
 //! \brief A wrapper of a data frame row reference which handles encoding categories.
 //!
 //! DESCRIPTION:\n
-//! This implements a subset of the core::CDataFrame::TRowRef interface dealing with
+//! This implements a subset of the core::CDataFrame::TRowDataRef interface dealing with
 //! the extra dimensions introduced by one-hot encoded categories, extracting the mean
 //! target variable value for other categories and so on. The intention is it provides
-//! a drop in replacement for core::CDataFrame::TRowRef when a data frame contains
+//! a drop in replacement for core::CDataFrame::TRowDataRef when a data frame contains
 //! categorical columns.
 class MATHS_EXPORT CEncodedDataFrameRowRef final {
 public:
-    using TRowRef = core::CDataFrame::TRowRef;
+    using TRowDataRef = core::CDataFrame::TRowDataRef;
 
 public:
-    CEncodedDataFrameRowRef(const TRowRef& row, const CDataFrameCategoryEncoder& encoder);
+    CEncodedDataFrameRowRef(const TRowDataRef& row, const CDataFrameCategoryEncoder& encoder);
 
     //! Get column \p i value.
     CFloatStorage operator[](std::size_t encodedColumnIndex) const;
-
-    //! Get the row's index.
-    std::size_t index() const;
 
     //! Get the number of columns.
     std::size_t numberColumns() const;
@@ -64,10 +61,10 @@ public:
     }
 
     //! Get the underlying row reference.
-    const TRowRef& unencodedRow() const { return m_Row; }
+    const TRowDataRef& unencodedRow() const { return m_Row; }
 
 private:
-    TRowRef m_Row;
+    TRowDataRef m_Row;
     const CDataFrameCategoryEncoder* m_Encoder;
 };
 
@@ -99,7 +96,7 @@ class MATHS_EXPORT CDataFrameCategoryEncoder final {
 public:
     using TDoubleVec = std::vector<double>;
     using TSizeVec = std::vector<std::size_t>;
-    using TRowRef = core::CDataFrame::TRowRef;
+    using TRowDataRef = core::CDataFrame::TRowDataRef;
 
     //! \brief Base type of category encodings.
     class MATHS_EXPORT CEncoding {
@@ -114,7 +111,7 @@ public:
         virtual const std::string& typeString() const = 0;
 
         std::size_t inputColumnIndex() const;
-        double encode(const TRowRef& row) const;
+        double encode(const TRowDataRef& row) const;
         double mic() const;
         //! Persist by passing information to \p inserter.
         void acceptPersistInserter(core::CStatePersistInserter& inserter) const;
@@ -221,7 +218,7 @@ public:
     CDataFrameCategoryEncoder& operator=(const CDataFrameCategoryEncoder&) = delete;
 
     //! Get a row reference which encodes the categories in \p row.
-    CEncodedDataFrameRowRef encode(const TRowRef& row) const;
+    CEncodedDataFrameRowRef encode(const TRowDataRef& row) const;
 
     //! Get the MICs of the selected features.
     TDoubleVec encodedColumnMics() const;

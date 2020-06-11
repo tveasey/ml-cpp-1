@@ -23,7 +23,7 @@ class CLoss;
 }
 namespace boosted_tree_detail {
 using TSizeVec = std::vector<std::size_t>;
-using TRowRef = core::CDataFrame::TRowRef;
+using TRowDataRef = core::CDataFrame::TRowDataRef;
 using TMemoryMappedFloatVector = CMemoryMappedDenseVector<CFloatStorage>;
 using TSizeAlignmentPrVec = std::vector<std::pair<std::size_t, core::CAlignment::EType>>;
 using TAlignedMemoryMappedFloatVector =
@@ -40,33 +40,33 @@ TSizeAlignmentPrVec extraColumns(std::size_t numberLossParameters);
 
 //! Read the prediction from \p row.
 MATHS_EXPORT
-TMemoryMappedFloatVector readPrediction(const TRowRef& row,
+TMemoryMappedFloatVector readPrediction(const TRowDataRef& row,
                                         const TSizeVec& extraColumns,
                                         std::size_t numberLossParameters);
 
 //! Zero the prediction of \p row.
 MATHS_EXPORT
-void zeroPrediction(const TRowRef& row, const TSizeVec& extraColumns, std::size_t numberLossParameters);
+void zeroPrediction(const TRowDataRef& row, const TSizeVec& extraColumns, std::size_t numberLossParameters);
 
 //! Read all the loss derivatives from \p row into an aligned vector.
 MATHS_EXPORT
-TAlignedMemoryMappedFloatVector readLossDerivatives(const TRowRef& row,
+TAlignedMemoryMappedFloatVector readLossDerivatives(const TRowDataRef& row,
                                                     const TSizeVec& extraColumns,
                                                     std::size_t numberLossParameters);
 
 //! Read the loss gradient from \p row.
 MATHS_EXPORT
-TMemoryMappedFloatVector readLossGradient(const TRowRef& row,
+TMemoryMappedFloatVector readLossGradient(const TRowDataRef& row,
                                           const TSizeVec& extraColumns,
                                           std::size_t numberLossParameters);
 
 //! Zero the loss gradient of \p row.
 MATHS_EXPORT
-void zeroLossGradient(const TRowRef& row, const TSizeVec& extraColumns, std::size_t numberLossParameters);
+void zeroLossGradient(const TRowDataRef& row, const TSizeVec& extraColumns, std::size_t numberLossParameters);
 
 //! Write the loss gradient to \p row.
 MATHS_EXPORT
-void writeLossGradient(const TRowRef& row,
+void writeLossGradient(const TRowDataRef& row,
                        const TSizeVec& extraColumns,
                        const boosted_tree::CLoss& loss,
                        const TMemoryMappedFloatVector& prediction,
@@ -75,17 +75,19 @@ void writeLossGradient(const TRowRef& row,
 
 //! Read the loss flat column major Hessian from \p row.
 MATHS_EXPORT
-TMemoryMappedFloatVector readLossCurvature(const TRowRef& row,
+TMemoryMappedFloatVector readLossCurvature(const TRowDataRef& row,
                                            const TSizeVec& extraColumns,
                                            std::size_t numberLossParameters);
 
 //! Zero the loss Hessian of \p row.
 MATHS_EXPORT
-void zeroLossCurvature(const TRowRef& row, const TSizeVec& extraColumns, std::size_t numberLossParameters);
+void zeroLossCurvature(const TRowDataRef& row,
+                       const TSizeVec& extraColumns,
+                       std::size_t numberLossParameters);
 
 //! Write the loss Hessian to \p row.
 MATHS_EXPORT
-void writeLossCurvature(const TRowRef& row,
+void writeLossCurvature(const TRowDataRef& row,
                         const TSizeVec& extraColumns,
                         const boosted_tree::CLoss& curvature,
                         const TMemoryMappedFloatVector& prediction,
@@ -94,15 +96,15 @@ void writeLossCurvature(const TRowRef& row,
 
 //! Read the example weight from \p row.
 MATHS_EXPORT
-double readExampleWeight(const TRowRef& row, const TSizeVec& extraColumns);
+double readExampleWeight(const TRowDataRef& row, const TSizeVec& extraColumns);
 
 //! Write the example weight to \p row .
 MATHS_EXPORT
-void writeExampleWeight(const TRowRef& row, const TSizeVec& extraColumns, double weight);
+void writeExampleWeight(const TRowDataRef& row, const TSizeVec& extraColumns, double weight);
 
 //! Read the actual value for the target from \p row.
 MATHS_EXPORT
-double readActual(const TRowRef& row, std::size_t dependentVariable);
+double readActual(const TRowDataRef& row, std::size_t dependentVariable);
 
 // The maximum number of rows encoded by a single byte in the packed bit vector
 // assuming best compression.

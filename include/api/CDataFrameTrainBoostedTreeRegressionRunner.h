@@ -44,7 +44,7 @@ public:
 
     //! Write the prediction for \p row to \p writer.
     void writeOneRow(const core::CDataFrame& frame,
-                     const TRowRef& row,
+                     const TRowDataRef& row,
                      core::CRapidJsonConcurrentLineWriter& writer) const override;
 
     //! \return A serialisable definition of the trained regression model.

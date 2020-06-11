@@ -36,6 +36,8 @@ using TFloatVec =
 using TMeanAccumulator = maths::CBasicStatistics::SSampleMean<double>::TAccumulator;
 using TMeanAccumulatorVec = std::vector<TMeanAccumulator>;
 using TMeanAccumulatorVecVec = std::vector<TMeanAccumulatorVec>;
+using TRowDataRef = core::CDataFrame::TRowDataRef;
+using TRowDataItr = core::CDataFrame::TRowDataItr;
 }
 
 BOOST_AUTO_TEST_CASE(testOneHotEncoding) {
@@ -518,7 +520,7 @@ BOOST_AUTO_TEST_CASE(testEncodedDataFrameRowRef) {
     factory.makeEncodings();
     LOG_DEBUG(<< "# features = " << encoder.numberEncodedColumns());
 
-    auto expectedEncoded = [&](const core::CDataFrame::TRowRef& row, std::size_t i) {
+    auto expectedEncoded = [&](const TRowDataRef& row, std::size_t i) {
 
         TSizeVec categories(cols);
         for (auto feature : categorical) {
@@ -550,11 +552,10 @@ BOOST_AUTO_TEST_CASE(testEncodedDataFrameRowRef) {
 
     bool passed{true};
 
-    frame->readRows(1, [&](core::CDataFrame::TRowItr beginRows, core::CDataFrame::TRowItr endRows) {
+    frame->readRowsData(1, [&](TRowDataItr beginRows, TRowDataItr endRows) {
         for (auto row = beginRows; row != endRows; ++row) {
             if (passed) {
                 auto encoded = encoder.encode(*row);
-                passed = passed && encoded.index() == row->index();
                 passed = passed && encoded.numberColumns() == 11;
                 for (std::size_t i = 0; i < encoded.numberColumns(); ++i) {
                     passed = passed &&
@@ -606,7 +607,7 @@ BOOST_AUTO_TEST_CASE(testUnseenCategoryEncoding) {
     maths::CDataFrameCategoryEncoder encoder{{1, *frame, 3}};
 
     TFloatVec unseen{3.0f, 5.0f, 4.0f, 1.5f};
-    core::CDataFrame::TRowRef row{rows, unseen.begin(), unseen.end(), 0};
+    core::CDataFrame::TRowDataRef row{unseen.begin(), unseen.end()};
 
     auto encodedRow = encoder.encode(row);
 

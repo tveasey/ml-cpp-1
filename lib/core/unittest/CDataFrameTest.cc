@@ -271,7 +271,7 @@ BOOST_FIXTURE_TEST_CASE(testReadRange, CTestFixture) {
     std::size_t rows{5000};
     std::size_t cols{10};
     std::size_t capacity{1000};
-    TFloatVec data{testData(rows, cols)};
+    TFloatVec components{testData(rows, cols)};
 
     TFactoryFunc makeOnDisk = [=] {
         return core::makeDiskStorageDataFrame(test::CTestTmpDir::tmpDir(), cols, rows, capacity)
@@ -291,8 +291,8 @@ BOOST_FIXTURE_TEST_CASE(testReadRange, CTestFixture) {
         for (std::size_t threads : {1, 3}) {
             LOG_DEBUG(<< "# threads = " << threads);
 
-            for (std::size_t i = 0; i < data.size(); i += cols) {
-                frame->writeRow(makeWriter(data, cols, i));
+            for (std::size_t i = 0; i < components.size(); i += cols) {
+                frame->writeRow(makeWriter(components, cols, i));
             }
             frame->finishWritingRows();
 
@@ -313,7 +313,7 @@ BOOST_FIXTURE_TEST_CASE(testReadRange, CTestFixture) {
                                     passed = false;
                                 }
                                 if (passed) {
-                                    auto column = data.begin() + row->index() * cols;
+                                    auto column = components.begin() + row->index() * cols;
                                     for (std::size_t i = 0; i < cols; ++i, ++column) {
                                         if ((*row)[i] != *column) {
                                             LOG_ERROR(<< "Unexpected column value for "
@@ -338,7 +338,7 @@ BOOST_FIXTURE_TEST_CASE(testReadDataRange, CTestFixture) {
     std::size_t rows{5000};
     std::size_t cols{10};
     std::size_t capacity{1000};
-    TFloatVec data{testData(rows, cols)};
+    TFloatVec components{testData(rows, cols)};
 
     TFactoryFunc makeOnDisk = [=] {
         return core::makeDiskStorageDataFrame(test::CTestTmpDir::tmpDir(), cols, rows, capacity)
@@ -355,8 +355,8 @@ BOOST_FIXTURE_TEST_CASE(testReadDataRange, CTestFixture) {
 
         auto frame = factory();
 
-        for (std::size_t i = 0; i < data.size(); i += cols) {
-            frame->writeRow(makeWriter(data, cols, i));
+        for (std::size_t i = 0; i < components.size(); i += cols) {
+            frame->writeRow(makeWriter(components, cols, i));
         }
         frame->finishWritingRows();
 
@@ -366,7 +366,7 @@ BOOST_FIXTURE_TEST_CASE(testReadDataRange, CTestFixture) {
                 TDoubleVec expectedColSums(cols, 0.0);
                 for (std::size_t i = beginRowsInRange; i < endRowsInRange; ++i) {
                     for (std::size_t j = 0; j < 10; ++j) {
-                        expectedColSums[j] += data[i * cols + j];
+                        expectedColSums[j] += components[i * cols + j];
                     }
                 }
                 TDoubleVec actualColSums(cols, 0.0);

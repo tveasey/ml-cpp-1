@@ -30,6 +30,7 @@ namespace maths {
 using namespace boosted_tree_detail;
 using TDoubleVec = std::vector<double>;
 using TRowItr = core::CDataFrame::TRowItr;
+using TRowDataItr = core::CDataFrame::TRowDataItr;
 
 namespace {
 const std::size_t MIN_REGULARIZER_INDEX{0};
@@ -253,10 +254,10 @@ void CBoostedTreeFactory::initializeMissingFeatureMasks(const core::CDataFrame& 
 void CBoostedTreeFactory::initializeNumberFolds(core::CDataFrame& frame) const {
 
     if (m_TreeImpl->m_NumberFoldsOverride == boost::none) {
-        auto result = frame.readRows(
+        auto result = frame.readRowsData(
             m_NumberThreads,
             core::bindRetrievableState(
-                [this](std::size_t& numberTrainingRows, TRowItr beginRows, TRowItr endRows) {
+                [this](std::size_t& numberTrainingRows, TRowDataItr beginRows, TRowDataItr endRows) {
                     for (auto row = beginRows; row != endRows; ++row) {
                         double target{(*row)[m_TreeImpl->m_DependentVariable]};
                         if (CDataFrameUtils::isMissing(target) == false) {
@@ -314,13 +315,13 @@ void CBoostedTreeFactory::resizeDataFrame(core::CDataFrame& frame) const {
     m_TreeImpl->m_Instrumentation->flush();
 
     core::CPackedBitVector allTrainingRowsMask{m_TreeImpl->allTrainingRowsMask()};
-    frame.writeColumns(m_NumberThreads, 0, frame.numberRows(),
-                       [&](TRowItr beginRows, TRowItr endRows) {
-                           for (auto row = beginRows; row != endRows; ++row) {
-                               writeExampleWeight(*row, m_TreeImpl->m_ExtraColumns, 1.0);
-                           }
-                       },
-                       &allTrainingRowsMask);
+    frame.writeColumnsData(m_NumberThreads, 0, frame.numberRows(),
+                           [&](TRowDataItr beginRows, TRowDataItr endRows) {
+                               for (auto row = beginRows; row != endRows; ++row) {
+                                   writeExampleWeight(*row, m_TreeImpl->m_ExtraColumns, 1.0);
+                               }
+                           },
+                           &allTrainingRowsMask);
 }
 
 void CBoostedTreeFactory::initializeCrossValidation(core::CDataFrame& frame) const {

@@ -47,7 +47,7 @@ CTreeShapFeatureImportance::CTreeShapFeatureImportance(std::size_t numberThreads
     computeInternalNodeValues(forest);
 }
 
-void CTreeShapFeatureImportance::shap(const TRowRef& row, TShapWriter writer) {
+void CTreeShapFeatureImportance::shap(const TRowDataRef& row, TShapWriter writer) {
 
     if (m_NumberTopShapValues == 0) {
         return;
@@ -55,7 +55,7 @@ void CTreeShapFeatureImportance::shap(const TRowRef& row, TShapWriter writer) {
 
     using TTreeShapVec = std::vector<std::function<void(const TTree&)>>;
 
-    auto encodedRow{m_Encoder->encode(row)};
+    auto encodedRow = m_Encoder->encode(row);
 
     if (m_PerThreadShapValues.size() == 1) {
         m_ReducedShapValues.assign(m_Encoder->numberInputColumns(),
@@ -110,15 +110,16 @@ void CTreeShapFeatureImportance::computeNumberSamples(std::size_t numberThreads,
                                                       const core::CDataFrame& frame,
                                                       const CDataFrameCategoryEncoder& encoder,
                                                       TTreeVec& forest) {
-    using TRowItr = core::CDataFrame::TRowItr;
+    using TRowDataItr = core::CDataFrame::TRowDataItr;
+
     for (auto& tree : forest) {
         if (tree.size() == 1) {
             tree[0].numberSamples(frame.numberRows());
         } else {
-            auto result = frame.readRows(
+            auto result = frame.readRowsData(
                 numberThreads,
                 core::bindRetrievableState(
-                    [&](TSizeVec& samplesPerNode, TRowItr beginRows, TRowItr endRows) {
+                    [&](TSizeVec& samplesPerNode, TRowDataItr beginRows, TRowDataItr endRows) {
                         for (auto row = beginRows; row != endRows; ++row) {
                             auto encodedRow{encoder.encode(*row)};
                             const CBoostedTreeNode* node{&tree[0]};
@@ -133,7 +134,7 @@ void CTreeShapFeatureImportance::computeNumberSamples(std::size_t numberThreads,
                             }
                         }
                     },
-                    TSizeVec(tree.size())));
+                    TSizeVec(tree.size(), 0)));
             auto& state = result.first;
             TSizeVec totalSamplesPerNode{std::move(state[0].s_FunctionState)};
             for (std::size_t i = 1; i < state.size(); ++i) {

@@ -40,8 +40,10 @@ using TSizeVec = std::vector<std::size_t>;
 using TSizeVecVec = std::vector<TSizeVec>;
 using TFloatVec = std::vector<CFloatStorage>;
 using TFloatVecVec = std::vector<TFloatVec>;
-using TRowItr = core::CDataFrame::TRowItr;
 using TRowRef = core::CDataFrame::TRowRef;
+using TRowItr = core::CDataFrame::TRowItr;
+using TRowDataRef = core::CDataFrame::TRowDataRef;
+using TRowDataItr = core::CDataFrame::TRowDataItr;
 using TRowSampler = CSampling::CReservoirSampler<TRowRef>;
 using TRowSamplerVec = std::vector<TRowSampler>;
 using TSizeEncoderPtrUMap =
@@ -383,7 +385,7 @@ CDataFrameUtils::columnDataTypes(std::size_t numberThreads,
     using TMinMaxBoolPrVec = std::vector<std::pair<TMinMax, bool>>;
 
     auto readDataTypes = core::bindRetrievableState(
-        [&](TMinMaxBoolPrVec& types, TRowItr beginRows, TRowItr endRows) {
+        [&](TMinMaxBoolPrVec& types, TRowDataItr beginRows, TRowDataItr endRows) {
             double integerPart;
             if (encoder != nullptr) {
                 for (auto row = beginRows; row != endRows; ++row) {
@@ -425,7 +427,7 @@ CDataFrameUtils::columnDataTypes(std::size_t numberThreads,
     };
 
     TMinMaxBoolPrVec types;
-    doReduce(frame.readRows(numberThreads, 0, frame.numberRows(), readDataTypes, &rowMask),
+    doReduce(frame.readRowsData(numberThreads, 0, frame.numberRows(), readDataTypes, &rowMask),
              copyDataTypes, reduceDataTypes, types);
 
     TDataTypeVec result(types.size());
@@ -447,7 +449,7 @@ CDataFrameUtils::columnQuantiles(std::size_t numberThreads,
                                  const TWeightFunc& weight) {
 
     auto readQuantiles = core::bindRetrievableState(
-        [&](TQuantileSketchVec& quantiles, TRowItr beginRows, TRowItr endRows) {
+        [&](TQuantileSketchVec& quantiles, TRowDataItr beginRows, TRowDataItr endRows) {
             if (encoder != nullptr) {
                 for (auto row = beginRows; row != endRows; ++row) {
                     CEncodedDataFrameRowRef encodedRow{encoder->encode(*row)};
@@ -478,7 +480,7 @@ CDataFrameUtils::columnQuantiles(std::size_t numberThreads,
     };
 
     TQuantileSketchVec result;
-    if (doReduce(frame.readRows(numberThreads, 0, frame.numberRows(), readQuantiles, &rowMask),
+    if (doReduce(frame.readRowsData(numberThreads, 0, frame.numberRows(), readQuantiles, &rowMask),
                  copyQuantiles, reduceQuantiles, result) == false) {
         LOG_ERROR(<< "Failed to compute column quantiles");
         return {std::move(result), false};
@@ -1005,7 +1007,7 @@ CDataFrameUtils::maximizeMinimumRecallForBinary(std::size_t numberThreads,
                                                 const TReadPredictionFunc& readPrediction) {
     TDoubleVector probabilities;
     auto readQuantiles = core::bindRetrievableState(
-        [=](TQuantileSketchVec& quantiles, TRowItr beginRows, TRowItr endRows) mutable {
+        [=](TQuantileSketchVec& quantiles, TRowDataItr beginRows, TRowDataItr endRows) mutable {
             for (auto row = beginRows; row != endRows; ++row) {
                 if (isMissing((*row)[targetColumn]) == false) {
                     std::size_t actualClass{static_cast<std::size_t>((*row)[targetColumn])};
@@ -1026,7 +1028,7 @@ CDataFrameUtils::maximizeMinimumRecallForBinary(std::size_t numberThreads,
     };
 
     TQuantileSketchVec classProbabilityClassOneQuantiles;
-    if (doReduce(frame.readRows(numberThreads, 0, frame.numberRows(), readQuantiles, &rowMask),
+    if (doReduce(frame.readRowsData(numberThreads, 0, frame.numberRows(), readQuantiles, &rowMask),
                  copyQuantiles, reduceQuantiles, classProbabilityClassOneQuantiles) == false) {
         HANDLE_FATAL(<< "Failed to compute category quantiles")
         return TDoubleVector::Ones(2);
@@ -1103,7 +1105,7 @@ CDataFrameUtils::maximizeMinimumRecallForMulticlass(std::size_t numberThreads,
 
     // Compute the count of each class in the sample set.
     auto readClassCountsAndRecalls = core::bindRetrievableState(
-        [&](TDoubleVector& state, TRowItr beginRows, TRowItr endRows) {
+        [&](TDoubleVector& state, TRowDataItr beginRows, TRowDataItr endRows) {
             for (auto row = beginRows; row != endRows; ++row) {
                 if (isMissing((*row)[targetColumn]) == false) {
                     int j{static_cast<int>((*row)[targetColumn])};
@@ -1121,8 +1123,8 @@ CDataFrameUtils::maximizeMinimumRecallForMulticlass(std::size_t numberThreads,
     auto reduceClassCountsAndRecalls =
         [&](TDoubleVector state, TDoubleVector& result) { result += state; };
     TDoubleVector classCountsAndRecalls;
-    doReduce(frame.readRows(numberThreads, 0, frame.numberRows(),
-                            readClassCountsAndRecalls, &sampleMask),
+    doReduce(frame.readRowsData(numberThreads, 0, frame.numberRows(),
+                                readClassCountsAndRecalls, &sampleMask),
              copyClassCountsAndRecalls, reduceClassCountsAndRecalls, classCountsAndRecalls);
     TDoubleVector classCounts{classCountsAndRecalls.topRows(numberClasses)};
     TDoubleVector classRecalls{classCountsAndRecalls.bottomRows(numberClasses)};
@@ -1160,7 +1162,7 @@ CDataFrameUtils::maximizeMinimumRecallForMulticlass(std::size_t numberThreads,
         TDoubleVector probabilities;
         TDoubleVector scores;
         auto computeObjective = core::bindRetrievableState(
-            [=](TDoubleVector& state, TRowItr beginRows, TRowItr endRows) mutable {
+            [=](TDoubleVector& state, TRowDataItr beginRows, TRowDataItr endRows) mutable {
                 for (auto row = beginRows; row != endRows; ++row) {
                     if (isMissing((*row)[targetColumn]) == false) {
                         std::size_t j{static_cast<std::size_t>((*row)[targetColumn])};
@@ -1181,8 +1183,8 @@ CDataFrameUtils::maximizeMinimumRecallForMulticlass(std::size_t numberThreads,
         };
 
         TDoubleVector objective_;
-        doReduce(frame.readRows(numberThreads, 0, frame.numberRows(),
-                                computeObjective, &sampleMask),
+        doReduce(frame.readRowsData(numberThreads, 0, frame.numberRows(),
+                                    computeObjective, &sampleMask),
                  copyObjective, reduceObjective, objective_);
         return objective_.maxCoeff();
     };
@@ -1191,7 +1193,7 @@ CDataFrameUtils::maximizeMinimumRecallForMulticlass(std::size_t numberThreads,
         TDoubleVector probabilities;
         TDoubleVector scores;
         auto computeObjectiveAndGradient = core::bindRetrievableState(
-            [=](TDoubleMatrix& state, TRowItr beginRows, TRowItr endRows) mutable {
+            [=](TDoubleMatrix& state, TRowDataItr beginRows, TRowDataItr endRows) mutable {
                 for (auto row = beginRows; row != endRows; ++row) {
                     if (isMissing((*row)[targetColumn]) == false) {
                         std::size_t j{static_cast<std::size_t>((*row)[targetColumn])};
@@ -1216,8 +1218,8 @@ CDataFrameUtils::maximizeMinimumRecallForMulticlass(std::size_t numberThreads,
             [&](TDoubleMatrix state, TDoubleMatrix& result) { result += state; };
 
         TDoubleMatrix objectiveAndGradient;
-        doReduce(frame.readRows(numberThreads, 0, frame.numberRows(),
-                                computeObjectiveAndGradient, &sampleMask),
+        doReduce(frame.readRowsData(numberThreads, 0, frame.numberRows(),
+                                    computeObjectiveAndGradient, &sampleMask),
                  copyObjectiveAndGradient, reduceObjectiveAndGradient, objectiveAndGradient);
         std::size_t max;
         objectiveAndGradient.col(0).maxCoeff(&max);
@@ -1274,7 +1276,7 @@ void CDataFrameUtils::removeCategoricalColumns(const core::CDataFrame& frame,
                      columnMask.end());
 }
 
-double CDataFrameUtils::unitWeight(const TRowRef&) {
+double CDataFrameUtils::unitWeight(const TRowDataRef&) {
     return 1.0;
 }
 }

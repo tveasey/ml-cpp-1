@@ -61,6 +61,36 @@ private:
 
 using TOptionalPopMaskedRow = boost::optional<CPopMaskedRow>;
 
+//! \brief The lightest wrapper around the data of a single row of the data frame.
+//!
+//! DESCRIPTION:\n
+//! Many operations on a data frame don't require either the row index or the
+//! row document hash. Compared to CRowRef this 16 bytes as opposed to 24 bytes
+//! and only provides interface for reading and writing row data.
+class CRowDataRef {
+public:
+    CRowDataRef(TFloatVecItr beginColumns, TFloatVecItr endColumns)
+        : m_BeginColumns{beginColumns}, m_EndColumns{endColumns} {}
+
+    CFloatStorage operator[](std::size_t i) const {
+        return *(m_BeginColumns + i);
+    }
+
+    std::size_t numberColumns() const {
+        return std::distance(m_BeginColumns, m_EndColumns);
+    }
+
+    void writeColumn(std::size_t column, double value) const {
+        m_BeginColumns[column] = value;
+    }
+
+    CFloatStorage* data() const { return &(*m_BeginColumns); }
+
+private:
+    TFloatVecItr m_BeginColumns;
+    TFloatVecItr m_EndColumns;
+};
+
 //! \brief A lightweight wrapper around a single row of the data frame.
 //!
 //! DESCRIPTION:\n
@@ -95,6 +125,9 @@ public:
     //! Get the data backing the row.
     CFloatStorage* data() const;
 
+    //! Convert to a CRowDataRef instance.
+    CRowDataRef rowDataRef() const { return {m_BeginColumns, m_EndColumns}; }
+
     //! Copy the range to \p output iterator.
     //!
     //! \warning The output iterator that must be able to receive number of
@@ -114,34 +147,14 @@ private:
     std::int32_t m_DocHash;
 };
 
-//! \brief The lightest wrapper around the data of a single row of the data frame.
-//!
-//! DESCRIPTION:\n
-//! Many operations on a data frame don't require either the row index or the
-//! row document hash. Compared to CRowRef this 16 bytes as opposed to 24 bytes
-//! and only provides interface for reading and writing row data.
-class CRowDataRef {
+//! \brief Decorates CRowDataRef to give it pointer semantics.
+class CORE_EXPORT CRowDataPtr final : public CRowDataRef {
 public:
-    CRowDataRef(TFloatVecItr beginColumns, TFloatVecItr endColumns)
-        : m_BeginColumns{beginColumns}, m_EndColumns{endColumns} {}
+    template<typename... ARGS>
+    CRowDataPtr(ARGS&&... args) : CRowDataRef{std::forward<ARGS>(args)...} {}
 
-    CFloatStorage operator[](std::size_t i) const {
-        return *(m_BeginColumns + i);
-    }
-
-    std::size_t numberColumns() const {
-        return std::distance(m_BeginColumns, m_EndColumns);
-    }
-
-    void writeColumn(std::size_t column, double value) const {
-        m_BeginColumns[column] = value;
-    }
-
-    CFloatStorage* data() const { return &(*m_BeginColumns); }
-
-private:
-    TFloatVecItr m_BeginColumns;
-    TFloatVecItr m_EndColumns;
+    CRowDataPtr* operator->() { return this; }
+    const CRowDataPtr* operator->() const { return this; }
 };
 
 //! \brief Decorates CRowRef to give it pointer semantics.
@@ -154,60 +167,11 @@ public:
     const CRowPtr* operator->() const { return this; }
 };
 
-//! \brief Decorates CRowDataRef to give it pointer semantics.
-class CORE_EXPORT CRowDataPtr final : public CRowDataRef {
-public:
-    template<typename... ARGS>
-    CRowDataPtr(ARGS&&... args) : CRowDataRef{std::forward<ARGS>(args)...} {}
-
-    CRowDataPtr* operator->() { return this; }
-    const CRowDataPtr* operator->() const { return this; }
-};
-
-//! \brief A forward iterator over rows of the data frame.
+//! \brief A forward iterator over the data of the rows of the data frame.
 //!
 //! DESCRIPTION:\n
-//! This is a helper class used to read rows of a CDataFrame object which
-//! dereferences to CRowRef objects.
-class CORE_EXPORT CRowIterator final
-    : public std::iterator<std::forward_iterator_tag, CRowRef, std::ptrdiff_t, CRowPtr, CRowRef> {
-public:
-    CRowIterator() = default;
-
-    //! \param[in] numberColumns The number of columns in the data frame.
-    //! \param[in] rowCapacity The capacity of each row in the data frame.
-    //! \param[in] index The row index.
-    //! \param[in] rowItr The iterator for the columns of the rows starting
-    //! at \p index.
-    //! \param[in] docHashItr The iterator for the document hashes of rows
-    //! starting at \p index.
-    //! \param[in] popMaskedRow Gets the next row in the mask.
-    CRowIterator(std::size_t numberColumns,
-                 std::size_t rowCapacity,
-                 std::size_t index,
-                 TFloatVecItr rowItr,
-                 TInt32VecCItr docHashItr,
-                 const TOptionalPopMaskedRow& popMaskedRow);
-
-    //! \name Forward Iterator Contract
-    //@{
-    bool operator==(const CRowIterator& rhs) const;
-    bool operator!=(const CRowIterator& rhs) const;
-    CRowRef operator*() const;
-    CRowPtr operator->() const;
-    CRowIterator& operator++();
-    CRowIterator operator++(int);
-    //@}
-
-private:
-    std::size_t m_NumberColumns = 0;
-    std::size_t m_RowCapacity = 0;
-    std::size_t m_Index = 0;
-    TFloatVecItr m_RowItr;
-    TInt32VecCItr m_DocHashItr;
-    TOptionalPopMaskedRow m_PopMaskedRow;
-};
-
+//! This is a helper class used to read rows' data of a CDataFrame object
+//! which dereferences to a CRowDataRef object.
 class CORE_EXPORT CRowDataIterator final {
 public:
     CRowDataIterator() = default;
@@ -263,6 +227,50 @@ private:
     std::size_t m_RowCapacity = 0;
     std::size_t m_Index = 0;
     TFloatVecItr m_RowItr;
+    TOptionalPopMaskedRow m_PopMaskedRow;
+};
+
+//! \brief A forward iterator over rows of the data frame.
+//!
+//! DESCRIPTION:\n
+//! This is a helper class used to read rows of a CDataFrame object which
+//! dereferences to a CRowRef object.
+class CORE_EXPORT CRowIterator final
+    : public std::iterator<std::forward_iterator_tag, CRowRef, std::ptrdiff_t, CRowPtr, CRowRef> {
+public:
+    CRowIterator() = default;
+
+    //! \param[in] numberColumns The number of columns in the data frame.
+    //! \param[in] rowCapacity The capacity of each row in the data frame.
+    //! \param[in] index The row index.
+    //! \param[in] rowItr The iterator for the columns of the rows starting
+    //! at \p index.
+    //! \param[in] docHashItr The iterator for the document hashes of rows
+    //! starting at \p index.
+    //! \param[in] popMaskedRow Gets the next row in the mask.
+    CRowIterator(std::size_t numberColumns,
+                 std::size_t rowCapacity,
+                 std::size_t index,
+                 TFloatVecItr rowItr,
+                 TInt32VecCItr docHashItr,
+                 const TOptionalPopMaskedRow& popMaskedRow);
+
+    //! \name Forward Iterator Contract
+    //@{
+    bool operator==(const CRowIterator& rhs) const;
+    bool operator!=(const CRowIterator& rhs) const;
+    CRowRef operator*() const;
+    CRowPtr operator->() const;
+    CRowIterator& operator++();
+    CRowIterator operator++(int);
+    //@}
+
+private:
+    std::size_t m_NumberColumns = 0;
+    std::size_t m_RowCapacity = 0;
+    std::size_t m_Index = 0;
+    TFloatVecItr m_RowItr;
+    TInt32VecCItr m_DocHashItr;
     TOptionalPopMaskedRow m_PopMaskedRow;
 };
 }
@@ -524,7 +532,7 @@ public:
     template<typename READER>
     std::pair<std::vector<READER>, bool>
     readRowsData(std::size_t numberThreads, READER reader) const {
-        return this->readRows(numberThreads, 0, this->numberRows(), std::move(reader));
+        return this->readRowsData(numberThreads, 0, this->numberRows(), std::move(reader));
     }
 
     //! Overwrite rows using one or more copies of \p writer.

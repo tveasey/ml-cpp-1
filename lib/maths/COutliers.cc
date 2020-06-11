@@ -36,6 +36,7 @@ namespace {
 const std::string EMPTY_STRING;
 
 using TRowItr = core::CDataFrame::TRowItr;
+using TRowDataItr = core::CDataFrame::TRowDataItr;
 using TStepCallback = std::function<void(const std::string&)>;
 using TMemoryMappedFloatVector = CMemoryMappedDenseVector<CFloatStorage, Eigen::Aligned16>;
 using TDenseFloatVector = CDenseVector<CFloatStorage>;

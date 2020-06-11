@@ -100,14 +100,16 @@ CDataFrameTrainBoostedTreeClassifierRunner::CDataFrameTrainBoostedTreeClassifier
 
 void CDataFrameTrainBoostedTreeClassifierRunner::writeOneRow(
     const core::CDataFrame& frame,
-    const TRowRef& row,
+    const TRowDataRef& row,
     core::CRapidJsonConcurrentLineWriter& writer) const {
 
     const auto& tree = this->boostedTree();
     this->writeOneRow(
         frame, tree.columnHoldingDependentVariable(),
-        [&](const TRowRef& row_) { return tree.readPrediction(row_); },
-        [&](const TRowRef& row_) { return tree.readAndAdjustPrediction(row_); },
+        [&](const TRowDataRef& row_) { return tree.readPrediction(row_); },
+        [&](const TRowDataRef& row_) {
+            return tree.readAndAdjustPrediction(row_);
+        },
         row, writer, tree.shap());
 }
 
@@ -116,7 +118,7 @@ void CDataFrameTrainBoostedTreeClassifierRunner::writeOneRow(
     std::size_t columnHoldingDependentVariable,
     const TReadPredictionFunc& readClassProbabilities,
     const TReadClassScoresFunc& readClassScores,
-    const TRowRef& row,
+    const TRowDataRef& row,
     core::CRapidJsonConcurrentLineWriter& writer,
     maths::CTreeShapFeatureImportance* featureImportance) const {
 

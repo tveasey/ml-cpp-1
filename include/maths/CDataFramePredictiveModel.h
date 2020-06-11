@@ -35,7 +35,7 @@ public:
     using TDouble2Vec = core::CSmallVector<double, 2>;
     using TPersistFunc = std::function<void(core::CStatePersistInserter&)>;
     using TTrainingStateCallback = std::function<void(TPersistFunc)>;
-    using TRowRef = core::CDataFrame::TRowRef;
+    using TRowDataRef = core::CDataFrame::TRowDataRef;
 
     //! The objective for the classification decision (given predicted class probabilities).
     enum EClassAssignmentObjective {
@@ -64,10 +64,10 @@ public:
     virtual std::size_t columnHoldingDependentVariable() const = 0;
 
     //! Read the prediction out of \p row.
-    virtual TDouble2Vec readPrediction(const TRowRef& row) const = 0;
+    virtual TDouble2Vec readPrediction(const TRowDataRef& row) const = 0;
 
     //! Read the raw model prediction from \p row and make posthoc adjustments.
-    virtual TDouble2Vec readAndAdjustPrediction(const TRowRef& row) const = 0;
+    virtual TDouble2Vec readAndAdjustPrediction(const TRowDataRef& row) const = 0;
 
     //! \name Test Only
     //@{

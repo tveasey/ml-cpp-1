@@ -25,8 +25,8 @@ class API_EXPORT CDataFrameTrainBoostedTreeClassifierRunner final
     : public CDataFrameTrainBoostedTreeRunner {
 public:
     using TDouble2Vec = core::CSmallVector<double, 2>;
-    using TReadPredictionFunc = std::function<TDouble2Vec(const TRowRef&)>;
-    using TReadClassScoresFunc = std::function<TDouble2Vec(const TRowRef&)>;
+    using TReadPredictionFunc = std::function<TDouble2Vec(const TRowDataRef&)>;
+    using TReadClassScoresFunc = std::function<TDouble2Vec(const TRowDataRef&)>;
 
     enum EPredictionFieldType {
         E_PredictionFieldTypeString,
@@ -51,7 +51,7 @@ public:
 
     //! Write the prediction for \p row to \p writer.
     void writeOneRow(const core::CDataFrame& frame,
-                     const TRowRef& row,
+                     const TRowDataRef& row,
                      core::CRapidJsonConcurrentLineWriter& writer) const override;
 
     //! Write the prediction for \p row to \p writer.
@@ -61,7 +61,7 @@ public:
                      std::size_t columnHoldingDependentVariable,
                      const TReadPredictionFunc& readClassProbabilities,
                      const TReadClassScoresFunc& readClassScores,
-                     const TRowRef& row,
+                     const TRowDataRef& row,
                      core::CRapidJsonConcurrentLineWriter& writer,
                      maths::CTreeShapFeatureImportance* featureImportance = nullptr) const;
 

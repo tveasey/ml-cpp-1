@@ -38,7 +38,7 @@ namespace maths {
 using namespace boosted_tree;
 using namespace boosted_tree_detail;
 using TStrVec = CBoostedTreeImpl::TStrVec;
-using TRowItr = core::CDataFrame::TRowItr;
+using TRowDataItr = core::CDataFrame::TRowDataItr;
 using TMeanVarAccumulator = CBoostedTreeImpl::TMeanVarAccumulator;
 using TMemoryUsageCallback = CDataFrameAnalysisInstrumentationInterface::TMemoryUsageCallback;
 
@@ -50,7 +50,6 @@ namespace {
 const double MINIMUM_SPLIT_REFRESH_INTERVAL{3.0};
 const std::string HYPERPARAMETER_OPTIMIZATION_ROUND{"hyperparameter_optimization_round_"};
 const std::string TRAIN_FINAL_FOREST{"train_final_forest"};
-const double MEMORY_USAGE_WORST_CASE_TO_AVERAGE{4.75};
 
 //! \brief Record the memory used by a supplied object using the RAII idiom.
 class CScopeRecordMemoryUsage {
@@ -295,8 +294,8 @@ void CBoostedTreeImpl::predict(core::CDataFrame& frame) const {
         return;
     }
     bool successful;
-    std::tie(std::ignore, successful) = frame.writeColumns(
-        m_NumberThreads, 0, frame.numberRows(), [&](TRowItr beginRows, TRowItr endRows) {
+    std::tie(std::ignore, successful) = frame.writeColumnsData(
+        m_NumberThreads, 0, frame.numberRows(), [&](TRowDataItr beginRows, TRowDataItr endRows) {
             std::size_t numberLossParameters{m_Loss->numberParameters()};
             for (auto row = beginRows; row != endRows; ++row) {
                 auto prediction = readPrediction(*row, m_ExtraColumns, numberLossParameters);
@@ -417,7 +416,7 @@ void CBoostedTreeImpl::computeClassificationWeights(const core::CDataFrame& fram
             m_ClassificationWeights = CDataFrameUtils::maximumMinimumRecallClassWeights(
                 m_NumberThreads, frame, this->allTrainingRowsMask(),
                 numberClasses, m_DependentVariable,
-                [storage, numberClasses, this](const TRowRef& row) mutable {
+                [storage, numberClasses, this](const TRowDataRef& row) mutable {
                     if (m_Loss->type() == E_BinaryClassification) {
                         // We predict the log-odds but this is expected to return
                         // the log of the predicted class probabilities.
@@ -518,9 +517,9 @@ CBoostedTreeImpl::TNodeVec CBoostedTreeImpl::initializePredictionsAndLossDerivat
     const core::CPackedBitVector& testingRowMask) const {
 
     core::CPackedBitVector updateRowMask{trainingRowMask | testingRowMask};
-    frame.writeColumns(
+    frame.writeColumnsData(
         m_NumberThreads, 0, frame.numberRows(),
-        [this](TRowItr beginRows, TRowItr endRows) {
+        [this](TRowDataItr beginRows, TRowDataItr endRows) {
             std::size_t numberLossParameters{m_Loss->numberParameters()};
             for (auto row = beginRows; row != endRows; ++row) {
                 zeroPrediction(*row, m_ExtraColumns, numberLossParameters);
@@ -678,7 +677,7 @@ CBoostedTreeImpl::candidateSplits(const core::CDataFrame& frame,
             CFastQuantileSketch{CFastQuantileSketch::E_Linear,
                                 std::max(m_NumberSplitsPerFeature, std::size_t{50}), m_Rng},
             m_Encoder.get(),
-            [this](const TRowRef& row) {
+            [this](const TRowDataRef& row) {
                 std::size_t numberLossParameters{m_Loss->numberParameters()};
                 return trace(numberLossParameters,
                              readLossCurvature(row, m_ExtraColumns, numberLossParameters));
@@ -1015,10 +1014,10 @@ void CBoostedTreeImpl::refreshPredictionsAndLossDerivatives(core::CDataFrame& fr
     };
 
     do {
-        auto result = frame.readRows(
+        auto result = frame.readRowsData(
             m_NumberThreads, 0, frame.numberRows(),
             core::bindRetrievableState(
-                [&](TArgMinLossVec& leafValues_, TRowItr beginRows, TRowItr endRows) {
+                [&](TArgMinLossVec& leafValues_, TRowDataItr beginRows, TRowDataItr endRows) {
                     std::size_t numberLossParameters{m_Loss->numberParameters()};
                     const auto& rootNode = root(tree);
                     for (auto row_ = beginRows; row_ != endRows; ++row_) {
@@ -1051,9 +1050,9 @@ void CBoostedTreeImpl::refreshPredictionsAndLossDerivatives(core::CDataFrame& fr
     LOG_TRACE(<< "tree =\n" << root(tree).print(tree));
 
     core::CPackedBitVector updateRowMask{trainingRowMask | testingRowMask};
-    frame.writeColumns(
+    frame.writeColumnsData(
         m_NumberThreads, 0, frame.numberRows(),
-        [&](TRowItr beginRows, TRowItr endRows) {
+        [&](TRowDataItr beginRows, TRowDataItr endRows) {
             std::size_t numberLossParameters{m_Loss->numberParameters()};
             const auto& rootNode = root(tree);
             for (auto row_ = beginRows; row_ != endRows; ++row_) {
@@ -1072,10 +1071,10 @@ void CBoostedTreeImpl::refreshPredictionsAndLossDerivatives(core::CDataFrame& fr
 double CBoostedTreeImpl::meanLoss(const core::CDataFrame& frame,
                                   const core::CPackedBitVector& rowMask) const {
 
-    auto results = frame.readRows(
+    auto results = frame.readRowsData(
         m_NumberThreads, 0, frame.numberRows(),
         core::bindRetrievableState(
-            [&](TMeanAccumulator& loss, TRowItr beginRows, TRowItr endRows) {
+            [&](TMeanAccumulator& loss, TRowDataItr beginRows, TRowDataItr endRows) {
                 std::size_t numberLossParameters{m_Loss->numberParameters()};
                 for (auto row = beginRows; row != endRows; ++row) {
                     auto prediction = readPrediction(*row, m_ExtraColumns, numberLossParameters);

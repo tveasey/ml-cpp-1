@@ -68,10 +68,11 @@ public:
     using TSizeDoublePrVecVec = std::vector<TSizeDoublePrVec>;
     using TSizeDoublePrVecVecVec = std::vector<TSizeDoublePrVecVec>;
     using TRowRef = core::CDataFrame::TRowRef;
-    using TWeightFunc = std::function<double(const TRowRef&)>;
+    using TRowDataRef = core::CDataFrame::TRowDataRef;
+    using TWeightFunc = std::function<double(const TRowDataRef&)>;
     using TDoubleVector = CDenseVector<double>;
     using TMemoryMappedFloatVector = CMemoryMappedDenseVector<CFloatStorage>;
-    using TReadPredictionFunc = std::function<TMemoryMappedFloatVector(const TRowRef&)>;
+    using TReadPredictionFunc = std::function<TMemoryMappedFloatVector(const TRowDataRef&)>;
     using TQuantileSketchVec = std::vector<CQuantileSketch>;
     using TPackedBitVectorVec = std::vector<core::CPackedBitVector>;
 
@@ -214,7 +215,7 @@ public:
 public:
     //! Convert a row of the data frame to a specified vector type.
     template<typename VECTOR>
-    static VECTOR rowTo(const core::CDataFrame::TRowRef& row) {
+    static VECTOR rowTo(const TRowRef& row) {
         return data_frame_utils_detail::SRowTo<VECTOR>::dispatch(row);
     }
 
@@ -425,7 +426,7 @@ private:
                                        const TReadPredictionFunc& readPrediction);
     static void removeMetricColumns(const core::CDataFrame& frame, TSizeVec& columnMask);
     static void removeCategoricalColumns(const core::CDataFrame& frame, TSizeVec& columnMask);
-    static double unitWeight(const TRowRef&);
+    static double unitWeight(const TRowDataRef&);
 };
 }
 }

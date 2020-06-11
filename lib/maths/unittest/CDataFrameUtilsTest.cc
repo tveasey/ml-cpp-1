@@ -45,6 +45,8 @@ using TMeanAccumulatorVecVec = std::vector<TMeanAccumulatorVec>;
 using TMeanVarAccumulator = maths::CBasicStatistics::SSampleMeanVar<double>::TAccumulator;
 using TMeanVarAccumulatorVec = std::vector<TMeanVarAccumulator>;
 using TQuantileSketchVec = std::vector<maths::CQuantileSketch>;
+using TRowDataRef = core::CDataFrame::TRowDataRef;
+using TRowDataItr = core::CDataFrame::TRowDataItr;
 
 auto generateCategoricalData(test::CRandomNumbers& rng,
                              std::size_t rows,
@@ -432,7 +434,7 @@ BOOST_AUTO_TEST_CASE(testColumnQuantilesWithEncoding) {
 
     TQuantileSketchVec expectedQuantiles{columnMask.size(),
                                          {maths::CQuantileSketch::E_Linear, 100}};
-    frame->readRows(1, [&](core::CDataFrame::TRowItr beginRows, core::CDataFrame::TRowItr endRows) {
+    frame->readRowsData(1, [&](TRowDataItr beginRows, TRowDataItr endRows) {
         for (auto row = beginRows; row != endRows; ++row) {
             maths::CEncodedDataFrameRowRef encodedRow{encoder.encode(*row)};
             for (std::size_t i = 0; i < columnMask.size(); ++i) {
@@ -1221,7 +1223,7 @@ BOOST_AUTO_TEST_CASE(testMaximumMinimumRecallClassWeights) {
 
         std::size_t cols{numberClasses + 1};
 
-        auto readPrediction = [&](const core::CDataFrame::TRowRef& row) {
+        auto readPrediction = [&](const TRowDataRef& row) {
             return TMemoryMappedFloatVector{row.data(), static_cast<int>(numberClasses)};
         };
 
@@ -1263,8 +1265,7 @@ BOOST_AUTO_TEST_CASE(testMaximumMinimumRecallClassWeights) {
                                          TDoubleVector::Zero(numberClasses)};
                 TDoubleVector counts{TDoubleVector::Zero(numberClasses)};
 
-                frame->readRows(1, [&](core::CDataFrame::TRowItr beginRows,
-                                       core::CDataFrame::TRowItr endRows) {
+                frame->readRowsData(1, [&](TRowDataItr beginRows, TRowDataItr endRows) {
                     for (auto row = beginRows; row != endRows; ++row) {
                         prediction = readPrediction(*row);
                         maths::CTools::inplaceSoftmax(prediction);

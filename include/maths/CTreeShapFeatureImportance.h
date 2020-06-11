@@ -35,7 +35,7 @@ public:
     using TDoubleVecVec = std::vector<TDoubleVec>;
     using TSizeVec = std::vector<std::size_t>;
     using TStrVec = std::vector<std::string>;
-    using TRowRef = core::CDataFrame::TRowRef;
+    using TRowDataRef = core::CDataFrame::TRowDataRef;
     using TTree = std::vector<CBoostedTreeNode>;
     using TTreeVec = std::vector<TTree>;
     using TVector = CDenseVector<double>;
@@ -57,7 +57,7 @@ public:
     //! m_NumberThreads threads simultaneously. Results are passed as a vector
     //! of values where the i'th value corresponds to the i'th input feature to
     //! m_Encoder.
-    void shap(const TRowRef& row, TShapWriter writer);
+    void shap(const TRowDataRef& row, TShapWriter writer);
 
     //! Compute the number of rows of \p frame reaching each node in the \p forest.
     static void computeNumberSamples(std::size_t numberThreads,

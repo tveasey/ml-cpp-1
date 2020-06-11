@@ -20,6 +20,7 @@ namespace ml {
 namespace maths {
 using namespace boosted_tree_detail;
 using TRowItr = core::CDataFrame::TRowItr;
+using TRowDataItr = core::CDataFrame::TRowDataItr;
 
 namespace {
 const std::size_t ASSIGN_MISSING_TO_LEFT{0};
@@ -177,10 +178,10 @@ void CBoostedTreeLeafNodeStatistics::computeAggregateLossDerivatives(
     const core::CDataFrame& frame,
     const CDataFrameCategoryEncoder& encoder) {
 
-    auto result = frame.readRows(
+    auto result = frame.readRowsData(
         numberThreads, 0, frame.numberRows(),
         core::bindRetrievableState(
-            [&](CSplitsDerivatives& splitsDerivatives, TRowItr beginRows, TRowItr endRows) {
+            [&](CSplitsDerivatives& splitsDerivatives, TRowDataItr beginRows, TRowDataItr endRows) {
                 for (auto row = beginRows; row != endRows; ++row) {
                     this->addRowDerivatives(encoder.encode(*row), splitsDerivatives);
                 }
@@ -211,7 +212,7 @@ void CBoostedTreeLeafNodeStatistics::computeRowMaskAndAggregateLossDerivatives(
                 auto& mask = state.first;
                 auto& splitsDerivatives = state.second;
                 for (auto row = beginRows; row != endRows; ++row) {
-                    auto encodedRow = encoder.encode(*row);
+                    auto encodedRow = encoder.encode(row->rowDataRef());
                     if (split.assignToLeft(encodedRow) == isLeftChild) {
                         std::size_t index{row->index()};
                         mask.extend(false, index - mask.size());
@@ -241,7 +242,7 @@ void CBoostedTreeLeafNodeStatistics::computeRowMaskAndAggregateLossDerivatives(
 void CBoostedTreeLeafNodeStatistics::addRowDerivatives(const CEncodedDataFrameRowRef& row,
                                                        CSplitsDerivatives& splitsDerivatives) const {
 
-    const TRowRef& unencodedRow{row.unencodedRow()};
+    const TRowDataRef& unencodedRow{row.unencodedRow()};
     auto derivatives = readLossDerivatives(unencodedRow, m_ExtraColumns, m_NumberLossParameters);
     for (std::size_t feature = 0; feature < m_CandidateSplits.size(); ++feature) {
         double featureValue{row[feature]};

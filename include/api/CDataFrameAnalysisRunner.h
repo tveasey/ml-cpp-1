@@ -29,7 +29,7 @@ namespace core {
 class CDataFrame;
 class CRapidJsonConcurrentLineWriter;
 namespace data_frame_detail {
-class CRowRef;
+class CRowDataRef;
 }
 }
 namespace api {
@@ -63,7 +63,7 @@ class API_EXPORT CDataFrameAnalysisRunner {
 public:
     using TBoolVec = std::vector<bool>;
     using TStrVec = std::vector<std::string>;
-    using TRowRef = core::data_frame_detail::CRowRef;
+    using TRowDataRef = core::data_frame_detail::CRowDataRef;
     using TProgressRecorder = std::function<void(double)>;
     using TStrVecVec = std::vector<TStrVec>;
     using TInferenceModelDefinitionUPtr = std::unique_ptr<CInferenceModelDefinition>;
@@ -122,7 +122,7 @@ public:
     //! \param[in] row The row to write the columns added by this analysis.
     //! \param[in,out] writer The stream to which to write the extra columns.
     virtual void writeOneRow(const core::CDataFrame& frame,
-                             const TRowRef& row,
+                             const TRowDataRef& row,
                              core::CRapidJsonConcurrentLineWriter& writer) const = 0;
 
     //! Validate if \p frame is suitable for running the analysis on.

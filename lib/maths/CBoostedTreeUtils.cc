@@ -24,19 +24,19 @@ TSizeAlignmentPrVec extraColumns(std::size_t numberLossParameters) {
             {1, core::CAlignment::E_Unaligned}};
 }
 
-TMemoryMappedFloatVector readPrediction(const TRowRef& row,
+TMemoryMappedFloatVector readPrediction(const TRowDataRef& row,
                                         const TSizeVec& extraColumns,
                                         std::size_t numberLossParameters) {
     return {row.data() + extraColumns[E_Prediction], static_cast<int>(numberLossParameters)};
 }
 
-void zeroPrediction(const TRowRef& row, const TSizeVec& extraColumns, std::size_t numberLossParameters) {
+void zeroPrediction(const TRowDataRef& row, const TSizeVec& extraColumns, std::size_t numberLossParameters) {
     for (std::size_t i = 0; i < numberLossParameters; ++i) {
         row.writeColumn(extraColumns[E_Prediction] + i, 0.0);
     }
 }
 
-TAlignedMemoryMappedFloatVector readLossDerivatives(const TRowRef& row,
+TAlignedMemoryMappedFloatVector readLossDerivatives(const TRowDataRef& row,
                                                     const TSizeVec& extraColumns,
                                                     std::size_t numberLossParameters) {
     return {row.data() + extraColumns[E_Gradient],
@@ -44,19 +44,19 @@ TAlignedMemoryMappedFloatVector readLossDerivatives(const TRowRef& row,
                              lossHessianUpperTriangleSize(numberLossParameters))};
 }
 
-TMemoryMappedFloatVector readLossGradient(const TRowRef& row,
+TMemoryMappedFloatVector readLossGradient(const TRowDataRef& row,
                                           const TSizeVec& extraColumns,
                                           std::size_t numberLossParameters) {
     return {row.data() + extraColumns[E_Gradient], static_cast<int>(numberLossParameters)};
 }
 
-void zeroLossGradient(const TRowRef& row, const TSizeVec& extraColumns, std::size_t numberLossParameters) {
+void zeroLossGradient(const TRowDataRef& row, const TSizeVec& extraColumns, std::size_t numberLossParameters) {
     for (std::size_t i = 0; i < numberLossParameters; ++i) {
         row.writeColumn(extraColumns[E_Gradient] + i, 0.0);
     }
 }
 
-void writeLossGradient(const TRowRef& row,
+void writeLossGradient(const TRowDataRef& row,
                        const TSizeVec& extraColumns,
                        const CLoss& loss,
                        const TMemoryMappedFloatVector& prediction,
@@ -71,21 +71,23 @@ void writeLossGradient(const TRowRef& row,
                   [&writer](std::size_t i, double value) { writer(i, value); }, weight);
 }
 
-TMemoryMappedFloatVector readLossCurvature(const TRowRef& row,
+TMemoryMappedFloatVector readLossCurvature(const TRowDataRef& row,
                                            const TSizeVec& extraColumns,
                                            std::size_t numberLossParameters) {
     return {row.data() + extraColumns[E_Curvature],
             static_cast<int>(lossHessianUpperTriangleSize(numberLossParameters))};
 }
 
-void zeroLossCurvature(const TRowRef& row, const TSizeVec& extraColumns, std::size_t numberLossParameters) {
+void zeroLossCurvature(const TRowDataRef& row,
+                       const TSizeVec& extraColumns,
+                       std::size_t numberLossParameters) {
     for (std::size_t i = 0, size = lossHessianUpperTriangleSize(numberLossParameters);
          i < size; ++i) {
         row.writeColumn(extraColumns[E_Curvature] + i, 0.0);
     }
 }
 
-void writeLossCurvature(const TRowRef& row,
+void writeLossCurvature(const TRowDataRef& row,
                         const TSizeVec& extraColumns,
                         const CLoss& loss,
                         const TMemoryMappedFloatVector& prediction,
@@ -100,15 +102,15 @@ void writeLossCurvature(const TRowRef& row,
                    [&writer](std::size_t i, double value) { writer(i, value); }, weight);
 }
 
-double readExampleWeight(const TRowRef& row, const TSizeVec& extraColumns) {
+double readExampleWeight(const TRowDataRef& row, const TSizeVec& extraColumns) {
     return row[extraColumns[E_Weight]];
 }
 
-void writeExampleWeight(const TRowRef& row, const TSizeVec& extraColumns, double weight) {
+void writeExampleWeight(const TRowDataRef& row, const TSizeVec& extraColumns, double weight) {
     row.writeColumn(extraColumns[E_Weight], weight);
 }
 
-double readActual(const TRowRef& row, std::size_t dependentVariable) {
+double readActual(const TRowDataRef& row, std::size_t dependentVariable) {
     return row[dependentVariable];
 }
 }

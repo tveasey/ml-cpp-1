@@ -96,7 +96,7 @@ CDataFrameTrainBoostedTreeRegressionRunner::CDataFrameTrainBoostedTreeRegression
 
 void CDataFrameTrainBoostedTreeRegressionRunner::writeOneRow(
     const core::CDataFrame&,
-    const TRowRef& row,
+    const TRowDataRef& row,
     core::CRapidJsonConcurrentLineWriter& writer) const {
 
     const auto& tree = this->boostedTree();

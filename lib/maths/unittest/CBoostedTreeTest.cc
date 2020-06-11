@@ -46,12 +46,13 @@ using TDoubleVecVec = std::vector<TDoubleVec>;
 using TFactoryFunc = std::function<std::unique_ptr<core::CDataFrame>()>;
 using TFactoryFuncVec = std::vector<TFactoryFunc>;
 using TFactoryFuncVecVec = std::vector<TFactoryFuncVec>;
-using TRowRef = core::CDataFrame::TRowRef;
-using TRowItr = core::CDataFrame::TRowItr;
 using TMeanAccumulator = maths::CBasicStatistics::SSampleMean<double>::TAccumulator;
 using TMeanVarAccumulator = maths::CBasicStatistics::SSampleMeanVar<double>::TAccumulator;
 using TLossFunctionType = maths::boosted_tree::ELossType;
 using TLossFunctionUPtr = maths::CBoostedTreeFactory::TLossFunctionUPtr;
+using TRowRef = core::CDataFrame::TRowRef;
+using TRowItr = core::CDataFrame::TRowItr;
+using TRowDataItr = core::CDataFrame::TRowDataItr;
 
 namespace {
 
@@ -253,7 +254,7 @@ auto predictAndComputeEvaluationMetrics(const F& generateFunction,
             std::tie(bias, rSquared) = computeEvaluationMetrics(
                 *frame, trainRows, rows,
                 [&](const TRowRef& row) {
-                    return regression->readPrediction(row)[0];
+                    return regression->readPrediction(row.rowDataRef())[0];
                 },
                 target, noiseVariance / static_cast<double>(rows));
             modelBias[test].push_back(bias);
@@ -576,7 +577,7 @@ BOOST_AUTO_TEST_CASE(testThreading) {
         frame->readRows(1, [&](TRowItr beginRows, TRowItr endRows) {
             for (auto row = beginRows; row != endRows; ++row) {
                 modelPredictionErrorMoments.add(
-                    target(*row) - regression->readPrediction(*row)[0]);
+                    target(*row) - regression->readPrediction(row->rowDataRef())[0]);
             }
         });
 
@@ -669,7 +670,7 @@ BOOST_AUTO_TEST_CASE(testConstantTarget) {
 
     TMeanAccumulator modelPredictionError;
 
-    frame->readRows(1, [&](TRowItr beginRows, TRowItr endRows) {
+    frame->readRowsData(1, [&](TRowDataItr beginRows, TRowDataItr endRows) {
         for (auto row = beginRows; row != endRows; ++row) {
             modelPredictionError.add(1.0 - regression->readPrediction(*row)[0]);
         }
@@ -745,7 +746,9 @@ BOOST_AUTO_TEST_CASE(testCategoricalRegressors) {
     double modelRSquared;
     std::tie(modelBias, modelRSquared) = computeEvaluationMetrics(
         *frame, trainRows, rows,
-        [&](const TRowRef& row) { return regression->readPrediction(row)[0]; },
+        [&](const TRowRef& row) {
+            return regression->readPrediction(row.rowDataRef())[0];
+        },
         target, 0.0);
 
     LOG_DEBUG(<< "bias = " << modelBias);
@@ -789,7 +792,9 @@ BOOST_AUTO_TEST_CASE(testIntegerRegressor) {
     double modelRSquared;
     std::tie(modelBias, modelRSquared) = computeEvaluationMetrics(
         *frame, trainRows, rows,
-        [&](const TRowRef& row) { return regression->readPrediction(row)[0]; },
+        [&](const TRowRef& row) {
+            return regression->readPrediction(row.rowDataRef())[0];
+        },
         [&](const TRowRef& x) { return 10.0 * x[0]; }, 0.0);
 
     LOG_DEBUG(<< "bias = " << modelBias);
@@ -835,7 +840,9 @@ BOOST_AUTO_TEST_CASE(testSingleSplit) {
     double modelRSquared;
     std::tie(modelBias, modelRSquared) = computeEvaluationMetrics(
         *frame, 0, rows,
-        [&](const TRowRef& row) { return regression->readPrediction(row)[0]; },
+        [&](const TRowRef& row) {
+            return regression->readPrediction(row.rowDataRef())[0];
+        },
         [](const TRowRef& row) { return 10.0 * row[0]; }, 0.0);
 
     LOG_DEBUG(<< "bias = " << modelBias);
@@ -862,7 +869,7 @@ BOOST_AUTO_TEST_CASE(testTranslationInvariance) {
         rng.generateUniformSamples(0.0, 10.0, rows, x[i]);
     }
 
-    TTargetFunc target{[&](const TRowRef& row) {
+    TTargetFunc unshiftedTarget{[&](const TRowRef& row) {
         double result{0.0};
         for (std::size_t i = 0; i < cols - 1; ++i) {
             result += row[i];
@@ -879,12 +886,12 @@ BOOST_AUTO_TEST_CASE(testTranslationInvariance) {
 
     TDoubleVec rsquared;
 
-    for (const auto& target_ : {target, shiftedTarget}) {
+    for (const auto& target : {unshiftedTarget, shiftedTarget}) {
 
         auto frame = core::makeMainStorageDataFrame(cols, capacity).first;
 
         fillDataFrame(trainRows, rows - trainRows, cols, x,
-                      TDoubleVec(rows, 0.0), target_, *frame);
+                      TDoubleVec(rows, 0.0), target, *frame);
 
         auto regression = maths::CBoostedTreeFactory::constructFromParameters(
                               1, std::make_unique<maths::boosted_tree::CMse>())
@@ -895,12 +902,12 @@ BOOST_AUTO_TEST_CASE(testTranslationInvariance) {
 
         double modelBias;
         double modelRSquared;
-        std::tie(modelBias, modelRSquared) =
-            computeEvaluationMetrics(*frame, trainRows, rows,
-                                     [&](const TRowRef& row) {
-                                         return regression->readPrediction(row)[0];
-                                     },
-                                     target_, 0.0);
+        std::tie(modelBias, modelRSquared) = computeEvaluationMetrics(
+            *frame, trainRows, rows,
+            [&](const TRowRef& row) {
+                return regression->readPrediction(row.rowDataRef())[0];
+            },
+            target, 0.0);
 
         LOG_DEBUG(<< "bias = " << modelBias);
         LOG_DEBUG(<< " R^2 = " << modelRSquared);
@@ -1049,7 +1056,8 @@ BOOST_AUTO_TEST_CASE(testBinomialLogisticRegression) {
             for (auto row = beginRows; row != endRows; ++row) {
                 if (row->index() >= trainRows) {
                     double expectedProbability{probability(*row)};
-                    double actualProbability{classifier->readPrediction(*row)[1]};
+                    double actualProbability{
+                        classifier->readPrediction(row->rowDataRef())[1]};
                     logRelativeError.add(
                         std::log(std::max(actualProbability, expectedProbability) /
                                  std::min(actualProbability, expectedProbability)));
@@ -1124,7 +1132,7 @@ BOOST_AUTO_TEST_CASE(testImbalancedClasses) {
         TDoubleVec falseNegatives(2, 0.0);
         frame->readRows(1, [&](TRowItr beginRows, TRowItr endRows) {
             for (auto row = beginRows; row != endRows; ++row) {
-                auto scores = classification->readAndAdjustPrediction(*row);
+                auto scores = classification->readAndAdjustPrediction(row->rowDataRef());
                 std::size_t prediction(scores[1] < scores[0] ? 0 : 1);
                 if (row->index() >= trainRows &&
                     row->index() < trainRows + classesRowCounts[2]) {
@@ -1228,8 +1236,8 @@ BOOST_AUTO_TEST_CASE(testMultinomialLogisticRegression) {
             for (auto row = beginRows; row != endRows; ++row) {
                 if (row->index() >= trainRows) {
                     TVector expectedProbability{probability(*row)};
-                    TVector actualProbability{
-                        TVector::fromSmallVector(classifier->readPrediction(*row))};
+                    TVector actualProbability{TVector::fromSmallVector(
+                        classifier->readPrediction(row->rowDataRef()))};
                     logRelativeError.add(
                         (expectedProbability.cwiseMax(actualProbability).array() /
                          expectedProbability.cwiseMin(actualProbability).array())
@@ -1521,7 +1529,7 @@ BOOST_AUTO_TEST_CASE(testMissingFeatures) {
     TDoubleVec expectedPredictions{17.5, 17.5, 17.5, 22.0};
     TDoubleVec actualPredictions;
 
-    frame->readRows(1, [&](TRowItr beginRows, TRowItr endRows) {
+    frame->readRowsData(1, [&](TRowDataItr beginRows, TRowDataItr endRows) {
         for (auto row = beginRows; row != endRows; ++row) {
             if (maths::CDataFrameUtils::isMissing((*row)[cols - 1])) {
                 actualPredictions.push_back(regression->readPrediction(*row)[0]);

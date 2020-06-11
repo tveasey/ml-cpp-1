@@ -85,7 +85,7 @@ std::size_t CDataFrameOutliersRunner::dataFrameSliceCapacity() const {
 }
 
 void CDataFrameOutliersRunner::writeOneRow(const core::CDataFrame& frame,
-                                           const TRowRef& row,
+                                           const TRowDataRef& row,
                                            core::CRapidJsonConcurrentLineWriter& writer) const {
     std::size_t scoreColumn{row.numberColumns() - this->numberExtraColumns()};
     std::size_t beginFeatureScoreColumns{scoreColumn + 1};

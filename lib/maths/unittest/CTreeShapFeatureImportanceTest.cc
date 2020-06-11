@@ -36,6 +36,7 @@ using TDataFrameUPtr = std::unique_ptr<core::CDataFrame>;
 using TTreeShapFeatureImportanceUPtr = std::unique_ptr<maths::CTreeShapFeatureImportance>;
 using TEncoderUPtr = std::unique_ptr<maths::CDataFrameCategoryEncoder>;
 using TRowItr = core::CDataFrame::TRowItr;
+using TRowDataItr = core::CDataFrame::TRowDataItr;
 using TSizeSet = std::set<std::size_t>;
 using TSizePowerset = std::set<TSizeSet>;
 using TStrVec = std::vector<std::string>;
@@ -284,9 +285,9 @@ struct SFixtureRandomTrees {
         }
 
         // set correct number samples
-        auto result = s_Frame->readRows(
+        auto result = s_Frame->readRowsData(
             1, core::bindRetrievableState(
-                   [&](TSizeVec& numberSamples, const TRowItr& beginRows, const TRowItr& endRows) {
+                   [&](TSizeVec& numberSamples, TRowDataItr beginRows, TRowDataItr endRows) {
                        for (auto row = beginRows; row != endRows; ++row) {
                            auto node{&(tree[0])};
                            auto encodedRow{s_Encoder->encode(*row)};
@@ -333,10 +334,10 @@ public:
     TDoubleVecVec shap(const core::CDataFrame& frame,
                        const maths::CDataFrameCategoryEncoder& encoder,
                        std::size_t numThreads) {
-        auto result = frame.readRows(
+        auto result = frame.readRowsData(
             numThreads,
             core::bindRetrievableState(
-                [&](TDoubleVecVec& phiVec, const TRowItr& beginRows, const TRowItr& endRows) {
+                [&](TDoubleVecVec& phiVec, const TRowDataItr& beginRows, const TRowDataItr& endRows) {
                     phiVec.reserve(frame.numberRows());
                     for (auto row = beginRows; row != endRows; ++row) {
                         TDoubleVec phi(row->numberColumns(), 0.0);
@@ -449,18 +450,20 @@ BOOST_FIXTURE_TEST_CASE(testSingleTreeShap, SFixtureSingleTree) {
 
     s_Frame->readRows(1, [&](TRowItr beginRows, TRowItr endRows) {
         for (auto row = beginRows; row != endRows; ++row) {
-            s_TreeFeatureImportance->shap(*row, [&](const TSizeVec& indices, const TStrVec& names,
-                                                    const TVectorVec& shap) {
-                BOOST_REQUIRE_EQUAL(indices.size(), row->numberColumns());
-                BOOST_TEST_REQUIRE(std::is_sorted(indices.begin(), indices.end()));
-                for (auto i : indices) {
-                    BOOST_REQUIRE_EQUAL(expectedNames[i], names[i]);
-                    BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedPhi[row->index()][i],
-                                                 shap[i](0), 1e-7);
-                }
-            });
+            s_TreeFeatureImportance->shap(
+                row->rowDataRef(), [&](const TSizeVec& indices, const TStrVec& names,
+                                       const TVectorVec& shap) {
+                    BOOST_REQUIRE_EQUAL(indices.size(), row->numberColumns());
+                    BOOST_TEST_REQUIRE(std::is_sorted(indices.begin(), indices.end()));
+                    for (auto i : indices) {
+                        BOOST_REQUIRE_EQUAL(expectedNames[i], names[i]);
+                        BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedPhi[row->index()][i],
+                                                     shap[i](0), 1e-7);
+                    }
+                });
             s_TopTreeFeatureImportance->shap(
-                *row, [&](const TSizeVec& indices, const TStrVec&, const TVectorVec&) {
+                row->rowDataRef(),
+                [&](const TSizeVec& indices, const TStrVec&, const TVectorVec&) {
                     BOOST_REQUIRE_EQUAL(indices.size(), 1);
                     BOOST_REQUIRE_EQUAL(expectedIndices[row->index()], indices[0]);
                 });
@@ -483,18 +486,20 @@ BOOST_FIXTURE_TEST_CASE(testMultipleTreesShap, SFixtureMultipleTrees) {
 
     s_Frame->readRows(1, [&](TRowItr beginRows, TRowItr endRows) {
         for (auto row = beginRows; row != endRows; ++row) {
-            s_TreeFeatureImportance->shap(*row, [&](const TSizeVec& indices, const TStrVec& names,
-                                                    const TVectorVec& shap) {
-                BOOST_REQUIRE_EQUAL(indices.size(), row->numberColumns());
-                BOOST_TEST_REQUIRE(std::is_sorted(indices.begin(), indices.end()));
-                for (auto i : indices) {
-                    BOOST_REQUIRE_EQUAL(expectedNames[i], names[i]);
-                    BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedPhi[row->index()][i],
-                                                 shap[i](0), 1e-7);
-                }
-            });
+            s_TreeFeatureImportance->shap(
+                row->rowDataRef(), [&](const TSizeVec& indices, const TStrVec& names,
+                                       const TVectorVec& shap) {
+                    BOOST_REQUIRE_EQUAL(indices.size(), row->numberColumns());
+                    BOOST_TEST_REQUIRE(std::is_sorted(indices.begin(), indices.end()));
+                    for (auto i : indices) {
+                        BOOST_REQUIRE_EQUAL(expectedNames[i], names[i]);
+                        BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedPhi[row->index()][i],
+                                                     shap[i](0), 1e-7);
+                    }
+                });
             s_TopTreeFeatureImportance->shap(
-                *row, [&](const TSizeVec& indices, const TStrVec&, const TVectorVec&) {
+                row->rowDataRef(),
+                [&](const TSizeVec& indices, const TStrVec&, const TVectorVec&) {
                     BOOST_REQUIRE_EQUAL(indices.size(), 1);
                     BOOST_REQUIRE_EQUAL(expectedIndices[row->index()], indices[0]);
                 });
@@ -538,18 +543,20 @@ BOOST_FIXTURE_TEST_CASE(testSingleRandomTreeShap, SFixtureRandomTrees) {
 
     s_Frame->readRows(1, [&](TRowItr beginRows, TRowItr endRows) {
         for (auto row = beginRows; row != endRows; ++row) {
-            s_TreeFeatureImportance->shap(*row, [&](const TSizeVec& indices, const TStrVec& names,
-                                                    const TVectorVec& shap) {
-                BOOST_REQUIRE_EQUAL(indices.size(), row->numberColumns());
-                BOOST_TEST_REQUIRE(std::is_sorted(indices.begin(), indices.end()));
-                for (auto i : indices) {
-                    BOOST_REQUIRE_EQUAL(expectedNames[i], names[i]);
-                    BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedPhi[row->index()][i],
-                                                 shap[i](0), 1e-5);
-                }
-            });
+            s_TreeFeatureImportance->shap(
+                row->rowDataRef(), [&](const TSizeVec& indices, const TStrVec& names,
+                                       const TVectorVec& shap) {
+                    BOOST_REQUIRE_EQUAL(indices.size(), row->numberColumns());
+                    BOOST_TEST_REQUIRE(std::is_sorted(indices.begin(), indices.end()));
+                    for (auto i : indices) {
+                        BOOST_REQUIRE_EQUAL(expectedNames[i], names[i]);
+                        BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedPhi[row->index()][i],
+                                                     shap[i](0), 1e-5);
+                    }
+                });
             s_TopTwoTreeFeatureImportance->shap(
-                *row, [&](const TSizeVec& indices, const TStrVec&, const TVectorVec&) {
+                row->rowDataRef(),
+                [&](const TSizeVec& indices, const TStrVec&, const TVectorVec&) {
                     BOOST_REQUIRE_EQUAL(indices.size(), 2);
                     for (std::size_t i = 0; i < 2; ++i) {
                         BOOST_REQUIRE_EQUAL(expectedIndices[row->index()][i], indices[i]);
@@ -565,7 +572,7 @@ BOOST_FIXTURE_TEST_CASE(testThreadedRandomTreeShap, SFixtureRandomTrees) {
 
     core::startDefaultAsyncExecutor();
 
-    s_Frame->readRows(1, [&](TRowItr beginRows, TRowItr endRows) {
+    s_Frame->readRowsData(1, [&](TRowDataItr beginRows, TRowDataItr endRows) {
         TSizeVec expectedIndices;
         TStrVec expectedNames;
         TVectorVec expectedShap;
