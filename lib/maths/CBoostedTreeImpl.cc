@@ -13,6 +13,7 @@
 #include <core/CPersistUtils.h>
 #include <core/CProgramCounters.h>
 #include <core/CStopWatch.h>
+#include <core/Constants.h>
 
 #include <maths/CBasicStatisticsPersist.h>
 #include <maths/CBayesianOptimisation.h>
@@ -366,7 +367,10 @@ std::size_t CBoostedTreeImpl::correctedMemoryUsage(double memoryUsageBytes) {
     // 10mb, ca 16.0 after 1000mb to this end we need to shift and scale using the
     // magic numbers below.
     double correctionCoefficient{
-        CTools::logisticFunction(memoryUsageBytes / (1024 * 1024), 100, 550) * 15 + 1};
+        15.0 * CTools::logisticFunction(
+                   memoryUsageBytes / static_cast<double>(core::constants::BYTES_IN_MB),
+                   100.0, 550.0) +
+        1.0};
     return static_cast<std::size_t>(memoryUsageBytes / correctionCoefficient);
 }
 

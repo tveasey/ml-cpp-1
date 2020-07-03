@@ -1834,23 +1834,23 @@ BOOST_AUTO_TEST_CASE(testWorstCaseMemoryCorrection) {
     // magic numbers below.
     // test for 10mb
     BOOST_REQUIRE_CLOSE(static_cast<double>(maths::CBoostedTreeImpl::correctedMemoryUsage(
-                            10.0 * 1024 * 1024)) /
-                            (1024 * 1024),
+                            10.0 * static_cast<double>(core::constants::BYTES_IN_MB))) /
+                            static_cast<double>(core::constants::BYTES_IN_MB),
                         10 / 1.07, 2.0);
     // test for 300mb
     BOOST_REQUIRE_CLOSE(static_cast<double>(maths::CBoostedTreeImpl::correctedMemoryUsage(
-                            300.0 * 1024 * 1024)) /
-                            (1024 * 1024),
+                            300.0 * static_cast<double>(core::constants::BYTES_IN_MB))) /
+                            static_cast<double>(core::constants::BYTES_IN_MB),
                         300.0 / 2.14, 2.0);
     // test for 550mb
     BOOST_REQUIRE_CLOSE(static_cast<double>(maths::CBoostedTreeImpl::correctedMemoryUsage(
-                            550.0 * 1024 * 1024)) /
-                            (1024 * 1024),
+                            550.0 * static_cast<double>(core::constants::BYTES_IN_MB))) /
+                            static_cast<double>(core::constants::BYTES_IN_MB),
                         550.0 / 8.50, 2.0);
     // test for 1000mb
     BOOST_REQUIRE_CLOSE(static_cast<double>(maths::CBoostedTreeImpl::correctedMemoryUsage(
-                            1000.0 * 1024 * 1024)) /
-                            (1024 * 1024),
+                            1000.0 * static_cast<double>(core::constants::BYTES_IN_MB))) /
+                            static_cast<double>(core::constants::BYTES_IN_MB),
                         1000.0 / 15.84, 2.0);
 }
 
