@@ -10,6 +10,7 @@
 #include <core/CJsonStatePersistInserter.h>
 #include <core/CLogger.h>
 #include <core/CStateCompressor.h>
+#include <core/Constants.h>
 
 #include <api/CDataFrameAnalysisSpecification.h>
 #include <api/CMemoryUsageEstimationResultJsonWriter.h>
@@ -32,8 +33,6 @@ std::size_t maximumNumberPartitions(const CDataFrameAnalysisSpecification& spec)
     // user to allocate more resources for the job in this case.
     return static_cast<std::size_t>(std::sqrt(static_cast<double>(spec.numberRows())) + 0.5);
 }
-
-const std::size_t BYTES_IN_MB{1024 * 1024};
 }
 
 CDataFrameAnalysisRunner::CDataFrameAnalysisRunner(const CDataFrameAnalysisSpecification& spec)
@@ -49,7 +48,7 @@ void CDataFrameAnalysisRunner::estimateMemoryUsage(CMemoryUsageEstimationResultJ
     std::size_t numberColumns{m_Spec.numberColumns()};
     std::size_t maxNumberPartitions{maximumNumberPartitions(m_Spec)};
     if (maxNumberPartitions == 0) {
-        writer.write("0", "0");
+        writer.write("0mb", "0mb");
         return;
     }
     std::size_t expectedMemoryWithoutDisk{
@@ -57,7 +56,9 @@ void CDataFrameAnalysisRunner::estimateMemoryUsage(CMemoryUsageEstimationResultJ
     std::size_t expectedMemoryWithDisk{this->estimateMemoryUsage(
         numberRows, numberRows / maxNumberPartitions, numberColumns)};
     auto roundUpToNearestMb = [](std::size_t bytes) {
-        return std::to_string((bytes + BYTES_IN_MB - 1) / BYTES_IN_MB) + "mb";
+        return std::to_string((bytes + core::constants::BYTES_IN_MB - 1) /
+                              core::constants::BYTES_IN_MB) +
+               "mb";
     };
     writer.write(roundUpToNearestMb(expectedMemoryWithoutDisk),
                  roundUpToNearestMb(expectedMemoryWithDisk));
@@ -96,15 +97,17 @@ void CDataFrameAnalysisRunner::computeAndSaveExecutionStrategy() {
     LOG_TRACE(<< "number partitions = " << m_NumberPartitions);
 
     if (memoryUsage > memoryLimit) {
-        auto roundMb = [](std::size_t memory) {
-            return 0.01 * static_cast<double>((100 * memory) / BYTES_IN_MB);
+        auto roundBytesInMbTo2dp = [](std::size_t memory) {
+            return 0.01 * static_cast<double>((100 * memory + core::constants::BYTES_IN_MB / 2) /
+                                              core::constants::BYTES_IN_MB);
         };
 
         // Report rounded up to the nearest MB.
-        HANDLE_FATAL(<< "Input error: memory limit " << roundMb(memoryLimit)
+        HANDLE_FATAL(<< "Input error: memory limit " << roundBytesInMbTo2dp(memoryLimit)
                      << "MB is too low to perform analysis. You need to give the process"
-                     << " at least " << std::ceil(roundMb(memoryUsage))
-                     << "MB, but preferably more.");
+                     << " at least "
+                     << (memoryUsage + core::constants::BYTES_IN_MB - 1) / core::constants::BYTES_IN_MB
+                     << "MB, but preferably more.")
 
     } else if (m_NumberPartitions > 1) {
         // The maximum number of rows is found by binary search in the interval

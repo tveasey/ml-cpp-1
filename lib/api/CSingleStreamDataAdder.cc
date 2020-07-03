@@ -6,13 +6,14 @@
 #include <api/CSingleStreamDataAdder.h>
 
 #include <core/CLogger.h>
+#include <core/Constants.h>
 
 #include <ostream>
 
 namespace ml {
 namespace api {
 
-const size_t CSingleStreamDataAdder::MAX_DOCUMENT_SIZE(16 * 1024 * 1024); // 16MB
+const size_t CSingleStreamDataAdder::MAX_DOCUMENT_SIZE(16 * core::constants::BYTES_IN_MB);
 
 CSingleStreamDataAdder::CSingleStreamDataAdder(const TOStreamP& stream)
     : m_Stream(stream) {

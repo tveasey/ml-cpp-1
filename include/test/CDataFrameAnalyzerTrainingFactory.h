@@ -9,6 +9,7 @@
 
 #include <core/CDataFrame.h>
 #include <core/CSmallVector.h>
+#include <core/Constants.h>
 
 #include <maths/CBoostedTreeFactory.h>
 #include <maths/CBoostedTreeLoss.h>
@@ -162,7 +163,7 @@ public:
             treeFactory.featureBagFraction(featureBagFraction);
         }
 
-        const std::int64_t memoryLimit{1024 * 1024 * 1024}; // 1gb default value
+        const std::int64_t memoryLimit{core::constants::BYTES_IN_GB};
         ml::api::CDataFrameTrainBoostedTreeInstrumentation instrumentation("testJob", memoryLimit);
         treeFactory.analysisInstrumentation(instrumentation);
 

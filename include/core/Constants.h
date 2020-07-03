@@ -17,25 +17,25 @@ namespace core {
 namespace constants {
 
 //! A minute in seconds.
-const core_t::TTime MINUTE{60};
+constexpr core_t::TTime MINUTE{60};
 
 //! An hour in seconds.
-const core_t::TTime HOUR{3600};
+constexpr core_t::TTime HOUR{3600};
 
 //! A day in seconds.
-const core_t::TTime DAY{86400};
+constexpr core_t::TTime DAY{86400};
 
 //! A (two day) weekend in seconds.
-const core_t::TTime WEEKEND{172800};
+constexpr core_t::TTime WEEKEND{172800};
 
 //! Five weekdays in seconds.
-const core_t::TTime WEEKDAYS{432000};
+constexpr core_t::TTime WEEKDAYS{432000};
 
 //! A week in seconds.
-const core_t::TTime WEEK{604800};
+constexpr core_t::TTime WEEK{604800};
 
 //! A (364 day) year in seconds.
-const core_t::TTime YEAR{31449600};
+constexpr core_t::TTime YEAR{31449600};
 
 //! Log of min double.
 const double LOG_MIN_DOUBLE{std::log(std::numeric_limits<double>::min())};
@@ -47,15 +47,24 @@ const double LOG_MAX_DOUBLE{std::log(std::numeric_limits<double>::max())};
 const double LOG_DOUBLE_EPSILON{std::log(std::numeric_limits<double>::epsilon())};
 
 //! Log of two.
-const double LOG_TWO{0.693147180559945};
+constexpr double LOG_TWO{0.693147180559945};
 
 //! Log of two pi.
-const double LOG_TWO_PI{1.83787706640935};
+constexpr double LOG_TWO_PI{1.83787706640935};
+
+//! Bytes in 1KB
+constexpr std::size_t BYTES_IN_KB{1024};
+
+//! Bytes in 1MB.
+constexpr std::size_t BYTES_IN_MB{1024 * 1024};
+
+//! Bytes in 1GB.
+constexpr std::size_t BYTES_IN_GB{1024 * 1024 * 1024};
 
 #ifdef Windows
-const char PATH_SEPARATOR = '\\';
+constexpr char PATH_SEPARATOR{'\\'};
 #else
-const char PATH_SEPARATOR = '/';
+constexpr char PATH_SEPARATOR{'/'};
 #endif
 }
 }

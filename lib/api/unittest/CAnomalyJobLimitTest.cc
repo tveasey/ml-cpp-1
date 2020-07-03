@@ -408,13 +408,14 @@ BOOST_AUTO_TEST_CASE(testModelledEntityCountForFixedMemoryLimit) {
             LOG_DEBUG(<< "# partition = " << used.s_PartitionFields);
             LOG_DEBUG(<< "Memory status = " << used.s_MemoryStatus);
             LOG_DEBUG(<< "Memory usage bytes = " << used.s_Usage);
-            LOG_DEBUG(<< "Memory limit bytes = " << memoryLimit * 1024 * 1024);
+            LOG_DEBUG(<< "Memory limit bytes = " << memoryLimit * core::constants::BYTES_IN_MB);
             BOOST_TEST_REQUIRE(used.s_ByFields > testParam.s_ExpectedByFields);
             BOOST_TEST_REQUIRE(used.s_ByFields < 800);
             BOOST_REQUIRE_EQUAL(std::size_t(2), used.s_PartitionFields);
             BOOST_REQUIRE_CLOSE_ABSOLUTE(
-                memoryLimit * 1024 * 1024 / 2, used.s_Usage,
-                memoryLimit * 1024 * 1024 / testParam.s_ExpectedByMemoryUsageRelativeErrorDivisor);
+                memoryLimit * core::constants::BYTES_IN_MB / 2, used.s_Usage,
+                memoryLimit * core::constants::BYTES_IN_MB /
+                    testParam.s_ExpectedByMemoryUsageRelativeErrorDivisor);
         }
 
         LOG_DEBUG(<< "**** Test partition with bucketLength = " << testParam.s_BucketLength
@@ -464,8 +465,9 @@ BOOST_AUTO_TEST_CASE(testModelledEntityCountForFixedMemoryLimit) {
             BOOST_TEST_REQUIRE(static_cast<double>(used.s_ByFields) >
                                0.96 * static_cast<double>(used.s_PartitionFields));
             BOOST_REQUIRE_CLOSE_ABSOLUTE(
-                memoryLimit * 1024 * 1024 / 2, used.s_Usage,
-                memoryLimit * 1024 * 1024 / testParam.s_ExpectedPartitionUsageRelativeErrorDivisor);
+                memoryLimit * core::constants::BYTES_IN_MB / 2, used.s_Usage,
+                memoryLimit * core::constants::BYTES_IN_MB /
+                    testParam.s_ExpectedPartitionUsageRelativeErrorDivisor);
         }
 
         LOG_DEBUG(<< "**** Test over with bucketLength = " << testParam.s_BucketLength
@@ -511,8 +513,9 @@ BOOST_AUTO_TEST_CASE(testModelledEntityCountForFixedMemoryLimit) {
             BOOST_TEST_REQUIRE(used.s_OverFields > testParam.s_ExpectedOverFields);
             BOOST_TEST_REQUIRE(used.s_OverFields < 7000);
             BOOST_REQUIRE_CLOSE_ABSOLUTE(
-                memoryLimit * 1024 * 1024 / 2, used.s_Usage,
-                memoryLimit * 1024 * 1024 / testParam.s_ExpectedOverUsageRelativeErrorDivisor);
+                memoryLimit * core::constants::BYTES_IN_MB / 2, used.s_Usage,
+                memoryLimit * core::constants::BYTES_IN_MB /
+                    testParam.s_ExpectedOverUsageRelativeErrorDivisor);
         }
     }
 }

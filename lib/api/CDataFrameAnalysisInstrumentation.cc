@@ -6,6 +6,7 @@
 #include <api/CDataFrameAnalysisInstrumentation.h>
 
 #include <core/CTimeUtils.h>
+#include <core/Constants.h>
 
 #include <maths/CBoostedTree.h>
 
@@ -73,16 +74,16 @@ const std::string PHASE{"phase"};
 const std::string PROGRESS_PERCENT{"progress_percent"};
 // clang-format on
 
-std::string bytesToString(double value) {
+std::string bytesToString(std::size_t value) {
     std::ostringstream stream;
     stream << std::fixed;
     stream << std::setprecision(0);
-    value = std::ceil(value / 1024);
-    if (value < 1024) {
+    value = (value + core::constants::BYTES_IN_KB - 1) / core::constants::BYTES_IN_KB;
+    if (value < core::constants::BYTES_IN_KB) {
         stream << value;
         stream << " kb";
     } else {
-        value = std::ceil(value / 1024);
+        value = (value + core::constants::BYTES_IN_KB - 1) / core::constants::BYTES_IN_KB;
         stream << value;
         stream << " mb";
     }
@@ -91,7 +92,11 @@ std::string bytesToString(double value) {
 }
 
 std::string bytesToString(std::int64_t bytes) {
-    return bytesToString(static_cast<double>(bytes));
+    return bytesToString(static_cast<std::size_t>(bytes));
+}
+
+std::string bytesToString(double bytes) {
+    return bytesToString(static_cast<std::size_t>(bytes));
 }
 }
 

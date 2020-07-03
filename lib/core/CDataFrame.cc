@@ -14,6 +14,7 @@
 #include <core/CPackedBitVector.h>
 #include <core/CStringUtils.h>
 #include <core/Concurrency.h>
+#include <core/Constants.h>
 
 #include <algorithm>
 #include <future>
@@ -715,7 +716,7 @@ CDataFrame::CDataFrameRowSliceWriter::finishWritingRows() {
 }
 
 std::size_t dataFrameDefaultSliceCapacity(std::size_t numberColumns) {
-    std::size_t oneMbChunkSize{1024 * 1024 / sizeof(CFloatStorage) / numberColumns};
+    std::size_t oneMbChunkSize{constants::BYTES_IN_MB / sizeof(CFloatStorage) / numberColumns};
     return std::max(oneMbChunkSize, std::size_t{128});
 }
 
