@@ -27,9 +27,6 @@
 namespace ml {
 namespace maths {
 namespace {
-
-using TDoubleDoublePr = maths_t::TDoubleDoublePr;
-
 const core::TPersistenceTag MAX_SIZE_TAG{"a", "max_size"};
 const core::TPersistenceTag RNG_TAG{"b", "rng"};
 const core::TPersistenceTag BOUNDARY_CONDITION_TAG{"c", "boundary_condition"};
@@ -116,7 +113,8 @@ void CDecompositionComponent::shiftLevel(double shift) {
     m_MeanValue += shift;
 }
 
-TDoubleDoublePr CDecompositionComponent::value(double offset, double n, double confidence) const {
+CDecompositionComponent::TVector2x1
+CDecompositionComponent::value(double offset, double n, double confidence) const {
     // In order to compute a confidence interval we need to know
     // the distribution of the samples. In practice, as long as
     // they are independent, then the sample mean will be
@@ -127,36 +125,37 @@ TDoubleDoublePr CDecompositionComponent::value(double offset, double n, double c
         double m{this->valueSpline().value(offset)};
 
         if (confidence == 0.0) {
-            return {m, m};
+            return TVector2x1{m};
         }
 
         n = std::max(n, 1.0);
-        double sd{::sqrt(std::max(this->varianceSpline().value(offset), 0.0) / n)};
+        double sd{std::sqrt(std::max(this->varianceSpline().value(offset), 0.0) / n)};
         if (sd == 0.0) {
-            return {m, m};
+            return TVector2x1{m};
         }
 
         try {
             boost::math::normal normal{m, sd};
             double ql{boost::math::quantile(normal, (100.0 - confidence) / 200.0)};
             double qu{boost::math::quantile(normal, (100.0 + confidence) / 200.0)};
-            return {ql, qu};
+            return TVector2x1{{ql, qu}};
         } catch (const std::exception& e) {
             LOG_ERROR(<< "Failed calculating confidence interval: " << e.what()
                       << ", n = " << n << ", m = " << m << ", sd = " << sd
                       << ", confidence = " << confidence);
         }
-        return {m, m};
+        return TVector2x1{m};
     }
 
-    return {m_MeanValue, m_MeanValue};
+    return TVector2x1{m_MeanValue};
 }
 
 double CDecompositionComponent::meanValue() const {
     return m_MeanValue;
 }
 
-TDoubleDoublePr CDecompositionComponent::variance(double offset, double n, double confidence) const {
+CDecompositionComponent::TVector2x1
+CDecompositionComponent::variance(double offset, double n, double confidence) const {
     // In order to compute a confidence interval we need to know
     // the distribution of the samples. In practice, as long as
     // they are independent, then the sample variance will be
@@ -167,20 +166,20 @@ TDoubleDoublePr CDecompositionComponent::variance(double offset, double n, doubl
         n = std::max(n, 2.0);
         double v{this->varianceSpline().value(offset)};
         if (confidence == 0.0) {
-            return {v, v};
+            return TVector2x1{v};
         }
         try {
             boost::math::chi_squared chi{n - 1.0};
             double ql{boost::math::quantile(chi, (100.0 - confidence) / 200.0)};
             double qu{boost::math::quantile(chi, (100.0 + confidence) / 200.0)};
-            return std::make_pair(ql * v / (n - 1.0), qu * v / (n - 1.0));
+            return TVector2x1{{ql * v / (n - 1.0), qu * v / (n - 1.0)}};
         } catch (const std::exception& e) {
             LOG_ERROR(<< "Failed calculating confidence interval: " << e.what()
                       << ", n = " << n << ", confidence = " << confidence);
         }
-        return {v, v};
+        return TVector2x1{v};
     }
-    return {m_MeanVariance, m_MeanVariance};
+    return TVector2x1{m_MeanVariance};
 }
 
 double CDecompositionComponent::meanVariance() const {
@@ -203,7 +202,7 @@ CDecompositionComponent::TSplineCRef CDecompositionComponent::varianceSpline() c
     return m_Splines.spline(CPackedSplines::E_Variance);
 }
 
-uint64_t CDecompositionComponent::checksum(uint64_t seed) const {
+std::uint64_t CDecompositionComponent::checksum(std::uint64_t seed) const {
     seed = CChecksum::calculate(seed, m_MaxSize);
     seed = CChecksum::calculate(seed, m_BoundaryCondition);
     seed = CChecksum::calculate(seed, m_Splines);
@@ -307,9 +306,9 @@ void CDecompositionComponent::CPackedSplines::interpolate(const TDoubleVec& knot
     this->swap(oldSpline);
     TSplineRef valueSpline{this->spline(E_Value)};
     TSplineRef varianceSpline{this->spline(E_Variance)};
-    if (!valueSpline.interpolate(knots, values, boundary)) {
+    if (valueSpline.interpolate(knots, values, boundary) == false) {
         this->swap(oldSpline);
-    } else if (!varianceSpline.interpolate(knots, variances, boundary)) {
+    } else if (varianceSpline.interpolate(knots, variances, boundary) == false) {
         this->swap(oldSpline);
     }
     LOG_TRACE(<< "types = " << core::CContainerPrinter::print(m_Types));
@@ -318,7 +317,7 @@ void CDecompositionComponent::CPackedSplines::interpolate(const TDoubleVec& knot
     LOG_TRACE(<< "curvatures = " << core::CContainerPrinter::print(m_Curvatures));
 }
 
-uint64_t CDecompositionComponent::CPackedSplines::checksum(uint64_t seed) const {
+std::uint64_t CDecompositionComponent::CPackedSplines::checksum(std::uint64_t seed) const {
     seed = CChecksum::calculate(seed, m_Types);
     seed = CChecksum::calculate(seed, m_Knots);
     seed = CChecksum::calculate(seed, m_Values);

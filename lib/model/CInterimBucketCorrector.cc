@@ -8,6 +8,7 @@
 #include <core/CPersistUtils.h>
 #include <core/RestoreMacros.h>
 
+#include <maths/CBasicStatisticsCovariances.h>
 #include <maths/CBasicStatisticsPersist.h>
 #include <maths/CIntegerTools.h>
 #include <maths/CRestoreParams.h>
@@ -94,7 +95,7 @@ void CInterimBucketCorrector::acceptPersistInserter(core::CStatePersistInserter&
 
 bool CInterimBucketCorrector::acceptRestoreTraverser(core::CStateRestoreTraverser& traverser) {
     do {
-        const std::string& name = traverser.name();
+        const std::string& name{traverser.name()};
         RESTORE_BUILT_IN(COMPLETENESS_TAG, m_Completeness)
         if (name == FINAL_COUNT_TREND_TAG) {
             maths::SDistributionRestoreParams changeModelParams{

@@ -58,10 +58,10 @@ public:
     virtual double meanValue(core_t::TTime time) const;
 
     //! Returns (0.0, 0.0).
-    virtual maths_t::TDoubleDoublePr value(core_t::TTime time,
-                                           double confidence = 0.0,
-                                           int components = E_All,
-                                           bool smooth = true) const;
+    virtual TVector2x1 value(core_t::TTime time,
+                             double confidence = 0.0,
+                             int components = E_All,
+                             bool smooth = true) const;
 
     //! Returns 0.
     virtual core_t::TTime maximumForecastInterval() const;
@@ -82,7 +82,7 @@ public:
     virtual double meanVariance() const;
 
     //! Returns (1.0, 1.0).
-    virtual maths_t::TDoubleDoublePr
+    virtual TVector2x1
     scale(core_t::TTime time, double variance, double confidence, bool smooth = true) const;
 
     //! Returns an empty vector.

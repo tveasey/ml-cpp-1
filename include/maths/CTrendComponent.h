@@ -43,12 +43,12 @@ struct SDistributionRestoreParams;
 //! is common in many real world time series.
 class MATHS_EXPORT CTrendComponent {
 public:
-    using TDoubleDoublePr = maths_t::TDoubleDoublePr;
     using TDoubleVec = std::vector<double>;
     using TDouble3Vec = core::CSmallVector<double, 3>;
-    using TVector = CVectorNx1<double, 3>;
-    using TMatrix = CSymmetricMatrixNxN<double, 3>;
-    using TMatrixVec = std::vector<TMatrix>;
+    using TVector2x1 = CVectorNx1<double, 2>;
+    using TVector3x1 = CVectorNx1<double, 3>;
+    using TMatrix3x3 = CSymmetricMatrixNxN<double, 3>;
+    using TMatrix3x3Vec = std::vector<TMatrix3x3>;
     using TSeasonalForecast = std::function<TDouble3Vec(core_t::TTime)>;
     using TWriteForecastResult = std::function<void(core_t::TTime, const TDouble3Vec&)>;
 
@@ -114,13 +114,13 @@ public:
     //! \param[in] time The time of interest.
     //! \param[in] confidence The symmetric confidence interval for the variance
     //! as a percentage.
-    TDoubleDoublePr value(core_t::TTime time, double confidence) const;
+    TVector2x1 value(core_t::TTime time, double confidence) const;
 
     //! Get the variance of the residual about the predicted value at \p time.
     //!
     //! \param[in] confidence The symmetric confidence interval for the
     //! variance as a percentage.
-    TDoubleDoublePr variance(double confidence) const;
+    TVector2x1 variance(double confidence) const;
 
     //! Get the maximum interval for which the trend model can be forecast.
     core_t::TTime maximumForecastInterval() const;
@@ -158,7 +158,7 @@ private:
     using TRegressionArray = TRegression::TArray;
     using TRegressionArrayVec = std::vector<TRegressionArray>;
     using TMeanAccumulator = CBasicStatistics::SSampleMean<double>::TAccumulator;
-    using TVectorMeanAccumulator = CBasicStatistics::SSampleMean<TVector>::TAccumulator;
+    using TVector3x1MeanAccumulator = CBasicStatistics::SSampleMean<TVector3x1>::TAccumulator;
     using TMeanVarAccumulator = CBasicStatistics::SSampleMeanVar<double>::TAccumulator;
 
     //! \brief A model of the trend at a specific time scale.
@@ -169,7 +169,7 @@ private:
         uint64_t checksum(uint64_t seed) const;
         TMeanAccumulator s_Weight;
         TRegression s_Regression;
-        TVectorMeanAccumulator s_Mse;
+        TVector3x1MeanAccumulator s_Mse;
     };
     using TModelVec = std::vector<SModel>;
 

@@ -137,10 +137,10 @@ public:
     //! \param[in] confidence The symmetric confidence interval for the
     //! prediction the baseline as a percentage.
     //! \param[in] components The components to include in the baseline.
-    virtual maths_t::TDoubleDoublePr value(core_t::TTime time,
-                                           double confidence = 0.0,
-                                           int components = E_All,
-                                           bool smooth = true) const;
+    virtual TVector2x1 value(core_t::TTime time,
+                             double confidence = 0.0,
+                             int components = E_All,
+                             bool smooth = true) const;
 
     //! Get the maximum interval for which the time series can be forecast.
     virtual core_t::TTime maximumForecastInterval() const;
@@ -175,7 +175,7 @@ public:
     //! to scale.
     //! \param[in] confidence The symmetric confidence interval
     //! for the variance scale as a percentage.
-    virtual maths_t::TDoubleDoublePr
+    virtual TVector2x1
     scale(core_t::TTime time, double variance, double confidence, bool smooth = true) const;
 
     //! Get the values in a recent time window.
@@ -220,7 +220,7 @@ private:
     //! The correction to produce a smooth join between periodic
     //! repeats and partitions.
     template<typename F>
-    maths_t::TDoubleDoublePr smooth(const F& f, core_t::TTime time, int components) const;
+    TVector2x1 smooth(const F& f, core_t::TTime time, int components) const;
 
     //! Check if \p component has been selected.
     bool selected(core_t::TTime time, int components, const CSeasonalComponent& component) const;

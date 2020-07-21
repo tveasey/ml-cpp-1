@@ -10,6 +10,7 @@
 #include <core/CRapidXmlStateRestoreTraverser.h>
 #include <core/Constants.h>
 
+#include <maths/CBasicStatisticsCovariances.h>
 #include <maths/CIntegerTools.h>
 #include <maths/COrderings.h>
 #include <maths/CSeasonalComponent.h>
@@ -30,7 +31,6 @@ using namespace ml;
 
 namespace {
 
-using TDoubleDoublePr = std::pair<double, double>;
 using TDoubleVec = std::vector<double>;
 using TTimeVec = std::vector<core_t::TTime>;
 using TTimeDoublePr = std::pair<core_t::TTime, double>;
@@ -110,8 +110,9 @@ void generateSeasonalValues(test::CRandomNumbers& rng,
     }
 }
 
-double mean(const TDoubleDoublePr& x) {
-    return (x.first + x.second) / 2.0;
+template<typename T>
+double mean(const T& x) {
+    return maths::CBasicStatistics::mean(x);
 }
 }
 
@@ -135,7 +136,7 @@ BOOST_AUTO_TEST_CASE(testNoPeriodicity) {
 
     TDoubleVec residuals;
     rng.generateGammaSamples(10.0, 1.2, n, residuals);
-    double residualMean = maths::CBasicStatistics::mean(residuals);
+    double residualMean = mean(residuals);
 
     CTestSeasonalComponent seasonal(startTime, core::constants::DAY, 24);
     seasonal.initialize();
@@ -164,12 +165,12 @@ BOOST_AUTO_TEST_CASE(testNoPeriodicity) {
             for (std::size_t j = 0u; j < function.size(); ++j) {
                 //t << time + function[j].first << " ";
                 //ft << function[j].second << " ";
-                TDoubleDoublePr interval = seasonal.value(time + function[j].first, 70.0);
+                auto bounds = seasonal.value(time + function[j].first, 70.0);
                 double f = function[j].second + residualMean;
 
-                double e = mean(interval) - f;
+                double e = mean(bounds) - f;
                 error1 += std::fabs(e);
-                error2 += std::max(std::max(interval.first - f, f - interval.second), 0.0);
+                error2 += std::max(std::max(bounds(0) - f, f - bounds(1)), 0.0);
             }
             //t << "];\n";
             //ft << "];\n";
@@ -231,7 +232,7 @@ BOOST_AUTO_TEST_CASE(testConstantPeriodic) {
 
         TDoubleVec residuals;
         rng.generateGammaSamples(10.0, 1.2, n, residuals);
-        double residualMean = maths::CBasicStatistics::mean(residuals);
+        double residualMean = mean(residuals);
 
         CTestSeasonalComponent seasonal(startTime, core::constants::DAY, 24, 0.01);
         seasonal.initialize();
@@ -260,11 +261,11 @@ BOOST_AUTO_TEST_CASE(testConstantPeriodic) {
                 for (std::size_t j = 0u; j < function.size(); ++j) {
                     //t << time + function[j].first << " ";
                     //ft << function[j].second << " ";
-                    TDoubleDoublePr interval = seasonal.value(time + function[j].first, 70.0);
+                    auto bounds = seasonal.value(time + function[j].first, 70.0);
                     double f = residualMean + function[j].second;
-                    double e = mean(interval) - f;
+                    double e = mean(bounds) - f;
                     error1 += std::fabs(e);
-                    error2 += std::max(std::max(interval.first - f, f - interval.second), 0.0);
+                    error2 += std::max(std::max(bounds(0) - f, f - bounds(1)), 0.0);
                 }
                 //t << "];\n";
                 //ft << "];\n";
@@ -345,7 +346,7 @@ BOOST_AUTO_TEST_CASE(testConstantPeriodic) {
 
         TDoubleVec residuals;
         rng.generateGammaSamples(10.0, 1.2, n, residuals);
-        double residualMean = maths::CBasicStatistics::mean(residuals);
+        double residualMean = mean(residuals);
 
         CTestSeasonalComponent seasonal(startTime, core::constants::DAY, 24, 0.01);
         seasonal.initialize();
@@ -374,12 +375,12 @@ BOOST_AUTO_TEST_CASE(testConstantPeriodic) {
                 for (std::size_t j = 0u; j < function.size(); ++j) {
                     //t << time + function[j].first << " ";
                     //ft << function[j].second << " ";
-                    TDoubleDoublePr interval = seasonal.value(time + function[j].first, 70.0);
+                    auto bounds = seasonal.value(time + function[j].first, 70.0);
                     double f = residualMean + function[j].second;
 
-                    double e = mean(interval) - f;
+                    double e = mean(bounds) - f;
                     error1 += std::fabs(e);
-                    error2 += std::max(std::max(interval.first - f, f - interval.second), 0.0);
+                    error2 += std::max(std::max(bounds(0) - f, f - bounds(1)), 0.0);
                 }
                 //t << "];\n";
                 //ft << "];\n";
@@ -474,7 +475,7 @@ BOOST_AUTO_TEST_CASE(testTimeVaryingPeriodic) {
 
         TDoubleVec residuals;
         rng.generateGammaSamples(10.0, 1.2, 100, residuals);
-        double residualMean = maths::CBasicStatistics::mean(residuals);
+        double residualMean = mean(residuals);
 
         for (std::size_t i = 0u; i < 100; ++i) {
             seasonal.addPoint(samples[i].first, scale * samples[i].second + residuals[i]);
@@ -496,12 +497,12 @@ BOOST_AUTO_TEST_CASE(testTimeVaryingPeriodic) {
             for (std::size_t j = 0u; j < function.size(); ++j) {
                 //t << time + function[j].first << " ";
                 //ft << function[j].second << " ";
-                TDoubleDoublePr interval = seasonal.value(time + function[j].first, 70.0);
+                auto bounds = seasonal.value(time + function[j].first, 70.0);
                 double f = residualMean + scale * function[j].second;
 
-                double e = mean(interval) - f;
+                double e = mean(bounds) - f;
                 error1 += std::fabs(e);
-                error2 += std::max(std::max(interval.first - f, f - interval.second), 0.0);
+                error2 += std::max(std::max(bounds(0) - f, f - bounds(1)), 0.0);
             }
             //t << "];\n";
             //ft << "];\n";
@@ -560,7 +561,7 @@ BOOST_AUTO_TEST_CASE(testVeryLowVariation) {
 
     TDoubleVec residuals;
     rng.generateNormalSamples(0.0, 1e-3, n, residuals);
-    double residualMean = maths::CBasicStatistics::mean(residuals);
+    double residualMean = mean(residuals);
 
     double deviation = std::sqrt(1e-3);
 
@@ -591,12 +592,12 @@ BOOST_AUTO_TEST_CASE(testVeryLowVariation) {
             for (std::size_t j = 0u; j < function.size(); ++j) {
                 //t << time + function[j].first << " ";
                 //ft << function[j].second << " ";
-                TDoubleDoublePr interval = seasonal.value(time + function[j].first, 70.0);
+                auto bounds = seasonal.value(time + function[j].first, 70.0);
                 double f = residualMean + function[j].second;
 
-                double e = mean(interval) - f;
+                double e = mean(bounds) - f;
                 error1 += std::fabs(e);
-                error2 += std::max(std::max(interval.first - f, f - interval.second), 0.0);
+                error2 += std::max(std::max(bounds(0) - f, f - bounds(1)), 0.0);
             }
             //t << "];\n";
             //ft << "];\n";
@@ -664,19 +665,19 @@ BOOST_AUTO_TEST_CASE(testVariance) {
         core_t::TTime t = (i * core::constants::DAY) / 48;
         double v_ = 80.0 + 20.0 * std::sin(boost::math::double_constants::two_pi *
                                            static_cast<double>(i) / 48.0);
-        TDoubleDoublePr vv = seasonal.variance(t, 98.0);
-        double v = (vv.first + vv.second) / 2.0;
+        auto vv = seasonal.variance(t, 98.0);
+        double v = (vv(0) + vv(1)) / 2.0;
         LOG_TRACE(<< "v_ = " << v_ << ", v = " << core::CContainerPrinter::print(vv)
                   << ", relative error = " << std::fabs(v - v_) / v_);
 
         BOOST_REQUIRE_CLOSE_ABSOLUTE(v_, v, 0.4 * v_);
-        BOOST_TEST_REQUIRE(v_ > vv.first);
-        BOOST_TEST_REQUIRE(v_ < vv.second);
+        BOOST_TEST_REQUIRE(v_ > vv(0));
+        BOOST_TEST_REQUIRE(v_ < vv(1));
         error.add(std::fabs(v - v_) / v_);
     }
 
-    LOG_DEBUG(<< "mean relative error = " << maths::CBasicStatistics::mean(error));
-    BOOST_TEST_REQUIRE(maths::CBasicStatistics::mean(error) < 0.11);
+    LOG_DEBUG(<< "mean relative error = " << mean(error));
+    BOOST_TEST_REQUIRE(mean(error) < 0.11);
 }
 
 BOOST_AUTO_TEST_CASE(testPersist) {
@@ -740,22 +741,22 @@ BOOST_AUTO_TEST_CASE(testPersist) {
     // Test that the values and variances of the original and
     // restored components are similar.
     for (core_t::TTime time = 0; time < core::constants::DAY; time += minute) {
-        TDoubleDoublePr xo = origSeasonal.value(time, 80.0);
-        TDoubleDoublePr xn = restoredSeasonal.value(time, 80.0);
+        auto xo = origSeasonal.value(time, 80.0);
+        auto xn = restoredSeasonal.value(time, 80.0);
         if (time % (15 * minute) == 0) {
             LOG_DEBUG(<< "xo = " << core::CContainerPrinter::print(xo)
                       << ", xn = " << core::CContainerPrinter::print(xn));
         }
-        BOOST_REQUIRE_CLOSE_ABSOLUTE(xo.first, xn.first, 0.3);
-        BOOST_REQUIRE_CLOSE_ABSOLUTE(xo.second, xn.second, 0.3);
-        TDoubleDoublePr vo = origSeasonal.variance(time, 80.0);
-        TDoubleDoublePr vn = origSeasonal.variance(time, 80.0);
+        BOOST_REQUIRE_CLOSE_ABSOLUTE(xo(0), xn(0), 0.3);
+        BOOST_REQUIRE_CLOSE_ABSOLUTE(xo(1), xn(1), 0.3);
+        auto vo = origSeasonal.variance(time, 80.0);
+        auto vn = origSeasonal.variance(time, 80.0);
         if (time % (15 * minute) == 0) {
             LOG_DEBUG(<< "vo = " << core::CContainerPrinter::print(vo)
                       << ", vn = " << core::CContainerPrinter::print(vn));
         }
-        BOOST_REQUIRE_CLOSE_ABSOLUTE(vo.first, vn.first, 1e-3);
-        BOOST_REQUIRE_CLOSE_ABSOLUTE(vo.second, vn.second, 1e-3);
+        BOOST_REQUIRE_CLOSE_ABSOLUTE(vo(0), vn(0), 1e-3);
+        BOOST_REQUIRE_CLOSE_ABSOLUTE(vo(1), vn(1), 1e-3);
     }
 }
 

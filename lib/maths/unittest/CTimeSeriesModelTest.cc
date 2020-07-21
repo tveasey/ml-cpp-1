@@ -1446,10 +1446,8 @@ BOOST_AUTO_TEST_CASE(testWeights) {
                                      static_cast<double>(time_) / 86400.0),
                 2.0)};
 
-            double expectedScale{
-                model.trendModel()
-                    .scale(time_, model.residualModel().marginalLikelihoodVariance(), 0.0)
-                    .second};
+            double expectedScale{model.trendModel().scale(
+                time_, model.residualModel().marginalLikelihoodVariance(), 0.0)(1)};
             double scale{model.seasonalWeight(0.0, time_)[0]};
 
             LOG_DEBUG(<< "expected weight = " << expectedScale << ", weight = " << scale
@@ -1506,10 +1504,8 @@ BOOST_AUTO_TEST_CASE(testWeights) {
                 2.0)};
 
             for (std::size_t i = 0u; i < 3; ++i) {
-                double expectedScale{
-                    model.trendModel()[i]
-                        ->scale(time_, model.residualModel().marginalLikelihoodVariances()[i], 0.0)
-                        .second};
+                double expectedScale{model.trendModel()[i]->scale(
+                    time_, model.residualModel().marginalLikelihoodVariances()[i], 0.0)(1)};
                 double scale{model.seasonalWeight(0.0, time_)[i]};
                 LOG_DEBUG(<< "expected weight = " << expectedScale << ", weight = " << scale
                           << " (data weight = " << dataScale << ")");

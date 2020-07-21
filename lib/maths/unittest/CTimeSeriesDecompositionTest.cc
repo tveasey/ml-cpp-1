@@ -12,6 +12,7 @@
 #include <core/CTimezone.h>
 #include <core/Constants.h>
 
+#include <maths/CBasicStatisticsCovariances.h>
 #include <maths/CDecayRateController.h>
 #include <maths/CIntegerTools.h>
 #include <maths/CLinearAlgebraFwd.h>
@@ -50,10 +51,6 @@ using TSeasonalComponentVec = maths_t::TSeasonalComponentVec;
 using TMeanAccumulator = maths::CBasicStatistics::SSampleMean<double>::TAccumulator;
 using TFloatMeanAccumulatorVec =
     std::vector<maths::CBasicStatistics::SSampleMean<maths::CFloatStorage>::TAccumulator>;
-
-double mean(const TDoubleDoublePr& x) {
-    return (x.first + x.second) / 2.0;
-}
 
 class CDebugGenerator {
 public:
@@ -105,6 +102,11 @@ private:
     TDoubleVec m_Predictions;
     TDoubleVec m_Errors;
 };
+
+template<typename T>
+double mean(const T& x) {
+    return maths::CBasicStatistics::mean(x);
+}
 
 const core_t::TTime FIVE_MINS = 300;
 const core_t::TTime TEN_MINS = 600;
@@ -175,7 +177,7 @@ BOOST_FIXTURE_TEST_CASE(testSuperpositionOfSines, CTestFixture) {
     double totalMaxValue = 0.0;
     double totalPercentileError = 0.0;
 
-    for (std::size_t i = 0u; i < times.size(); ++i) {
+    for (std::size_t i = 0; i < times.size(); ++i) {
         core_t::TTime time = times[i];
         double value = trend[i] + noise[i];
 
@@ -192,15 +194,15 @@ BOOST_FIXTURE_TEST_CASE(testSuperpositionOfSines, CTestFixture) {
             double percentileError = 0.0;
 
             for (core_t::TTime t = lastWeek; t < lastWeek + WEEK; t += HALF_HOUR) {
-                TDoubleDoublePr prediction = decomposition.value(t, 70.0);
+                auto prediction = decomposition.value(t, 70.0);
                 double residual = std::fabs(trend[t / HALF_HOUR] - mean(prediction));
                 sumResidual += residual;
                 maxResidual = std::max(maxResidual, residual);
                 sumValue += std::fabs(trend[t / HALF_HOUR]);
                 maxValue = std::max(maxValue, std::fabs(trend[t / HALF_HOUR]));
                 percentileError +=
-                    std::max(std::max(prediction.first - trend[t / HALF_HOUR],
-                                      trend[t / HALF_HOUR] - prediction.second),
+                    std::max(std::max(prediction(0) - trend[t / HALF_HOUR],
+                                      trend[t / HALF_HOUR] - prediction(1)),
                              0.0);
                 debug.addPrediction(t, mean(prediction), residual);
             }
@@ -257,7 +259,7 @@ BOOST_FIXTURE_TEST_CASE(testDistortedPeriodic, CTestFixture) {
     double totalMaxValue = 0.0;
     double totalPercentileError = 0.0;
 
-    for (std::size_t i = 0u; i < timeseries.size(); ++i) {
+    for (std::size_t i = 0; i < timeseries.size(); ++i) {
         core_t::TTime time;
         double value;
         std::tie(time, value) = timeseries[i];
@@ -278,14 +280,14 @@ BOOST_FIXTURE_TEST_CASE(testDistortedPeriodic, CTestFixture) {
                  static_cast<std::size_t>(t / HOUR) < timeseries.size();
                  t += HOUR) {
                 double actual = timeseries[t / HOUR].second;
-                TDoubleDoublePr prediction = decomposition.value(t, 70.0);
+                auto prediction = decomposition.value(t, 70.0);
                 double residual = std::fabs(actual - mean(prediction));
                 sumResidual += residual;
                 maxResidual = std::max(maxResidual, residual);
                 sumValue += std::fabs(actual);
                 maxValue = std::max(maxValue, std::fabs(actual));
                 percentileError += std::max(
-                    std::max(prediction.first - actual, actual - prediction.second), 0.0);
+                    std::max(prediction(0) - actual, actual - prediction(1)), 0.0);
                 debug.addPrediction(t, mean(prediction), residual);
             }
 
@@ -365,15 +367,15 @@ BOOST_FIXTURE_TEST_CASE(testMinimizeLongComponents, CTestFixture) {
             double percentileError = 0.0;
 
             for (core_t::TTime t = lastWeek; t < lastWeek + WEEK; t += HALF_HOUR) {
-                TDoubleDoublePr prediction = decomposition.value(t, 70.0);
+                auto prediction = decomposition.value(t, 70.0);
                 double residual = std::fabs(trend[t / HALF_HOUR] - mean(prediction));
                 sumResidual += residual;
                 maxResidual = std::max(maxResidual, residual);
                 sumValue += std::fabs(trend[t / HALF_HOUR]);
                 maxValue = std::max(maxValue, std::fabs(trend[t / HALF_HOUR]));
                 percentileError +=
-                    std::max(std::max(prediction.first - trend[t / HALF_HOUR],
-                                      trend[t / HALF_HOUR] - prediction.second),
+                    std::max(std::max(prediction(0) - trend[t / HALF_HOUR],
+                                      trend[t / HALF_HOUR] - prediction(1)),
                              0.0);
                 debug.addPrediction(t, mean(prediction), residual);
             }
@@ -467,7 +469,7 @@ BOOST_FIXTURE_TEST_CASE(testWeekend, CTestFixture) {
                 double percentileError = 0.0;
 
                 for (core_t::TTime t = lastWeek; t < lastWeek + WEEK; t += HALF_HOUR) {
-                    TDoubleDoublePr prediction = decomposition.value(t, 70.0);
+                    auto prediction = decomposition.value(t, 70.0);
                     double actual = trend[(t - offset) / HALF_HOUR];
                     double residual = std::fabs(actual - mean(prediction));
                     sumResidual += residual;
@@ -475,7 +477,7 @@ BOOST_FIXTURE_TEST_CASE(testWeekend, CTestFixture) {
                     sumValue += std::fabs(actual);
                     maxValue = std::max(maxValue, std::fabs(actual));
                     percentileError += std::max(
-                        std::max(prediction.first - actual, actual - prediction.second), 0.0);
+                        std::max(prediction(0) - actual, actual - prediction(1)), 0.0);
                     debug.addPrediction(t, mean(prediction), residual);
                 }
 
@@ -553,8 +555,8 @@ BOOST_FIXTURE_TEST_CASE(testNanHandling, CTestFixture) {
                                    ++componentsModifiedAfter;
                                });
         auto value = decomposition.value(time);
-        BOOST_TEST_REQUIRE(maths::CMathsFuncs::isFinite(value.first));
-        BOOST_TEST_REQUIRE(maths::CMathsFuncs::isFinite(value.second));
+        BOOST_TEST_REQUIRE(maths::CMathsFuncs::isFinite(value(0)));
+        BOOST_TEST_REQUIRE(maths::CMathsFuncs::isFinite(value(1)));
     }
 
     // The call to 'addPoint' that results in the removal of the component
@@ -615,7 +617,7 @@ BOOST_FIXTURE_TEST_CASE(testSinglePeriodicity, CTestFixture) {
             double percentileError = 0.0;
 
             for (core_t::TTime t = lastWeek; t < lastWeek + WEEK; t += HALF_HOUR) {
-                TDoubleDoublePr prediction = decomposition.value(t, 70.0);
+                auto prediction = decomposition.value(t, 70.0);
                 double residual =
                     std::fabs(trend[t / HALF_HOUR] + noiseMean - mean(prediction));
                 sumResidual += residual;
@@ -623,8 +625,8 @@ BOOST_FIXTURE_TEST_CASE(testSinglePeriodicity, CTestFixture) {
                 sumValue += std::fabs(trend[t / HALF_HOUR]);
                 maxValue = std::max(maxValue, std::fabs(trend[t / HALF_HOUR]));
                 percentileError += std::max(
-                    std::max(prediction.first - (trend[t / HALF_HOUR] + noiseMean),
-                             (trend[t / HALF_HOUR] + noiseMean) - prediction.second),
+                    std::max(prediction(0) - (trend[t / HALF_HOUR] + noiseMean),
+                             (trend[t / HALF_HOUR] + noiseMean) - prediction(1)),
                     0.0);
                 debug.addPrediction(t, mean(prediction), residual);
             }
@@ -717,16 +719,15 @@ BOOST_FIXTURE_TEST_CASE(testSeasonalOnset, CTestFixture) {
             double maxValue = 0.0;
             double percentileError = 0.0;
             for (core_t::TTime t = lastWeek; t < lastWeek + WEEK; t += HOUR) {
-                TDoubleDoublePr prediction = decomposition.value(t, 70.0);
+                auto prediction = decomposition.value(t, 70.0);
                 double residual = std::fabs(trend[t / HOUR] - mean(prediction));
                 sumResidual += residual;
                 maxResidual = std::max(maxResidual, residual);
                 sumValue += std::fabs(trend[t / HOUR]);
                 maxValue = std::max(maxValue, std::fabs(trend[t / HOUR]));
-                percentileError +=
-                    std::max(std::max(prediction.first - trend[t / HOUR],
-                                      trend[t / HOUR] - prediction.second),
-                             0.0);
+                percentileError += std::max(std::max(prediction(0) - trend[t / HOUR],
+                                                     trend[t / HOUR] - prediction(1)),
+                                            0.0);
                 debug.addPrediction(t, mean(prediction), residual);
             }
 
@@ -805,23 +806,22 @@ BOOST_FIXTURE_TEST_CASE(testVarianceScale, CTestFixture) {
                 variance = 10.0;
             }
             double expectedScale = variance / meanVariance;
-            TDoubleDoublePr interval = decomposition.scale(time + t, meanVariance, 70.0);
+            auto interval = decomposition.scale(time + t, meanVariance, 70.0);
             LOG_TRACE(<< "time = " << t << ", expectedScale = " << expectedScale
                       << ", scale = " << core::CContainerPrinter::print(interval));
-            double scale = (interval.first + interval.second) / 2.0;
+            double scale = (interval(0) + interval(1)) / 2.0;
             error.add(std::fabs(scale - expectedScale));
             meanScale.add(scale);
-            percentileError.add(std::max(std::max(interval.first - expectedScale,
-                                                  expectedScale - interval.second),
-                                         0.0));
+            percentileError.add(std::max(
+                std::max(interval(0) - expectedScale, expectedScale - interval(1)), 0.0));
         }
 
-        LOG_DEBUG(<< "mean error = " << maths::CBasicStatistics::mean(error));
-        LOG_DEBUG(<< "mean 70% error = " << maths::CBasicStatistics::mean(percentileError));
-        LOG_DEBUG(<< "mean scale = " << maths::CBasicStatistics::mean(meanScale));
-        BOOST_TEST_REQUIRE(maths::CBasicStatistics::mean(error) < 0.3);
-        BOOST_TEST_REQUIRE(maths::CBasicStatistics::mean(percentileError) < 0.05);
-        BOOST_REQUIRE_CLOSE_ABSOLUTE(1.0, maths::CBasicStatistics::mean(meanScale), 0.04);
+        LOG_DEBUG(<< "mean error = " << mean(error));
+        LOG_DEBUG(<< "mean 70% error = " << mean(percentileError));
+        LOG_DEBUG(<< "mean scale = " << mean(meanScale));
+        BOOST_TEST_REQUIRE(mean(error) < 0.3);
+        BOOST_TEST_REQUIRE(mean(percentileError) < 0.05);
+        BOOST_REQUIRE_CLOSE_ABSOLUTE(1.0, mean(meanScale), 0.04);
     }
     LOG_DEBUG(<< "Smoothly Varying Variance");
     {
@@ -855,23 +855,22 @@ BOOST_FIXTURE_TEST_CASE(testVarianceScale, CTestFixture) {
                 variance = 10.0;
             }
             double expectedScale = variance / meanVariance;
-            TDoubleDoublePr interval = decomposition.scale(time + t, meanVariance, 70.0);
+            auto interval = decomposition.scale(time + t, meanVariance, 70.0);
             LOG_TRACE(<< "time = " << t << ", expectedScale = " << expectedScale
                       << ", scale = " << core::CContainerPrinter::print(interval));
-            double scale = (interval.first + interval.second) / 2.0;
+            double scale = (interval(0) + interval(1)) / 2.0;
             error.add(std::fabs(scale - expectedScale));
             meanScale.add(scale);
-            percentileError.add(std::max(std::max(interval.first - expectedScale,
-                                                  expectedScale - interval.second),
-                                         0.0));
+            percentileError.add(std::max(
+                std::max(interval(0) - expectedScale, expectedScale - interval(1)), 0.0));
         }
 
-        LOG_DEBUG(<< "mean error = " << maths::CBasicStatistics::mean(error));
-        LOG_DEBUG(<< "mean 70% error = " << maths::CBasicStatistics::mean(percentileError));
-        LOG_DEBUG(<< "mean scale = " << maths::CBasicStatistics::mean(meanScale));
-        BOOST_TEST_REQUIRE(maths::CBasicStatistics::mean(error) < 0.23);
-        BOOST_TEST_REQUIRE(maths::CBasicStatistics::mean(percentileError) < 0.1);
-        BOOST_REQUIRE_CLOSE_ABSOLUTE(1.0, maths::CBasicStatistics::mean(meanScale), 0.01);
+        LOG_DEBUG(<< "mean error = " << mean(error));
+        LOG_DEBUG(<< "mean 70% error = " << mean(percentileError));
+        LOG_DEBUG(<< "mean scale = " << mean(meanScale));
+        BOOST_TEST_REQUIRE(mean(error) < 0.23);
+        BOOST_TEST_REQUIRE(mean(percentileError) < 0.1);
+        BOOST_REQUIRE_CLOSE_ABSOLUTE(1.0, mean(meanScale), 0.01);
     }
     LOG_DEBUG(<< "Long Term Trend");
     {
@@ -901,16 +900,15 @@ BOOST_FIXTURE_TEST_CASE(testVarianceScale, CTestFixture) {
         TMeanAccumulator meanScale;
         double meanVariance = decomposition.meanVariance();
         for (core_t::TTime t = 0; t < DAY; t += TEN_MINS) {
-            TDoubleDoublePr interval =
-                decomposition.scale(times.back() + t, meanVariance, 70.0);
+            auto interval = decomposition.scale(times.back() + t, meanVariance, 70.0);
             LOG_TRACE(<< "time = " << t
                       << ", scale = " << core::CContainerPrinter::print(interval));
-            double scale = (interval.first + interval.second) / 2.0;
+            double scale = (interval(0) + interval(1)) / 2.0;
             meanScale.add(scale);
         }
 
-        LOG_DEBUG(<< "mean scale = " << maths::CBasicStatistics::mean(meanScale));
-        BOOST_REQUIRE_CLOSE_ABSOLUTE(1.0, maths::CBasicStatistics::mean(meanScale), 0.02);
+        LOG_DEBUG(<< "mean scale = " << mean(meanScale));
+        BOOST_REQUIRE_CLOSE_ABSOLUTE(1.0, mean(meanScale), 0.02);
     }
 }
 
@@ -953,17 +951,16 @@ BOOST_FIXTURE_TEST_CASE(testSpikeyDataProblemCase, CTestFixture) {
             double percentileError = 0.0;
 
             for (std::size_t j = 0u; j < lastWeekTimeseries.size(); ++j) {
-                TDoubleDoublePr prediction =
-                    decomposition.value(lastWeekTimeseries[j].first, 70.0);
+                auto prediction = decomposition.value(lastWeekTimeseries[j].first, 70.0);
                 double residual = std::fabs(lastWeekTimeseries[j].second - mean(prediction));
                 sumResidual += residual;
                 maxResidual = std::max(maxResidual, residual);
                 sumValue += std::fabs(lastWeekTimeseries[j].second);
                 maxValue = std::max(maxValue, std::fabs(lastWeekTimeseries[j].second));
-                percentileError += std::max(
-                    std::max(prediction.first - lastWeekTimeseries[j].second,
-                             lastWeekTimeseries[j].second - prediction.second),
-                    0.0);
+                percentileError +=
+                    std::max(std::max(prediction(0) - lastWeekTimeseries[j].second,
+                                      lastWeekTimeseries[j].second - prediction(1)),
+                             0.0);
                 debug.addPrediction(lastWeekTimeseries[j].first, mean(prediction), residual);
             }
 
@@ -994,8 +991,7 @@ BOOST_FIXTURE_TEST_CASE(testSpikeyDataProblemCase, CTestFixture) {
                 model.setToNonInformative(0.0, 0.01);
                 for (const auto& residual : residuals) {
                     if (maths::CBasicStatistics::count(residual) > 0.0) {
-                        model.addSamples({maths::CBasicStatistics::mean(residual)},
-                                         maths_t::CUnitWeights::SINGLE_UNIT);
+                        model.addSamples({mean(residual)}, maths_t::CUnitWeights::SINGLE_UNIT);
                     }
                 }
             });
@@ -1032,7 +1028,7 @@ BOOST_FIXTURE_TEST_CASE(testSpikeyDataProblemCase, CTestFixture) {
         model.probabilityOfLessLikelySamples(
             maths_t::E_TwoSided, {decomposition.detrend(time, value, 70.0)},
             {maths_t::seasonalVarianceScaleWeight(
-                std::max(decomposition.scale(time, variance, 70.0).second, 0.25))},
+                std::max(decomposition.scale(time, variance, 70.0)(1), 0.25))},
             lb, ub, tail);
         double pScaled = (lb + ub) / 2.0;
         pMinScaled = std::min(pMinScaled, pScaled);
@@ -1102,17 +1098,16 @@ BOOST_FIXTURE_TEST_CASE(testVeryLargeValuesProblemCase, CTestFixture) {
             double percentileError = 0.0;
 
             for (std::size_t j = 0u; j < lastWeekTimeseries.size(); ++j) {
-                TDoubleDoublePr prediction =
-                    decomposition.value(lastWeekTimeseries[j].first, 70.0);
+                auto prediction = decomposition.value(lastWeekTimeseries[j].first, 70.0);
                 double residual = std::fabs(lastWeekTimeseries[j].second - mean(prediction));
                 sumResidual += residual;
                 maxResidual = std::max(maxResidual, residual);
                 sumValue += std::fabs(lastWeekTimeseries[j].second);
                 maxValue = std::max(maxValue, std::fabs(lastWeekTimeseries[j].second));
-                percentileError += std::max(
-                    std::max(prediction.first - lastWeekTimeseries[j].second,
-                             lastWeekTimeseries[j].second - prediction.second),
-                    0.0);
+                percentileError +=
+                    std::max(std::max(prediction(0) - lastWeekTimeseries[j].second,
+                                      lastWeekTimeseries[j].second - prediction(1)),
+                             0.0);
                 debug.addPrediction(lastWeekTimeseries[j].first, mean(prediction), residual);
             }
 
@@ -1154,8 +1149,8 @@ BOOST_FIXTURE_TEST_CASE(testVeryLargeValuesProblemCase, CTestFixture) {
         scale.add(mean(decomposition.scale(t, variance, 70.0)));
     }
 
-    LOG_DEBUG(<< "scale = " << maths::CBasicStatistics::mean(scale));
-    BOOST_REQUIRE_CLOSE_ABSOLUTE(1.0, maths::CBasicStatistics::mean(scale), 0.08);
+    LOG_DEBUG(<< "scale = " << mean(scale));
+    BOOST_REQUIRE_CLOSE_ABSOLUTE(1.0, mean(scale), 0.08);
 }
 
 BOOST_FIXTURE_TEST_CASE(testMixedSmoothAndSpikeyDataProblemCase, CTestFixture) {
@@ -1197,17 +1192,16 @@ BOOST_FIXTURE_TEST_CASE(testMixedSmoothAndSpikeyDataProblemCase, CTestFixture) {
             double percentileError = 0.0;
 
             for (std::size_t j = 0u; j < lastWeekTimeseries.size(); ++j) {
-                TDoubleDoublePr prediction =
-                    decomposition.value(lastWeekTimeseries[j].first, 70.0);
+                auto prediction = decomposition.value(lastWeekTimeseries[j].first, 70.0);
                 double residual = std::fabs(lastWeekTimeseries[j].second - mean(prediction));
                 sumResidual += residual;
                 maxResidual = std::max(maxResidual, residual);
                 sumValue += std::fabs(lastWeekTimeseries[j].second);
                 maxValue = std::max(maxValue, std::fabs(lastWeekTimeseries[j].second));
-                percentileError += std::max(
-                    std::max(prediction.first - lastWeekTimeseries[j].second,
-                             lastWeekTimeseries[j].second - prediction.second),
-                    0.0);
+                percentileError +=
+                    std::max(std::max(prediction(0) - lastWeekTimeseries[j].second,
+                                      lastWeekTimeseries[j].second - prediction(1)),
+                             0.0);
                 debug.addPrediction(lastWeekTimeseries[j].first, mean(prediction), residual);
             }
 
@@ -1271,8 +1265,7 @@ BOOST_FIXTURE_TEST_CASE(testDiurnalPeriodicityWithMissingValues, CTestFixture) {
                     value += noise[0];
                     decomposition.addPoint(time, value);
                     debug.addValue(time, value);
-                    double prediction =
-                        maths::CBasicStatistics::mean(decomposition.value(time, 0.0));
+                    double prediction = mean(decomposition.value(time, 0.0));
                     if (decomposition.initialized()) {
                         error.add(std::fabs(value - prediction) / std::fabs(value));
                     }
@@ -1282,8 +1275,8 @@ BOOST_FIXTURE_TEST_CASE(testDiurnalPeriodicityWithMissingValues, CTestFixture) {
             }
         }
 
-        LOG_DEBUG(<< "mean error = " << maths::CBasicStatistics::mean(error));
-        BOOST_TEST_REQUIRE(maths::CBasicStatistics::mean(error) < 0.09);
+        LOG_DEBUG(<< "mean error = " << mean(error));
+        BOOST_TEST_REQUIRE(mean(error) < 0.09);
     }
 
     LOG_DEBUG(<< "Weekly Periodic");
@@ -1318,8 +1311,7 @@ BOOST_FIXTURE_TEST_CASE(testDiurnalPeriodicityWithMissingValues, CTestFixture) {
                     value += noise[0];
                     decomposition.addPoint(time, value);
                     debug.addValue(time, value);
-                    double prediction =
-                        maths::CBasicStatistics::mean(decomposition.value(time, 0.0));
+                    double prediction = mean(decomposition.value(time, 0.0));
                     if (decomposition.initialized()) {
                         error.add(std::fabs(value - prediction) / std::fabs(value));
                     }
@@ -1329,8 +1321,8 @@ BOOST_FIXTURE_TEST_CASE(testDiurnalPeriodicityWithMissingValues, CTestFixture) {
             }
         }
 
-        LOG_DEBUG(<< "mean error = " << maths::CBasicStatistics::mean(error));
-        BOOST_TEST_REQUIRE(maths::CBasicStatistics::mean(error) < 0.11);
+        LOG_DEBUG(<< "mean error = " << mean(error));
+        BOOST_TEST_REQUIRE(mean(error) < 0.11);
     }
 }
 
@@ -1376,7 +1368,7 @@ BOOST_FIXTURE_TEST_CASE(testLongTermTrend, CTestFixture) {
                     double maxValue = 0.0;
 
                     for (std::size_t j = i - 48; j < i; ++j) {
-                        TDoubleDoublePr prediction = decomposition.value(times[j], 70.0);
+                        auto prediction = decomposition.value(times[j], 70.0);
                         double residual = std::fabs(trend[j] - mean(prediction));
                         sumResidual += residual;
                         maxResidual = std::max(maxResidual, residual);
@@ -1450,7 +1442,7 @@ BOOST_FIXTURE_TEST_CASE(testLongTermTrend, CTestFixture) {
                     double maxValue = 0.0;
 
                     for (std::size_t j = i - 48; j < i; ++j) {
-                        TDoubleDoublePr prediction = decomposition.value(times[j], 70.0);
+                        auto prediction = decomposition.value(times[j], 70.0);
                         double residual = std::fabs(trend[j] - mean(prediction));
                         sumResidual += residual;
                         maxResidual = std::max(maxResidual, residual);
@@ -1525,7 +1517,7 @@ BOOST_FIXTURE_TEST_CASE(testLongTermTrendAndPeriodicity, CTestFixture) {
                 double maxValue = 0.0;
 
                 for (std::size_t j = i - 48; j < i; ++j) {
-                    TDoubleDoublePr prediction = decomposition.value(times[j], 70.0);
+                    auto prediction = decomposition.value(times[j], 70.0);
                     double residual = std::fabs(trend[j] - mean(prediction));
                     sumResidual += residual;
                     maxResidual = std::max(maxResidual, residual);
@@ -1604,7 +1596,7 @@ BOOST_FIXTURE_TEST_CASE(testNonDiurnal, CTestFixture) {
                     double maxValue = 0.0;
 
                     for (std::size_t j = i - 12; j < i; ++j) {
-                        TDoubleDoublePr prediction = decomposition.value(times[j], 70.0);
+                        auto prediction = decomposition.value(times[j], 70.0);
                         double residual = std::fabs(trend[j] - mean(prediction));
                         sumResidual += residual;
                         maxResidual = std::max(maxResidual, residual);
@@ -1678,7 +1670,7 @@ BOOST_FIXTURE_TEST_CASE(testNonDiurnal, CTestFixture) {
                     double maxValue = 0.0;
 
                     for (std::size_t j = i - 288; j < i; ++j) {
-                        TDoubleDoublePr prediction = decomposition.value(times[j], 70.0);
+                        auto prediction = decomposition.value(times[j], 70.0);
                         double residual = std::fabs(trend[j] - mean(prediction));
                         sumResidual += residual;
                         maxResidual = std::max(maxResidual, residual);
@@ -1750,7 +1742,7 @@ BOOST_FIXTURE_TEST_CASE(testYearly, CTestFixture) {
                                    static_cast<double>(time) / static_cast<double>(YEAR))) +
             7.5 * std::sin(boost::math::double_constants::two_pi *
                            static_cast<double>(time) / static_cast<double>(DAY));
-        double prediction = maths::CBasicStatistics::mean(decomposition.value(time, 0.0));
+        double prediction = mean(decomposition.value(time, 0.0));
         double error = std::fabs((prediction - trend) / trend);
         meanError.add(error);
         debug.addValue(time, trend);
@@ -1759,9 +1751,9 @@ BOOST_FIXTURE_TEST_CASE(testYearly, CTestFixture) {
         BOOST_TEST_REQUIRE(error < 0.19);
     }
 
-    LOG_DEBUG(<< "mean error = " << maths::CBasicStatistics::mean(meanError));
+    LOG_DEBUG(<< "mean error = " << mean(meanError));
 
-    BOOST_TEST_REQUIRE(maths::CBasicStatistics::mean(meanError) < 0.025);
+    BOOST_TEST_REQUIRE(mean(meanError) < 0.025);
 }
 
 BOOST_FIXTURE_TEST_CASE(testWithOutliers, CTestFixture) {
@@ -1807,15 +1799,14 @@ BOOST_FIXTURE_TEST_CASE(testWithOutliers, CTestFixture) {
         if (newComponents) {
             TMeanAccumulator error;
             for (core_t::TTime endTime = time + DAY; time < endTime; time += TEN_MINS) {
-                double prediction =
-                    maths::CBasicStatistics::mean(decomposition.value(time, 0.0));
+                double prediction = mean(decomposition.value(time, 0.0));
                 error.add(std::fabs(prediction - trend(time)) / trend(time));
                 debug.addValue(time, value);
                 debug.addPrediction(time, prediction, trend(time) - prediction);
             }
 
-            LOG_DEBUG(<< "error = " << maths::CBasicStatistics::mean(error));
-            BOOST_TEST_REQUIRE(maths::CBasicStatistics::mean(error) < 0.05);
+            LOG_DEBUG(<< "error = " << mean(error));
+            BOOST_TEST_REQUIRE(mean(error) < 0.05);
             break;
         }
         debug.addValue(time, value);
@@ -1868,10 +1859,8 @@ BOOST_FIXTURE_TEST_CASE(testCalendar, CTestFixture) {
             std::size_t largeErrorCount = 0u;
 
             for (core_t::TTime time_ = time - DAY; time_ < time; time_ += TEN_MINS) {
-                double prediction =
-                    maths::CBasicStatistics::mean(decomposition.value(time_));
-                double variance = 4.0 * maths::CBasicStatistics::mean(
-                                            decomposition.scale(time_, 4.0, 0.0));
+                double prediction = mean(decomposition.value(time_));
+                double variance = 4.0 * mean(decomposition.scale(time_, 4.0, 0.0));
                 double actual = trend(time_);
                 if (std::fabs(prediction - actual) / std::sqrt(variance) > 3.0) {
                     LOG_TRACE(<< "  prediction = " << prediction);
@@ -1979,7 +1968,7 @@ BOOST_FIXTURE_TEST_CASE(testComponentLifecycle, CTestFixture) {
 
     double bounds[]{0.01, 0.018, 0.025, 0.06};
     for (std::size_t i = 0; i < 4; ++i) {
-        double error{maths::CBasicStatistics::mean(errors[i])};
+        double error{mean(errors[i])};
         LOG_DEBUG(<< "error = " << error);
         BOOST_TEST_REQUIRE(error < bounds[i]);
     }
@@ -2090,14 +2079,14 @@ BOOST_FIXTURE_TEST_CASE(testUpgrade, CTestFixture) {
         file >> &buf;
         result = buf.str();
     };
-    auto stringToPair = [](const std::string& str) {
+    auto stringToVector = [](const std::string& str) {
         double first;
         double second;
         std::size_t n{str.find(",")};
         BOOST_TEST_REQUIRE(n != std::string::npos);
         core::CStringUtils::stringToType(str.substr(0, n), first);
         core::CStringUtils::stringToType(str.substr(n + 1), second);
-        return TDoubleDoublePr{first, second};
+        return maths::CVectorNx1{{first, second}};
     };
 
     maths::STimeSeriesDecompositionRestoreParams params{
@@ -2146,18 +2135,16 @@ BOOST_FIXTURE_TEST_CASE(testUpgrade, CTestFixture) {
         for (core_t::TTime time = 60480000, i = 0;
              i < static_cast<core_t::TTime>(expectedValues.size());
              time += HALF_HOUR, ++i) {
-            TDoubleDoublePr expectedValue{stringToPair(expectedValues[i])};
-            TDoubleDoublePr expectedScale{stringToPair(expectedScales[i])};
-            TDoubleDoublePr value{decomposition.value(time, 10.0)};
-            TDoubleDoublePr scale{decomposition.scale(time, 286374.0, 10.0)};
-            BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedValue.first, value.first,
-                                         0.005 * std::fabs(expectedValue.first));
-            BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedValue.second, value.second,
-                                         0.005 * std::fabs(expectedValue.second));
-            BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedScale.first, scale.first,
-                                         0.005 * expectedScale.first);
-            BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedScale.second, scale.second,
-                                         0.005 * std::max(expectedScale.second, 0.4));
+            auto expectedValue = stringToVector(expectedValues[i]);
+            auto expectedScale = stringToVector(expectedScales[i]);
+            auto value = decomposition.value(time, 10.0);
+            auto scale = decomposition.scale(time, 286374.0, 10.0);
+            for (auto j : {0, 1}) {
+                BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedValue(j), value(j),
+                                             0.005 * std::fabs(expectedValue(j)));
+                BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedScale(j), scale(j),
+                                             0.005 * expectedScale(j));
+            }
         }
 
         // Check some basic operations on the upgraded model.
@@ -2215,32 +2202,26 @@ BOOST_FIXTURE_TEST_CASE(testUpgrade, CTestFixture) {
         for (core_t::TTime time = 10366200, i = 0;
              i < static_cast<core_t::TTime>(expectedValues.size());
              time += HALF_HOUR, ++i) {
-            TDoubleDoublePr expectedValue{stringToPair(expectedValues[i])};
-            TDoubleDoublePr expectedScale{stringToPair(expectedScales[i])};
-            TDoubleDoublePr value{decomposition.value(time, 10.0)};
-            TDoubleDoublePr scale{decomposition.scale(time, 96.1654, 10.0)};
-            BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedValue.first, value.first,
-                                         0.1 * std::fabs(expectedValue.first));
-            BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedValue.second, value.second,
-                                         0.1 * std::fabs(expectedValue.second));
-            BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedScale.first, scale.first,
-                                         0.3 * expectedScale.first);
-            BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedScale.second, scale.second,
-                                         0.3 * expectedScale.second);
-            meanValueError.add(std::fabs(expectedValue.first - value.first) /
-                               std::fabs(expectedValue.first));
-            meanValueError.add(std::fabs(expectedValue.second - value.second) /
-                               std::fabs(expectedValue.second));
-            meanScaleError.add(std::fabs(expectedScale.first - scale.first) /
-                               expectedScale.first);
-            meanScaleError.add(std::fabs(expectedScale.second - scale.second) /
-                               expectedScale.second);
+            auto expectedValue = stringToVector(expectedValues[i]);
+            auto expectedScale = stringToVector(expectedScales[i]);
+            auto value = decomposition.value(time, 10.0);
+            auto scale = decomposition.scale(time, 96.1654, 10.0);
+            for (auto j : {0, 1}) {
+                BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedValue(j), value(j),
+                                             0.1 * std::fabs(expectedValue(j)));
+                BOOST_REQUIRE_CLOSE_ABSOLUTE(expectedScale(j), scale(j),
+                                             0.3 * expectedScale(j));
+                meanValueError.add(std::fabs(expectedValue(j) - value(j)) /
+                                   std::fabs(expectedValue(j)));
+                meanScaleError.add(std::fabs(expectedScale(j) - scale(j)) /
+                                   expectedScale(j));
+            }
         }
 
-        LOG_DEBUG(<< "Mean value error = " << maths::CBasicStatistics::mean(meanValueError));
-        LOG_DEBUG(<< "Mean scale error = " << maths::CBasicStatistics::mean(meanScaleError));
-        BOOST_TEST_REQUIRE(maths::CBasicStatistics::mean(meanValueError) < 0.06);
-        BOOST_TEST_REQUIRE(maths::CBasicStatistics::mean(meanScaleError) < 0.07);
+        LOG_DEBUG(<< "Mean value error = " << mean(meanValueError));
+        LOG_DEBUG(<< "Mean scale error = " << mean(meanScaleError));
+        BOOST_TEST_REQUIRE(mean(meanValueError) < 0.06);
+        BOOST_TEST_REQUIRE(mean(meanScaleError) < 0.07);
 
         // Check some basic operations on the upgraded model.
         decomposition.forecast(10366200, 10366200 + WEEK, HALF_HOUR, 90.0, 1.0,

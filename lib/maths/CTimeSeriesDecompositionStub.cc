@@ -57,11 +57,12 @@ double CTimeSeriesDecompositionStub::meanValue(core_t::TTime /*time*/) const {
     return 0.0;
 }
 
-maths_t::TDoubleDoublePr CTimeSeriesDecompositionStub::value(core_t::TTime /*time*/,
-                                                             double /*confidence*/,
-                                                             int /*components*/,
-                                                             bool /*smooth*/) const {
-    return {0.0, 0.0};
+CTimeSeriesDecompositionStub::TVector2x1
+CTimeSeriesDecompositionStub::value(core_t::TTime /*time*/,
+                                    double /*confidence*/,
+                                    int /*components*/,
+                                    bool /*smooth*/) const {
+    return TVector2x1{0.0};
 }
 
 core_t::TTime CTimeSeriesDecompositionStub::maximumForecastInterval() const {
@@ -87,11 +88,12 @@ double CTimeSeriesDecompositionStub::meanVariance() const {
     return 0.0;
 }
 
-maths_t::TDoubleDoublePr CTimeSeriesDecompositionStub::scale(core_t::TTime /*time*/,
-                                                             double /*variance*/,
-                                                             double /*confidence*/,
-                                                             bool /*smooth*/) const {
-    return {1.0, 1.0};
+CTimeSeriesDecompositionStub::TVector2x1
+CTimeSeriesDecompositionStub::scale(core_t::TTime /*time*/,
+                                    double /*variance*/,
+                                    double /*confidence*/,
+                                    bool /*smooth*/) const {
+    return TVector2x1{1.0};
 }
 
 CTimeSeriesDecompositionStub::TFloatMeanAccumulatorVec

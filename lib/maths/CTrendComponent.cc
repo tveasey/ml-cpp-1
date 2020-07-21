@@ -34,7 +34,7 @@
 namespace ml {
 namespace maths {
 namespace {
-using TDoubleDoublePr = std::pair<double, double>;
+using TVector2x1 = CVectorNx1<double, 2>;
 
 const double TIME_SCALES[]{144.0, 72.0, 36.0, 12.0, 4.0, 1.0, 0.25, 0.05};
 const std::size_t NUMBER_MODELS{boost::size(TIME_SCALES)};
@@ -60,20 +60,20 @@ double scaleTime(core_t::TTime time, core_t::TTime origin) {
 }
 
 //! Get the \p confidence interval for \p prediction and \p variance.
-TDoubleDoublePr confidenceInterval(double prediction, double variance, double confidence) {
+TVector2x1 confidenceInterval(double prediction, double variance, double confidence) {
     if (variance > 0.0) {
         try {
             boost::math::normal normal{prediction, std::sqrt(variance)};
             double ql{boost::math::quantile(normal, (100.0 - confidence) / 200.0)};
             double qu{boost::math::quantile(normal, (100.0 + confidence) / 200.0)};
-            return {ql, qu};
+            return TVector2x1{{ql, qu}};
         } catch (const std::exception& e) {
             LOG_ERROR(<< "Failed calculating confidence interval: " << e.what()
                       << ", prediction = " << prediction << ", variance = " << variance
                       << ", confidence = " << confidence);
         }
     }
-    return {prediction, prediction};
+    return TVector2x1{prediction};
 }
 
 CNaiveBayesFeatureDensityFromPrior naiveBayesExemplar(double decayRate) {
@@ -120,7 +120,7 @@ CTrendComponent::CTrendComponent(double decayRate)
       m_TimeOfLastLevelChange(UNSET_TIME),
       m_ProbabilityOfLevelChangeModel(initialProbabilityOfChangeModel(decayRate)),
       m_MagnitudeOfLevelChangeModel(initialMagnitudeOfChangeModel(decayRate)) {
-    for (std::size_t i = 0u; i < NUMBER_MODELS; ++i) {
+    for (std::size_t i = 0; i < NUMBER_MODELS; ++i) {
         m_TrendModels.emplace_back(modelWeight(1.0, TIME_SCALES[i]));
     }
 }
@@ -193,7 +193,7 @@ void CTrendComponent::clear() {
     m_FirstUpdate = UNSET_TIME;
     m_LastUpdate = UNSET_TIME;
     m_RegressionOrigin = UNSET_TIME;
-    for (std::size_t i = 0u; i < NUMBER_MODELS; ++i) {
+    for (std::size_t i = 0; i < NUMBER_MODELS; ++i) {
         m_TrendModels[i] = SModel(modelWeight(1.0, TIME_SCALES[i]));
     }
     m_PredictionErrorVariance = 0.0;
@@ -261,7 +261,7 @@ void CTrendComponent::add(core_t::TTime time, double value, double weight) {
     // Update the model weights: we weight the components based on the
     // relative difference in the component scale and the target scale.
 
-    for (std::size_t i = 0u; i < NUMBER_MODELS; ++i) {
+    for (std::size_t i = 0; i < NUMBER_MODELS; ++i) {
         m_TrendModels[i].s_Weight.add(
             modelWeight(m_TargetDecayRate, m_DefaultDecayRate * TIME_SCALES[i]));
     }
@@ -284,7 +284,7 @@ void CTrendComponent::add(core_t::TTime time, double value, double weight) {
 
     double scaledTime{scaleTime(time, m_RegressionOrigin)};
     for (auto& model : m_TrendModels) {
-        TVector mse;
+        TVector3x1 mse;
         for (std::size_t order = 1; order <= TRegression::N; ++order) {
             mse(order - 1) = value - model.s_Regression.predict(order, scaledTime, MAX_CONDITION);
         }
@@ -324,10 +324,9 @@ void CTrendComponent::propagateForwardsByTime(core_t::TTime interval) {
     m_MagnitudeOfLevelChangeModel.propagateForwardsByTime(interval_);
 }
 
-CTrendComponent::TDoubleDoublePr CTrendComponent::value(core_t::TTime time,
-                                                        double confidence) const {
-    if (!this->initialized()) {
-        return {0.0, 0.0};
+CTrendComponent::TVector2x1 CTrendComponent::value(core_t::TTime time, double confidence) const {
+    if (this->initialized() == false) {
+        return TVector2x1{0.0};
     }
 
     double a{this->weightOfPrediction(time)};
@@ -338,11 +337,11 @@ CTrendComponent::TDoubleDoublePr CTrendComponent::value(core_t::TTime time,
 
     TDoubleVec weights(this->smoothingFactors(std::abs(time - m_LastUpdate)));
     double Z{0.0};
-    for (std::size_t i = 0u; i < NUMBER_MODELS; ++i) {
+    for (std::size_t i = 0; i < NUMBER_MODELS; ++i) {
         weights[i] *= CBasicStatistics::mean(m_TrendModels[i].s_Weight);
         Z += weights[i];
     }
-    for (std::size_t i = 0u; i < NUMBER_MODELS; ++i) {
+    for (std::size_t i = 0; i < NUMBER_MODELS; ++i) {
         if (weights[i] > MINIMUM_WEIGHT_TO_USE_MODEL_FOR_PREDICTION * Z) {
             prediction_.add(m_TrendModels[i].s_Regression.predict(scaledTime, MAX_CONDITION),
                             weights[i]);
@@ -359,7 +358,7 @@ CTrendComponent::TDoubleDoublePr CTrendComponent::value(core_t::TTime time,
         return confidenceInterval(prediction, variance, confidence);
     }
 
-    return {prediction, prediction};
+    return TVector2x1{prediction};
 }
 
 core_t::TTime CTrendComponent::maximumForecastInterval() const {
@@ -370,9 +369,9 @@ core_t::TTime CTrendComponent::maximumForecastInterval() const {
     return static_cast<core_t::TTime>(interval * timescale);
 }
 
-CTrendComponent::TDoubleDoublePr CTrendComponent::variance(double confidence) const {
-    if (!this->initialized()) {
-        return {0.0, 0.0};
+CTrendComponent::TVector2x1 CTrendComponent::variance(double confidence) const {
+    if (this->initialized() == false) {
+        return TVector2x1{0.0};
     }
 
     double variance{m_PredictionErrorVariance};
@@ -383,14 +382,14 @@ CTrendComponent::TDoubleDoublePr CTrendComponent::variance(double confidence) co
             boost::math::chi_squared chi{df};
             double ql{boost::math::quantile(chi, (100.0 - confidence) / 200.0)};
             double qu{boost::math::quantile(chi, (100.0 + confidence) / 200.0)};
-            return {ql * variance / df, qu * variance / df};
+            return TVector2x1{{ql * variance / df, qu * variance / df}};
         } catch (const std::exception& e) {
             LOG_ERROR(<< "Failed calculating confidence interval: " << e.what()
                       << ", df = " << df << ", confidence = " << confidence);
         }
     }
 
-    return {variance, variance};
+    return TVector2x1{variance};
 }
 
 void CTrendComponent::forecast(core_t::TTime startTime,
@@ -420,7 +419,7 @@ void CTrendComponent::forecast(core_t::TTime startTime,
     TDoubleVec modelWeights(this->initialForecastModelWeights());
     TDoubleVec errorWeights(this->initialForecastErrorWeights());
     TRegressionArrayVec models(NUMBER_MODELS);
-    TMatrixVec modelCovariances(NUMBER_MODELS);
+    TMatrix3x3Vec modelCovariances(NUMBER_MODELS);
     TDoubleVec mse(NUMBER_MODELS);
     for (std::size_t i = 0; i < NUMBER_MODELS; ++i) {
         // Note in the following we multiply the bias by the sample count
@@ -450,7 +449,7 @@ void CTrendComponent::forecast(core_t::TTime startTime,
     TDoubleVec variances(NUMBER_MODELS + 1);
     for (core_t::TTime time = startTime; time < endTime; time += step) {
         double scaledDt{scaleTime(time, startTime)};
-        TVector times({0.0, scaledDt, scaledDt * scaledDt});
+        TVector3x1 times({0.0, scaledDt, scaledDt * scaledDt});
 
         double a{this->weightOfPrediction(time)};
         double b{1.0 - a};
@@ -478,15 +477,13 @@ void CTrendComponent::forecast(core_t::TTime startTime,
         TDouble3Vec seasonal_(seasonal(time));
         TDouble3Vec level_(level.forecast(time, seasonal_[1] + prediction, confidence));
 
-        double ql;
-        double qu;
         double variance{a * CBasicStatistics::mean(variance_) +
                         b * CBasicStatistics::variance(m_ValueMoments)};
-        boost::tie(ql, qu) = confidenceInterval(0.0, variance, confidence);
+        TVector2x1 bounds{confidenceInterval(0.0, variance, confidence)};
 
-        writer(time, {level_[0] + seasonal_[0] + prediction + ql,
+        writer(time, {level_[0] + seasonal_[0] + prediction + bounds(0),
                       level_[1] + seasonal_[1] + prediction,
-                      level_[2] + seasonal_[2] + prediction + qu});
+                      level_[2] + seasonal_[2] + prediction + bounds(1)});
     }
 }
 
@@ -663,7 +660,7 @@ bool CTrendComponent::SModel::acceptRestoreTraverser(core::CStateRestoreTraverse
         // immediately after upgrade. These values will be aged out reasonably
         // quickly.
 
-        TVector mse;
+        TVector3x1 mse;
         for (std::size_t order = TRegression::N, scale = 1; order > 0; --order, scale *= 2) {
             mse(order - 1) = static_cast<double>(scale) *
                              (CTools::pow2(CBasicStatistics::mean(residualMoments)) +

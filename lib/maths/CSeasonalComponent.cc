@@ -28,9 +28,6 @@
 namespace ml {
 namespace maths {
 namespace {
-
-using TDoubleDoublePr = maths_t::TDoubleDoublePr;
-
 const core::TPersistenceTag DECOMPOSITION_COMPONENT_TAG{"a", "decomposition_component"};
 const core::TPersistenceTag RNG_TAG{"b", "rng"};
 const core::TPersistenceTag BUCKETING_TAG{"c", "bucketing"};
@@ -106,7 +103,7 @@ bool CSeasonalComponent::initialize(core_t::TTime startTime,
                                     const TFloatMeanAccumulatorVec& values) {
     this->clear();
 
-    if (!m_Bucketing.initialize(this->maxSize())) {
+    if (m_Bucketing.initialize(this->maxSize()) == false) {
         LOG_ERROR(<< "Bad input size: " << this->maxSize());
         return false;
     }
@@ -178,7 +175,8 @@ const CSeasonalTime& CSeasonalComponent::time() const {
     return m_Bucketing.time();
 }
 
-TDoubleDoublePr CSeasonalComponent::value(core_t::TTime time, double confidence) const {
+CSeasonalComponent::TVector2x1 CSeasonalComponent::value(core_t::TTime time,
+                                                         double confidence) const {
     double offset{this->time().periodic(time)};
     double n{m_Bucketing.count(time)};
     return this->CDecompositionComponent::value(offset, n, confidence);
@@ -240,7 +238,8 @@ double CSeasonalComponent::delta(core_t::TTime time,
     return 0.0;
 }
 
-TDoubleDoublePr CSeasonalComponent::variance(core_t::TTime time, double confidence) const {
+CSeasonalComponent::TVector2x1
+CSeasonalComponent::variance(core_t::TTime time, double confidence) const {
     double offset{this->time().periodic(time)};
     double n{m_Bucketing.count(time)};
     return this->CDecompositionComponent::variance(offset, n, confidence);
@@ -250,18 +249,15 @@ double CSeasonalComponent::meanVariance() const {
     return this->CDecompositionComponent::meanVariance();
 }
 
-bool CSeasonalComponent::covariances(core_t::TTime time, TMatrix& result) const {
-    result = TMatrix(0.0);
-
-    if (!this->initialized()) {
+bool CSeasonalComponent::covariances(core_t::TTime time, TMatrix2x2& result) const {
+    result = TMatrix2x2{0.0};
+    if (this->initialized() == false) {
         return false;
     }
-
     if (auto r = m_Bucketing.regression(time)) {
         double variance{CBasicStatistics::mean(this->variance(time, 0.0))};
         return r->covariances(variance, result);
     }
-
     return false;
 }
 

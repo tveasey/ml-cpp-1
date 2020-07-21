@@ -1237,9 +1237,8 @@ CUnivariateTimeSeriesModel::winsorisationWeight(double derate,
 
 CUnivariateTimeSeriesModel::TDouble2Vec
 CUnivariateTimeSeriesModel::seasonalWeight(double confidence, core_t::TTime time) const {
-    double scale{m_TrendModel
-                     ->scale(time, m_ResidualModel->marginalLikelihoodVariance(), confidence)
-                     .second};
+    double scale{m_TrendModel->scale(
+        time, m_ResidualModel->marginalLikelihoodVariance(), confidence)(1)};
     return {std::max(scale, this->params().minimumSeasonalVarianceScale())};
 }
 
@@ -2693,8 +2692,8 @@ CMultivariateTimeSeriesModel::TDouble2Vec
 CMultivariateTimeSeriesModel::seasonalWeight(double confidence, core_t::TTime time) const {
     TDouble2Vec result(this->dimension());
     TDouble10Vec variances(m_ResidualModel->marginalLikelihoodVariances());
-    for (std::size_t d = 0u, dimension = this->dimension(); d < dimension; ++d) {
-        double scale{m_TrendModel[d]->scale(time, variances[d], confidence).second};
+    for (std::size_t d = 0, dimension = this->dimension(); d < dimension; ++d) {
+        double scale{m_TrendModel[d]->scale(time, variances[d], confidence)(1)};
         result[d] = std::max(scale, this->params().minimumSeasonalVarianceScale());
     }
     return result;

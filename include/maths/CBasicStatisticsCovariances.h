@@ -14,6 +14,7 @@
 #include <maths/CLinearAlgebraTools.h>
 
 #include <cstddef>
+#include <numeric>
 
 namespace ml {
 namespace maths {
@@ -102,6 +103,12 @@ struct SCovariancesLedoitWolf {
         return x * x;
     }
 };
+}
+
+template<std::size_t N>
+double CBasicStatistics::mean(const CVectorNx1<double, N>& data) {
+    return std::accumulate(data.begin(), data.end(), 0.0) /
+           static_cast<double>(data.dimension());
 }
 
 template<typename POINT>

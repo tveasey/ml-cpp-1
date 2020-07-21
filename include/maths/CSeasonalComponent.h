@@ -44,7 +44,8 @@ namespace maths {
 //! mean value for each bucket as usual.
 class MATHS_EXPORT CSeasonalComponent : private CDecompositionComponent {
 public:
-    using TMatrix = CSymmetricMatrixNxN<double, 2>;
+    using TVector2x1 = CVectorNx1<double, 2>;
+    using TMatrix2x2 = CSymmetricMatrixNxN<double, 2>;
     using TFloatMeanAccumulator = CBasicStatistics::SSampleMean<CFloatStorage>::TAccumulator;
     using TFloatMeanAccumulatorVec = std::vector<TFloatMeanAccumulator>;
 
@@ -139,7 +140,7 @@ public:
     //! \param[in] time The time of interest.
     //! \param[in] confidence The symmetric confidence interval for the variance
     //! as a percentage.
-    TDoubleDoublePr value(core_t::TTime time, double confidence) const;
+    TVector2x1 value(core_t::TTime time, double confidence) const;
 
     //! Get the mean value of the component.
     double meanValue() const;
@@ -160,7 +161,7 @@ public:
     //! \param[in] time The time of interest.
     //! \param[in] confidence The symmetric confidence interval for the
     //! variance as a percentage.
-    TDoubleDoublePr variance(core_t::TTime time, double confidence) const;
+    TVector2x1 variance(core_t::TTime time, double confidence) const;
 
     //! Get the mean variance of the component residuals.
     double meanVariance() const;
@@ -170,7 +171,7 @@ public:
     //! \param[in] time The time of interest.
     //! \param[out] result Filled in with the regression parameters'
     //! covariance matrix.
-    bool covariances(core_t::TTime time, TMatrix& result) const;
+    bool covariances(core_t::TTime time, TMatrix2x2& result) const;
 
     //! Get the value spline.
     TSplineCRef valueSpline() const;

@@ -47,10 +47,10 @@ public:
     //! Compute the vector mean of a pair.
     template<typename VECTOR>
     static VECTOR mean(const std::pair<VECTOR, VECTOR>& samples) {
-        std::size_t n = std::min(samples.first.size(), samples.second.size());
+        std::size_t n{std::min(samples.first.size(), samples.second.size())};
         VECTOR result;
         result.reserve(n);
-        for (std::size_t i = 0u; i < n; ++i) {
+        for (std::size_t i = 0; i < n; ++i) {
             result.push_back(0.5 * (samples.first[i] + samples.second[i]));
         }
         return result;
@@ -58,6 +58,10 @@ public:
 
     //! Compute the sample mean.
     static double mean(const TDoubleVec& data);
+
+    //! Compute the mean of the elements of a vector.
+    template<std::size_t N>
+    static double mean(const CVectorNx1<double, N>& data);
 
     //! Compute the sample median.
     static double median(const TDoubleVec& data);
