@@ -20,6 +20,7 @@
 #include <core/CNonInstantiatable.h>
 #include <core/CProcessPriority.h>
 #include <core/CProgramCounters.h>
+#include <core/CScopeExecuteOnStdExit.h>
 #include <core/Concurrency.h>
 
 #include <ver/CBuildInfo.h>
@@ -55,26 +56,6 @@ std::pair<std::string, bool> readFileToString(const std::string& fileName) {
                         std::istreambuf_iterator<char>{}},
             true};
 }
-
-class CCleanUpOnExit : private ml::core::CNonInstantiatable {
-public:
-    using TTemporaryDirectoryPtr = std::shared_ptr<ml::core::CTemporaryDirectory>;
-
-public:
-    static void add(TTemporaryDirectoryPtr directory) {
-        m_DataFrameDirectory = directory;
-    }
-
-    static void run() {
-        if (m_DataFrameDirectory != nullptr) {
-            m_DataFrameDirectory->removeAll();
-        }
-    }
-
-private:
-    static TTemporaryDirectoryPtr m_DataFrameDirectory;
-};
-CCleanUpOnExit::TTemporaryDirectoryPtr CCleanUpOnExit::m_DataFrameDirectory{};
 }
 
 int main(int argc, char** argv) {
@@ -93,18 +74,18 @@ int main(int argc, char** argv) {
 
     // Read command line options
     std::string configFile;
-    bool memoryUsageEstimationOnly(false);
+    bool memoryUsageEstimationOnly{false};
     std::string logProperties;
     std::string logPipe;
-    bool lengthEncodedInput(false);
+    bool lengthEncodedInput{false};
     std::string inputFileName;
-    bool isInputFileNamedPipe(false);
+    bool isInputFileNamedPipe{false};
     std::string outputFileName;
-    bool isOutputFileNamedPipe(false);
+    bool isOutputFileNamedPipe{false};
     std::string restoreFileName;
-    bool isRestoreFileNamedPipe(false);
+    bool isRestoreFileNamedPipe{false};
     std::string persistFileName;
-    bool isPersistFileNamedPipe(false);
+    bool isPersistFileNamedPipe{false};
     if (ml::data_frame_analyzer::CCmdLineParser::parse(
             argc, argv, configFile, memoryUsageEstimationOnly, logProperties, logPipe,
             lengthEncodedInput, inputFileName, isInputFileNamedPipe, outputFileName,
@@ -112,11 +93,6 @@ int main(int argc, char** argv) {
             persistFileName, isPersistFileNamedPipe) == false) {
         return EXIT_FAILURE;
     }
-
-    // The static members of CCleanUpOnExit will all be fully initialised before
-    // this call (before the beginning main). Therefore, they will be destructed
-    // after CCleanUpOnExit::run is run and it is safe to act on them there.
-    std::atexit(CCleanUpOnExit::run);
 
     // Construct the IO manager before reconfiguring the logger, as it performs
     // std::ios actions that only work before first use
@@ -207,7 +183,11 @@ int main(int argc, char** argv) {
     ml::api::CDataFrameAnalyzer dataFrameAnalyzer{
         std::move(analysisSpecification), std::move(resultsStreamSupplier)};
 
-    CCleanUpOnExit::add(dataFrameAnalyzer.dataFrameDirectory());
+    ml::core::CScopeExecuteOnStdExit cleanup{[&] {
+        if (dataFrameAnalyzer.dataFrameDirectory() != nullptr) {
+            dataFrameAnalyzer.dataFrameDirectory()->removeAll();
+        }
+    }};
 
     auto inputParser{[lengthEncodedInput, &ioMgr]() -> TInputParserUPtr {
         if (lengthEncodedInput) {

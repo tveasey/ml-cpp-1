@@ -10,6 +10,7 @@
 #include <core/CFloatStorage.h>
 #include <core/CJsonOutputStreamWrapper.h>
 #include <core/CLogger.h>
+#include <core/CScopeExecuteOnStdExit.h>
 #include <core/CStopWatch.h>
 
 #include <maths/CBasicStatistics.h>
@@ -138,6 +139,7 @@ void CDataFrameAnalyzer::run() {
         analysisRunner->run(*m_DataFrame);
 
         core::CRapidJsonConcurrentLineWriter outputWriter{*outStream};
+        core::CScopeExecuteOnStdExit cleanup{[&] {outputWriter.~CRapidJsonConcurrentLineWriter(); }};
 
         CDataFrameAnalysisInstrumentation::monitor(instrumentation, outputWriter);
 

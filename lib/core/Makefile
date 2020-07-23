@@ -51,6 +51,7 @@ CProcess.cc \
 CProcessPriority.cc \
 CProgName.cc \
 CReadWriteLock.cc \
+CScopeExecuteOnStdExit.cc \
 CSetEnv.cc \
 CSetMode.cc \
 CShellArgQuoter.cc \
