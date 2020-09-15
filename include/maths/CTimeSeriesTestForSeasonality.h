@@ -162,6 +162,9 @@ public:
     //! Add a mask of any seasonal components which should be removed.
     void add(TBoolVec seasonalToRemoveMask);
 
+    //! Set the within bucket value variance.
+    void withinBucketVariance(double variance);
+
     //! Return true if the test thinks the components have changed.
     bool componentsChanged() const;
 
@@ -174,6 +177,9 @@ public:
     //! A mask of any currently modelled components to remove.
     const TBoolVec& seasonalToRemoveMask() const;
 
+    //! Get the within bucket value variance.
+    double withinBucketVariance() const;
+
     //! Get a description of the seasonal components.
     std::string print() const;
 
@@ -184,6 +190,7 @@ private:
     TOptionalNewTrendSummary m_Trend;
     TNewSeasonalComponentVec m_Seasonal;
     TBoolVec m_SeasonalToRemoveMask;
+    double m_WithinBucketVariance = 0.0;
 };
 
 //! \brief Discovers the seasonal components present in the values in a time window
@@ -209,6 +216,7 @@ public:
     static bool canTestComponent(const TFloatMeanAccumulatorVec& values,
                                  core_t::TTime bucketStartTime,
                                  core_t::TTime bucketLength,
+                                 core_t::TTime minimumPeriod,
                                  const CSeasonalTime& component);
 
     //! Register a seasonal component which is already being modelled.
@@ -354,6 +362,9 @@ private:
         //! Check if this is better than \p other.
         bool isBetter(const SHypothesisStats& other) const;
 
+        //! Check if we should evict an existing component from the model.
+        bool evict(const CTimeSeriesTestForSeasonality& params, std::size_t modelledIndex) const;
+
         //! The weight of this hypothesis for compouting decomposition properties.
         double weight() const;
 
@@ -432,13 +443,15 @@ private:
         bool isNull() const;
         //! Should this behave as an alternative hypothesis?
         bool isAlternative() const;
+        //! The similarity of the components after applying this hypothesis.
+        double componentsSimilarity() const;
         //! The p-value of this model vs H0.
         double pValue(const SModel& H0) const;
         //! A proxy for p-value of this model vs H0 which doesn't underflow.
         double logPValueProxy(const SModel& H0) const;
         //! Get the variance explained per parameter weighted by the variance explained
         //! by each component of the model.
-        TVector2x1 explainedVariancePerParameter(const SModel& H0) const;
+        TVector2x1 explainedVariancePerParameter(double variance, double truncatedVariance) const;
         //! The number of parameters in model.
         double numberParameters() const;
         //! The target model size.
@@ -539,6 +552,7 @@ private:
     static core_t::TTime adjustForStartTime(core_t::TTime startTime, core_t::TTime startOfWeek);
     static std::size_t buckets(core_t::TTime bucketLength, core_t::TTime interval);
     static bool canTestPeriod(const TFloatMeanAccumulatorVec& values,
+                              std::size_t minimumPeriod,
                               const TSeasonalComponent& period);
     static std::size_t observedRange(const TFloatMeanAccumulatorVec& values);
     static std::size_t longestGap(const TFloatMeanAccumulatorVec& values);
@@ -563,7 +577,7 @@ private:
     std::size_t m_MinimumModelSize = 24;
     TOptionalSize m_StartOfWeekOverride;
     TOptionalTime m_StartOfWeekTimeOverride;
-    TOptionalTime m_MinimumPeriod;
+    core_t::TTime m_MinimumPeriod = 0;
     core_t::TTime m_ValuesStartTime = 0;
     core_t::TTime m_BucketStartTime = 0;
     core_t::TTime m_BucketLength = 0;

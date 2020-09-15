@@ -49,7 +49,6 @@ public:
     using TMeanAccumulatorVecVec = std::vector<TMeanAccumulatorVec>;
     using TMomentTransformFunc = std::function<double(const TFloatMeanAccumulator&)>;
     using TMomentWeightFunc = std::function<double(const TFloatMeanAccumulator&)>;
-    using TPeriodWeightFunc = std::function<double(std::size_t)>;
     using TIndexWeightFunc = std::function<double(std::size_t)>;
     using TPredictor = std::function<double(std::size_t)>;
 
@@ -253,11 +252,6 @@ public:
         autocorrelations(values, f, result);
     }
 
-    //! Remove the minimum MSE linear trend from \p values.
-    //!
-    //! \param[in] values The values from which to remove the linear trend.
-    static void removeLinearTrend(TFloatMeanAccumulatorVec& values);
-
     //! Get the seasonal component summary with period \p period.
     static SSeasonalComponentSummary seasonalComponentSummary(std::size_t period);
 
@@ -280,18 +274,14 @@ public:
     //! \param[in] outlierFraction The fraction of values treated as outliers.
     //! \param[in] diurnal (day, week, year) as multiples of the time interval
     //! between \p values.
-    //! \param[in] weight Controls the chance of selecting a specified period: the
-    //! higher the weight the more likely it will be select in preference to one
-    //! which is close.
     //! \param[in] startOfWeekOverride The start of the week to use if one is known.
     //! \param[in] significantPValue The p-value at which to return a component.
     //! \param[in] maxComponents The maximum number of modelled components.
     //! \return A summary of the seasonal components found.
     static TSeasonalComponentVec
-    seasonalDecomposition(TFloatMeanAccumulatorVec& values,
+    seasonalDecomposition(const TFloatMeanAccumulatorVec& values,
                           double outlierFraction,
                           const TSizeSizeSizeTr& diurnal,
-                          const TPeriodWeightFunc& weight,
                           TOptionalSize startOfWeekOverride = TOptionalSize{},
                           double significantPValue = 0.05,
                           std::size_t maxComponents = 10);
@@ -310,7 +300,7 @@ public:
     //! \param[in] significantPValue The p-value at which to return a component.
     //! \return A summary of the best decomposition.
     static TSeasonalComponentVec
-    tradingDayDecomposition(TFloatMeanAccumulatorVec& values,
+    tradingDayDecomposition(const TFloatMeanAccumulatorVec& values,
                             double outlierFraction,
                             std::size_t week,
                             TOptionalSize startOfWeekOverride = TOptionalSize{},

@@ -1665,23 +1665,16 @@ void CUnivariateTimeSeriesModel::reinitializeStateGivenNewComponent(TFloatMeanAc
     // We can't properly handle periodicity in the variance of the rate if
     // using a Poisson process so remove it from model detectio if we detect
     // seasonality.
-    double numberSamples{m_ResidualModel->numberSamples()};
     m_ResidualModel->removeModels(
         maths::CPrior::CModelFilter().remove(maths::CPrior::E_Poisson));
     m_ResidualModel->setToNonInformative(0.0, m_ResidualModel->decayRate());
 
     if (residuals.size() > 0) {
-        double Z{std::accumulate(residuals.begin(), residuals.end(), 0.0,
-                                 [](double weight, const TFloatMeanAccumulator& sample) {
-                                     return weight + CBasicStatistics::count(sample);
-                                 })};
-        double weightScale{
-            std::min(10.0 * std::max(this->params().learnRate(), 1.0), numberSamples) / Z};
         maths_t::TDoubleWeightsAry1Vec weights(1);
         for (const auto& residual : residuals) {
             double weight{CBasicStatistics::count(residual)};
             if (weight > 0.0) {
-                weights[0] = maths_t::countWeight(weightScale * weight);
+                weights[0] = maths_t::countWeight(0.5 * weight);
                 m_ResidualModel->addSamples({CBasicStatistics::mean(residual)}, weights);
             }
         }
@@ -2982,7 +2975,6 @@ void CMultivariateTimeSeriesModel::reinitializeStateGivenNewComponent(TFloatMean
     // re-weight so that the total sample weight corresponds to the sample
     // weight the model receives from a fixed (shortish) time interval.
 
-    double numberSamples{m_ResidualModel->numberSamples()};
     m_ResidualModel->setToNonInformative(0.0, m_ResidualModel->decayRate());
 
     if (residuals.size() > 0) {
@@ -3005,13 +2997,10 @@ void CMultivariateTimeSeriesModel::reinitializeStateGivenNewComponent(TFloatMean
             }
         }
 
-        double Z{std::accumulate(weights.begin(), weights.end(), 0.0)};
-        double weightScale{
-            std::min(10.0 * std::max(this->params().learnRate(), 1.0), numberSamples) / Z};
         maths_t::TDouble10VecWeightsAry1Vec weight(1);
         for (std::size_t i = 0; i < samples.size(); ++i) {
             if (weights[i] > 0.0) {
-                weight[0] = maths_t::countWeight(weightScale * weights[i], dimension);
+                weight[0] = maths_t::countWeight(0.5 * weights[i], dimension);
                 m_ResidualModel->addSamples({samples[i]}, weight);
             }
         }
