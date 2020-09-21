@@ -212,6 +212,15 @@ void reinitializeResidualModel(TDecompositionPtr10Vec& trends,
 
     using TFloatMeanAccumulatorVecVec = std::vector<TFloatMeanAccumulatorVec>;
 
+    if (controllers) {
+        for (auto& trend : trends) {
+            trend->decayRate(trend->decayRate() / (*controllers)[0].multiplier());
+        }
+        prior.decayRate(prior.decayRate() / (*controllers)[1].multiplier());
+        (*controllers)[0].reset();
+        (*controllers)[1].reset();
+    }
+
     std::size_t dimension{prior.dimension()};
 
     TFloatMeanAccumulatorVecVec residuals(dimension);
@@ -227,11 +236,6 @@ void reinitializeResidualModel(TDecompositionPtr10Vec& trends,
         TDouble10Vec1Vec samples;
         TDoubleVec weights;
         for (std::size_t d = 0; d < dimension; ++d) {
-            TSizeVec segmentation{
-                maths::CTimeSeriesSegmentation::piecewiseLinear(residuals[d])};
-            residuals[d] = maths::CTimeSeriesSegmentation::removePiecewiseLinear(
-                std::move(residuals[d]), segmentation);
-
             samples.resize(residuals[d].size(), TDouble10Vec(dimension));
             weights.resize(residuals[d].size(), std::numeric_limits<double>::max());
             for (std::size_t i = 0; i < residuals[d].size(); ++i) {
@@ -242,24 +246,13 @@ void reinitializeResidualModel(TDecompositionPtr10Vec& trends,
             }
         }
 
-        double Z{std::accumulate(weights.begin(), weights.end(), 0.0)};
-        double weightScale{10.0 / Z};
         maths_t::TDouble10VecWeightsAry1Vec weight(1);
         for (std::size_t i = 0; i < samples.size(); ++i) {
             if (weights[i] > 0.0) {
-                weight[0] = maths_t::countWeight(weightScale * weights[i], dimension);
+                weight[0] = maths_t::countWeight(weights[i], dimension);
                 prior.addSamples({samples[i]}, weight);
             }
         }
-    }
-
-    if (controllers) {
-        for (auto& trend : trends) {
-            trend->decayRate(trend->decayRate() / (*controllers)[0].multiplier());
-        }
-        prior.decayRate(prior.decayRate() / (*controllers)[1].multiplier());
-        (*controllers)[0].reset();
-        (*controllers)[1].reset();
     }
 }
 
@@ -282,8 +275,10 @@ public:
             file << "a = " << core::CContainerPrinter::print(m_Actual) << ";\n";
             file << "plt.plot(a, 'b');\n";
             for (std::size_t i = 0; i < 3; ++i) {
-                file << "p" << i << " = " << core::CContainerPrinter::print(m_ModelBounds[i]) << ";\n";
-                file << "f" << i << " = " << core::CContainerPrinter::print(m_Forecast[i]) << ";\n";
+                file << "p" << i << " = "
+                     << core::CContainerPrinter::print(m_ModelBounds[i]) << ";\n";
+                file << "f" << i << " = "
+                     << core::CContainerPrinter::print(m_Forecast[i]) << ";\n";
                 file << "plt.plot(p" << i << ", 'g');\n";
                 file << "plt.plot(range(len(a)-len(f" << i << "),len(a)),f" << i << ", 'r');\n";
             }
@@ -964,7 +959,7 @@ BOOST_AUTO_TEST_CASE(testPredict) {
         core_t::TTime time{0};
         for (auto sample : samples) {
             sample += 10.0 + 10.0 * std::sin(boost::math::double_constants::two_pi *
-                                            static_cast<double>(time) / 86400.0);
+                                             static_cast<double>(time) / 86400.0);
 
             model.addSamples(addSampleParams(weights),
                              {core::make_triple(time, TDouble2Vec{sample}, TAG)});
@@ -982,7 +977,7 @@ BOOST_AUTO_TEST_CASE(testPredict) {
         TMeanAccumulator meanError;
         for (core_t::TTime time_ = time; time_ < time + 86400; time_ += 3600) {
             double trend_{10.0 + 10.0 * std::sin(boost::math::double_constants::two_pi *
-                                                static_cast<double>(time_) / 86400.0)};
+                                                 static_cast<double>(time_) / 86400.0)};
             double expected{maths::CBasicStatistics::mean(trend.value(time_)) +
                             maths::CBasicStatistics::mean(
                                 prior.marginalLikelihoodConfidenceInterval(0.0))};

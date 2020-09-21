@@ -12,6 +12,7 @@
 #include <core/RestoreMacros.h>
 #include <core/UnwrapRef.h>
 
+#include <maths/CBasicStatistics.h>
 #include <maths/CBasicStatisticsPersist.h>
 #include <maths/CDecayRateController.h>
 #include <maths/CModelDetail.h>
@@ -1531,9 +1532,10 @@ CUnivariateTimeSeriesModel::applyChange(const SChangeDescription& change) {
         TFloatMeanAccumulatorVec window(m_TrendModel->windowValues([this](core_t::TTime time) {
             return CBasicStatistics::mean(m_TrendModel->value(time, 0.0));
         }));
-        TSizeVec segmentation{CTimeSeriesSegmentation::piecewiseLinear(window)};
-        this->reinitializeStateGivenNewComponent(
-            CTimeSeriesSegmentation::removePiecewiseLinear(std::move(window), segmentation));
+        TSizeVec segmentation{CTimeSeriesSegmentation::piecewiseLinear(
+            window, COMPONENT_STATISTICALLY_SIGNIFICANT, SEASONAL_OUTLIER_FRACTION)};
+        this->reinitializeStateGivenNewComponent(CTimeSeriesSegmentation::removePiecewiseLinear(
+            std::move(window), segmentation, SEASONAL_OUTLIER_FRACTION));
     } else {
         m_ResidualModel = newResidualModel;
     }
@@ -1658,31 +1660,6 @@ void CUnivariateTimeSeriesModel::appendPredictionErrors(double interval,
 
 void CUnivariateTimeSeriesModel::reinitializeStateGivenNewComponent(TFloatMeanAccumulatorVec residuals) {
 
-    // Reinitialize the residual model with any values we've been given. We
-    // re-weight so that the total sample weight corresponds to the sample
-    // weight the model receives from a fixed (shortish) time interval.
-
-    // We can't properly handle periodicity in the variance of the rate if
-    // using a Poisson process so remove it from model detectio if we detect
-    // seasonality.
-    m_ResidualModel->removeModels(
-        maths::CPrior::CModelFilter().remove(maths::CPrior::E_Poisson));
-    m_ResidualModel->setToNonInformative(0.0, m_ResidualModel->decayRate());
-
-    if (residuals.size() > 0) {
-        maths_t::TDoubleWeightsAry1Vec weights(1);
-        for (const auto& residual : residuals) {
-            double weight{CBasicStatistics::count(residual)};
-            if (weight > 0.0) {
-                weights[0] = maths_t::countWeight(0.5 * weight);
-                m_ResidualModel->addSamples({CBasicStatistics::mean(residual)}, weights);
-            }
-        }
-    }
-
-    if (m_Correlations != nullptr) {
-        m_Correlations->clearCorrelationModels(m_Id);
-    }
     if (m_Controllers != nullptr) {
         m_ResidualModel->decayRate(m_ResidualModel->decayRate() /
                                    (*m_Controllers)[E_ResidualControl].multiplier());
@@ -1693,8 +1670,36 @@ void CUnivariateTimeSeriesModel::reinitializeStateGivenNewComponent(TFloatMeanAc
         }
     }
 
-    // Note we can't reinitialize this from the initial values because we do
-    // not expect these to be at the bucket length granularity.
+    // We can't properly handle periodicity in the variance of the rate if
+    // using a Poisson process so remove it from model selection if we detect
+    // seasonality.
+    m_ResidualModel->removeModels(
+        maths::CPrior::CModelFilter().remove(maths::CPrior::E_Poisson));
+    m_ResidualModel->setToNonInformative(0.0, m_ResidualModel->decayRate());
+
+    // Reinitialize the residual model with any values we've been given.
+    if (residuals.size() > 0) {
+        maths_t::TDoubleWeightsAry1Vec weights(1);
+        double buckets{std::accumulate(residuals.begin(), residuals.end(), 0.0,
+                                       [](auto partialBuckets, const auto& residual) {
+                                           return partialBuckets +
+                                                  CBasicStatistics::count(residual);
+                                       }) /
+                       this->params().learnRate()};
+        double time{buckets / static_cast<double>(residuals.size())};
+        for (const auto& residual : residuals) {
+            double weight{CBasicStatistics::count(residual)};
+            if (weight > 0.0) {
+                weights[0] = maths_t::countWeight(weight);
+                m_ResidualModel->addSamples({CBasicStatistics::mean(residual)}, weights);
+                m_ResidualModel->propagateForwardsByTime(time);
+            }
+        }
+    }
+
+    // Reset the multi-bucket residual model. We can't reinitialize this from
+    // the initial values because they are not typically at the granularity of
+    // the job's bucket length.
     if (m_MultibucketFeature != nullptr) {
         m_MultibucketFeature->clear();
     }
@@ -1702,6 +1707,10 @@ void CUnivariateTimeSeriesModel::reinitializeStateGivenNewComponent(TFloatMeanAc
         m_MultibucketFeatureModel->removeModels(
             maths::CPrior::CModelFilter().remove(maths::CPrior::E_Poisson));
         m_MultibucketFeatureModel->setToNonInformative(0.0, m_ResidualModel->decayRate());
+    }
+
+    if (m_Correlations != nullptr) {
+        m_Correlations->clearCorrelationModels(m_Id);
     }
 
     if (m_AnomalyModel != nullptr) {
@@ -2971,41 +2980,6 @@ void CMultivariateTimeSeriesModel::reinitializeStateGivenNewComponent(TFloatMean
     using TDoubleVec = std::vector<double>;
     using TDouble10VecVec = std::vector<TDouble10Vec>;
 
-    // Reinitialize the residual model with any values we've been given. We
-    // re-weight so that the total sample weight corresponds to the sample
-    // weight the model receives from a fixed (shortish) time interval.
-
-    m_ResidualModel->setToNonInformative(0.0, m_ResidualModel->decayRate());
-
-    if (residuals.size() > 0) {
-        std::size_t dimension{this->dimension()};
-
-        TDouble10VecVec samples;
-        TDoubleVec weights;
-        for (std::size_t d = 0; d < dimension; ++d) {
-            TSizeVec segmentation{CTimeSeriesSegmentation::piecewiseLinear(residuals[d])};
-            residuals[d] = CTimeSeriesSegmentation::removePiecewiseLinear(
-                std::move(residuals[d]), segmentation);
-
-            samples.resize(residuals[d].size(), TDouble10Vec(dimension));
-            weights.resize(residuals[d].size(), std::numeric_limits<double>::max());
-            for (std::size_t i = 0; i < residuals[d].size(); ++i) {
-                samples[i][d] = CBasicStatistics::mean(residuals[d][i]);
-                weights[i] = std::min(
-                    weights[i],
-                    static_cast<double>(CBasicStatistics::count(residuals[d][i])));
-            }
-        }
-
-        maths_t::TDouble10VecWeightsAry1Vec weight(1);
-        for (std::size_t i = 0; i < samples.size(); ++i) {
-            if (weights[i] > 0.0) {
-                weight[0] = maths_t::countWeight(0.5 * weights[i], dimension);
-                m_ResidualModel->addSamples({samples[i]}, weight);
-            }
-        }
-    }
-
     if (m_Controllers != nullptr) {
         m_ResidualModel->decayRate(m_ResidualModel->decayRate() /
                                    (*m_Controllers)[E_ResidualControl].multiplier());
@@ -3018,12 +2992,49 @@ void CMultivariateTimeSeriesModel::reinitializeStateGivenNewComponent(TFloatMean
         }
     }
 
-    // Note we can't reinitialize this from the initial values because we do
-    // not expect these to be at the bucket length granularity.
+    // Reinitialize the residual model with any values we've been given.
+    m_ResidualModel->setToNonInformative(0.0, m_ResidualModel->decayRate());
+    if (residuals.size() > 0) {
+        std::size_t dimension{this->dimension()};
+
+        TDouble10VecVec samples;
+        TDoubleVec weights;
+        double time{0.0};
+        for (std::size_t d = 0; d < dimension; ++d) {
+            samples.resize(residuals[d].size(), TDouble10Vec(dimension));
+            weights.resize(residuals[d].size(), std::numeric_limits<double>::max());
+            double buckets{std::accumulate(residuals[d].begin(), residuals[d].end(), 0.0,
+                                           [](auto partialBuckets, const auto& residual) {
+                                               return partialBuckets +
+                                                      CBasicStatistics::count(residual);
+                                           }) /
+                           this->params().learnRate()};
+            time += buckets / static_cast<double>(residuals.size());
+            for (std::size_t i = 0; i < residuals[d].size(); ++i) {
+                samples[i][d] = CBasicStatistics::mean(residuals[d][i]);
+                weights[i] = std::min(
+                    weights[i],
+                    static_cast<double>(CBasicStatistics::count(residuals[d][i])));
+            }
+        }
+        time /= static_cast<double>(dimension);
+
+        maths_t::TDouble10VecWeightsAry1Vec weight(1);
+        for (std::size_t i = 0; i < samples.size(); ++i) {
+            if (weights[i] > 0.0) {
+                weight[0] = maths_t::countWeight(weights[i], dimension);
+                m_ResidualModel->addSamples({samples[i]}, weight);
+                m_ResidualModel->propagateForwardsByTime(time);
+            }
+        }
+    }
+
+    // Reset the multi-bucket residual model. We can't reinitialize this from
+    // the initial values because they are not typically at the granularity of
+    // the job's bucket length.
     if (m_MultibucketFeature != nullptr) {
         m_MultibucketFeature->clear();
     }
-
     if (m_MultibucketFeatureModel != nullptr) {
         m_MultibucketFeatureModel->setToNonInformative(0.0, m_ResidualModel->decayRate());
     }

@@ -291,6 +291,8 @@ private:
     using TTransform = std::function<double(const TFloatMeanAccumulator&)>;
     using TRemoveTrend =
         std::function<bool(const TSeasonalComponentVec&, TFloatMeanAccumulatorVec&, TSizeVec&)>;
+    using TMeanScale =
+        std::function<void(const TSeasonalComponentVec&, TFloatMeanAccumulatorVec&)>;
 
     //! \brief Accumulates the minimum amplitude.
     //!
@@ -499,11 +501,14 @@ private:
     bool considerDecompositionForSelection(const SModel& decomposition) const;
     SModel testDecomposition(const TSeasonalComponentVec& periods,
                              std::size_t numberTrendSegments,
-                             const TFloatMeanAccumulatorVec& valueToTest,
+                             std::size_t numberScaleSegments,
+                             const TMeanScale& removeScaling,
+                             const TFloatMeanAccumulatorVec& valuesToTest,
+                             TFloatMeanAccumulatorVec& residuals,
                              bool alreadyModelled) const;
     void updateResiduals(const SHypothesisStats& hypothesis,
                          TFloatMeanAccumulatorVec& residuals) const;
-    TBoolVec finalizeHypotheses(const TFloatMeanAccumulatorVec& valuesToTest,
+    TBoolVec finalizeHypotheses(const TMeanScale& removeScaling,
                                 bool alreadyModelled,
                                 THypothesisStatsVec& hypotheses,
                                 TFloatMeanAccumulatorVec& residuals) const;
@@ -517,10 +522,12 @@ private:
                                    TFloatMeanAccumulatorVec& values) const;
     void removeDiscontinuities(const TSizeVec& modelTrendSegments,
                                TFloatMeanAccumulatorVec& values) const;
-    bool meanScale(const SHypothesisStats& hypothesis,
+    TSizeVec scaleSegments(const TSeasonalComponentVec& periods,
+                           const TFloatMeanAccumulatorVec& valuesToTest) const;
+    void meanScale(const TSeasonalComponentVec& periods,
+                   const TSizeVec& scaleSegments,
                    const TWeightFunc& weight,
-                   TFloatMeanAccumulatorVec& values,
-                   TDoubleVec& scales) const;
+                   TFloatMeanAccumulatorVec& values) const;
     TVarianceStats residualVarianceStats(const TFloatMeanAccumulatorVec& values) const;
     TMeanVarAccumulator
     truncatedMoments(double outlierFraction,
@@ -591,7 +598,6 @@ private:
     TBoolVec m_ModelledPeriodsTestable;
     TFloatMeanAccumulatorVec m_Values;
     // The follow are member data to avoid repeatedly reinitialising.
-    mutable TSizeVec m_WindowIndices;
     mutable TAmplitudeVec m_Amplitudes;
     mutable TSeasonalComponentVec m_Periods;
     mutable TSeasonalComponentVec m_CandidatePeriods;
