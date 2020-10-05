@@ -29,7 +29,6 @@
 #include <test/CTimeSeriesTestData.h>
 
 #include "TestUtils.h"
-#include "core/CContainerPrinter.h"
 
 #include <boost/test/unit_test.hpp>
 
@@ -258,7 +257,7 @@ void reinitializeResidualModel(TDecompositionPtr10Vec& trends,
 
 class CChangeDebug {
 public:
-    static const bool ENABLED{true};
+    static const bool ENABLED{false};
 
 public:
     CChangeDebug(std::string file = "results.py") : m_File(file) {

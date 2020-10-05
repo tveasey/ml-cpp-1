@@ -33,9 +33,6 @@ bool CTimeSeriesDecompositionStub::initialized() const {
     return false;
 }
 
-void CTimeSeriesDecompositionStub::testingForChange(bool /*value*/) {
-}
-
 void CTimeSeriesDecompositionStub::addPoint(
     core_t::TTime /*time*/,
     double /*value*/,
@@ -44,10 +41,7 @@ void CTimeSeriesDecompositionStub::addPoint(
     const maths_t::TModelAnnotationCallback& /*modelAnnotationCallback*/) {
 }
 
-bool CTimeSeriesDecompositionStub::applyChange(core_t::TTime /*time*/,
-                                               double /*value*/,
-                                               const SChangeDescription& /*change*/) {
-    return false;
+void CTimeSeriesDecompositionStub::shiftTime(core_t::TTime /*shift*/) {
 }
 
 void CTimeSeriesDecompositionStub::propagateForwardsTo(core_t::TTime /*time*/) {

@@ -100,6 +100,7 @@ SRCS=\
 	CTimeSeriesModelTest.cc \
 	CTimeSeriesMultibucketFeaturesTest.cc \
 	CTimeSeriesSegmentationTest.cc \
+	CTimeSeriesTestForChangeTest.cc \
 	CTimeSeriesTestForSeasonalityTest.cc \
 	CToolsTest.cc \
 	CTreeShapFeatureImportanceTest.cc \

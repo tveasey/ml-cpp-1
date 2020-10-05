@@ -1223,11 +1223,6 @@ void CTimeSeriesTestForSeasonality::removeDiscontinuities(const TSizeVec& modelT
 CTimeSeriesTestForSeasonality::TSizeVec
 CTimeSeriesTestForSeasonality::scaleSegments(const TSeasonalComponentVec& periods,
                                              const TFloatMeanAccumulatorVec& values) const {
-    std::size_t minimumSegmentLength{0};
-    for (const auto& period : periods) {
-        minimumSegmentLength = std::max(minimumSegmentLength, period.period());
-    }
-
     m_TemporaryValues = values;
     CSignal::fitSeasonalComponentsRobust(periods, m_OutlierFraction,
                                          m_TemporaryValues, m_Components);
@@ -1241,12 +1236,12 @@ CTimeSeriesTestForSeasonality::scaleSegments(const TSeasonalComponentVec& period
     };
 
     return TSegmentation::piecewiseLinearScaledSeasonal(
-        m_TemporaryValues, seasonality, minimumSegmentLength, m_SignificantPValue);
+        m_TemporaryValues, seasonality, this->day(), m_SignificantPValue);
 }
 
 void CTimeSeriesTestForSeasonality::meanScale(const TSeasonalComponentVec& periods,
                                               const TSizeVec& scaleSegments,
-                                              const TWeightFunc& weight,
+                                              const TIndexWeight& weight,
                                               TFloatMeanAccumulatorVec& values) const {
     if (scaleSegments.size() > 2) {
         values = TSegmentation::meanScalePiecewiseLinearScaledSeasonal(
@@ -1295,7 +1290,7 @@ CTimeSeriesTestForSeasonality::truncatedMoments(double outlierFraction,
     CBasicStatistics::moment<1>(moments) += m_EpsVariance;
 
     return moments;
-};
+}
 
 bool CTimeSeriesTestForSeasonality::includesNewComponents(const TSeasonalComponentVec& periods) const {
     return periods.size() > 0 && this->includesPermittedPeriod(periods) &&

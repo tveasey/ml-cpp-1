@@ -31,10 +31,6 @@
 #include <utility>
 #include <vector>
 
-namespace CTimeSeriesTestForSeasonalityTest {
-struct calibrateFTest;
-}
-
 namespace ml {
 namespace maths {
 
@@ -286,7 +282,7 @@ private:
     using TMeanAccumulatorVecCRng = core::CVectorRange<const TMeanAccumulatorVecVec>;
     using TPeriodDescriptor = CNewSeasonalComponentSummary::EPeriodDescriptor;
     using TSegmentation = CTimeSeriesSegmentation;
-    using TWeightFunc = TSegmentation::TWeightFunc;
+    using TIndexWeight = TSegmentation::TIndexWeight;
     using TBucketPredictor = std::function<double(std::size_t)>;
     using TTransform = std::function<double(const TFloatMeanAccumulator&)>;
     using TRemoveTrend =
@@ -526,15 +522,12 @@ private:
                            const TFloatMeanAccumulatorVec& valuesToTest) const;
     void meanScale(const TSeasonalComponentVec& periods,
                    const TSizeVec& scaleSegments,
-                   const TWeightFunc& weight,
+                   const TIndexWeight& weight,
                    TFloatMeanAccumulatorVec& values) const;
     TVarianceStats residualVarianceStats(const TFloatMeanAccumulatorVec& values) const;
-    TMeanVarAccumulator
-    truncatedMoments(double outlierFraction,
-                     const TFloatMeanAccumulatorVec& residuals,
-                     const TTransform& transform = [](const TFloatMeanAccumulator& value) {
-                         return CBasicStatistics::mean(value);
-                     }) const;
+    TMeanVarAccumulator truncatedMoments(double outlierFraction,
+                                         const TFloatMeanAccumulatorVec& residuals,
+                                         const TTransform& transform = mean) const;
     bool includesNewComponents(const TSeasonalComponentVec& periods) const;
     bool alreadyModelled(const TSeasonalComponentVec& periods) const;
     bool alreadyModelled(const TSeasonalComponent& period) const;
@@ -569,6 +562,9 @@ private:
                                   TFloatMeanAccumulatorVec& values);
     static void removePredictions(const TBucketPredictor& predictor,
                                   TFloatMeanAccumulatorVec& values);
+    static double mean(const TFloatMeanAccumulator& value) {
+        return CBasicStatistics::mean(value);
+    }
 
 private:
     double m_MinimumRepeatsPerSegmentToTestVariance = 3.0;
@@ -608,8 +604,6 @@ private:
     mutable TSizeVec m_ModelTrendSegments;
     mutable TMaxAccumulator m_Outliers;
     mutable TDoubleVec m_Scales;
-
-    friend struct CTimeSeriesTestForSeasonalityTest::calibrateFTest;
 };
 }
 }

@@ -215,7 +215,24 @@ void stepwisePropagateForwards(core_t::TTime start,
     }
 }
 
-// Periodicity Test State Machine
+// Change Detector Test State Machine
+
+// States
+const std::size_t CD_TEST = 0;
+const std::size_t CD_NOT_TESTING = 1;
+const std::size_t CD_ERROR = 2;
+const TStrVec CD_STATES{"TEST", "NOT_TESTING", "ERROR"};
+// Alphabet
+const std::size_t CD_NEW_WINDOW = 0;
+const std::size_t CD_NO_WINDOW = 1;
+const std::size_t CD_RESET = 2;
+const TStrVec CD_ALPHABET{"NEW_WINDOW"};
+// Transition Function
+const TSizeVecVec CD_TRANSITION_FUNCTION{{CD_TEST, CD_TEST, CD_ERROR},
+                                         {CD_NOT_TESTING, CD_NOT_TESTING, CD_ERROR},
+                                         {CD_NOT_TESTING, CD_NOT_TESTING, CD_NOT_TESTING}};
+
+// Seasonality Test State Machine
 
 // States
 const std::size_t PT_INITIAL = 0;
@@ -228,9 +245,8 @@ const std::size_t PT_NEW_VALUE = 0;
 const std::size_t PT_RESET = 1;
 const TStrVec PT_ALPHABET{"NEW_VALUE", "RESET"};
 // Transition Function
-const TSizeVecVec PT_TRANSITION_FUNCTION{
-    TSizeVec{PT_TEST, PT_TEST, PT_NOT_TESTING, PT_ERROR},
-    TSizeVec{PT_INITIAL, PT_INITIAL, PT_NOT_TESTING, PT_INITIAL}};
+const TSizeVecVec PT_TRANSITION_FUNCTION{{PT_TEST, PT_TEST, PT_NOT_TESTING, PT_ERROR},
+                                         {PT_INITIAL, PT_INITIAL, PT_NOT_TESTING, PT_INITIAL}};
 
 // Calendar Cyclic Test State Machine
 
@@ -271,14 +287,19 @@ const TSizeVecVec SC_TRANSITION_FUNCTION{
 const std::string VERSION_6_3_TAG("6.3");
 const std::string VERSION_6_4_TAG("6.4");
 
-// Periodicity Test Tags
+// Change Detector Test Tags
+// Version 7.11
+const core::TPersistenceTag CHANGE_DETECTOR_TEST_MACHINE_7_11_TAG{"a", "change_detector_test_machine"};
+const core::TPersistenceTag LAST_CHANGE_TIME_7_11_TAG{"a", "change_detector_test_machine"};
+
+// Seasonality Test Tags
 // Version 7.9
 const core::TPersistenceTag SHORT_WINDOW_7_9_TAG{"e", "short_window_7_9"};
 const core::TPersistenceTag LONG_WINDOW_7_9_TAG{"f", "long_window_7_9"};
 // Version 7.2
 const core::TPersistenceTag LINEAR_SCALES_7_2_TAG{"d", "linear_scales"};
 // Version 6.3
-const core::TPersistenceTag PERIODICITY_TEST_MACHINE_6_3_TAG{"a", "periodicity_test_machine"};
+const core::TPersistenceTag SEASONALITY_TEST_MACHINE_6_3_TAG{"a", "periodicity_test_machine"};
 const core::TPersistenceTag SHORT_WINDOW_6_3_TAG{"b", "short_window"};
 const core::TPersistenceTag LONG_WINDOW_6_3_TAG{"c", "long_window"};
 // Old versions can't be restored.
@@ -423,16 +444,19 @@ CTimeSeriesDecompositionDetail::SNewComponents::SNewComponents(core_t::TTime tim
 
 //////// CHandler ////////
 
-void CTimeSeriesDecompositionDetail::CHandler::handle(const SAddValue& /*message*/) {
+void CTimeSeriesDecompositionDetail::CHandler::handle(const SAddValue&) {
 }
 
-void CTimeSeriesDecompositionDetail::CHandler::handle(const SDetectedSeasonal& /*message*/) {
+void CTimeSeriesDecompositionDetail::CHandler::handle(const SDetectedSeasonal&) {
 }
 
-void CTimeSeriesDecompositionDetail::CHandler::handle(const SDetectedCalendar& /*message*/) {
+void CTimeSeriesDecompositionDetail::CHandler::handle(const SDetectedCalendar&) {
 }
 
-void CTimeSeriesDecompositionDetail::CHandler::handle(const SNewComponents& /*message*/) {
+void CTimeSeriesDecompositionDetail::CHandler::handle(const SNewComponents&) {
+}
+
+void CTimeSeriesDecompositionDetail::CHandler::handle(const SNewTestWindow&) {
 }
 
 void CTimeSeriesDecompositionDetail::CHandler::mediator(CMediator* mediator) {
@@ -466,6 +490,92 @@ void CTimeSeriesDecompositionDetail::CMediator::debugMemoryUsage(
 
 std::size_t CTimeSeriesDecompositionDetail::CMediator::memoryUsage() const {
     return core::CMemory::dynamicSize(m_Handlers);
+}
+
+//////// CChangeDetectorTest ////////
+
+CTimeSeriesDecompositionDetail::CChangeDetectorTest::CChangeDetectorTest()
+    : m_Machine{core::CStateMachine::create(CD_ALPHABET, CD_STATES, CD_TRANSITION_FUNCTION, CD_NOT_TESTING)} {
+}
+
+CTimeSeriesDecompositionDetail::CChangeDetectorTest::CChangeDetectorTest(const CChangeDetectorTest& other,
+                                                                         bool isForForecast)
+    : CHandler(), m_Machine{other.m_Machine} {
+    if (isForForecast) {
+        m_Machine.apply(CD_NO_WINDOW);
+    }
+}
+
+bool CTimeSeriesDecompositionDetail::CChangeDetectorTest::acceptRestoreTraverser(
+    core::CStateRestoreTraverser& traverser) {
+    do {
+        const std::string& name{traverser.name()};
+        RESTORE(CHANGE_DETECTOR_TEST_MACHINE_7_11_TAG,
+                traverser.traverseSubLevel([this](core::CStateRestoreTraverser& traverser_) {
+                    return m_Machine.acceptRestoreTraverser(traverser_);
+                }))
+        // Setup of the window is managed by the CSeasonalityTest.
+        RESTORE_BUILT_IN(LAST_CHANGE_TIME_7_11_TAG, m_LastChangeTime)
+    } while (traverser.next());
+    return true;
+}
+
+void CTimeSeriesDecompositionDetail::CChangeDetectorTest::acceptPersistInserter(
+    core::CStatePersistInserter& inserter) const {
+    inserter.insertLevel(CHANGE_DETECTOR_TEST_MACHINE_7_11_TAG,
+                         std::bind(&core::CStateMachine::acceptPersistInserter,
+                                   &m_Machine, std::placeholders::_1));
+    inserter.insertValue(LAST_CHANGE_TIME_7_11_TAG, m_LastChangeTime);
+}
+
+void CTimeSeriesDecompositionDetail::CChangeDetectorTest::swap(CChangeDetectorTest& other) {
+    std::swap(m_Machine, other.m_Machine);
+    std::swap(m_Window, other.m_Window);
+    std::swap(m_LastChangeTime, other.m_LastChangeTime);
+}
+
+void CTimeSeriesDecompositionDetail::CChangeDetectorTest::handle(const SAddValue& message) {
+}
+
+void CTimeSeriesDecompositionDetail::CChangeDetectorTest::handle(const SNewTestWindow& message) {
+    m_Window = message.s_Window;
+    m_LastChangeTime = 0;
+    this->apply(m_Window == nullptr ? CD_NO_WINDOW : CD_NEW_WINDOW);
+}
+
+void CTimeSeriesDecompositionDetail::CChangeDetectorTest::test(const SAddValue& message) {
+}
+
+std::uint64_t
+CTimeSeriesDecompositionDetail::CChangeDetectorTest::checksum(std::uint64_t seed) const {
+    seed = CChecksum::calculate(seed, m_Machine);
+    seed = CChecksum::calculate(seed, m_Window);
+    return CChecksum::calculate(seed, m_LastChangeTime);
+}
+
+void CTimeSeriesDecompositionDetail::CChangeDetectorTest::apply(std::size_t symbol) {
+
+    std::size_t old{m_Machine.state()};
+    m_Machine.apply(symbol);
+    std::size_t state{m_Machine.state()};
+
+    if (state != old) {
+        LOG_TRACE(<< CD_STATES[old] << "," << CD_ALPHABET[symbol] << " -> "
+                  << CD_STATES[state]);
+
+        switch (state) {
+        case CD_TEST:
+            break;
+        case CD_NOT_TESTING:
+            m_Window = nullptr;
+            m_LastChangeTime = 0;
+            break;
+        default:
+            LOG_ERROR(<< "Test in a bad state: " << state);
+            this->apply(CD_RESET);
+            break;
+        }
+    }
 }
 
 //////// CSeasonalityTest ////////
@@ -513,19 +623,25 @@ public:
         return windowParameters(window, bucketLength)->s_ShortestComponent;
     }
 
+    static bool useForChangeDetection(int window, core_t::TTime bucketLength) {
+        return windowParameters(window, bucketLength)->s_UseForChangeDetection;
+    }
+
 private:
     struct SParameters {
         SParameters() = default;
         SParameters(core_t::TTime bucketLength,
                     core_t::TTime shortestComponent,
                     std::size_t numberBuckets,
+                    bool useForChangeDetection,
                     const std::initializer_list<core_t::TTime>& bucketLengths,
                     const std::initializer_list<core_t::TTime>& testSchedule)
-            : s_BucketLength{bucketLength}, s_ShortestComponent{shortestComponent},
-              s_NumberBuckets{numberBuckets}, s_BucketLengths{bucketLengths}, s_TestSchedule{testSchedule} {
-        }
+            : s_UseForChangeDetection{useForChangeDetection}, s_BucketLength{bucketLength},
+              s_ShortestComponent{shortestComponent}, s_NumberBuckets{numberBuckets},
+              s_BucketLengths{bucketLengths}, s_TestSchedule{testSchedule} {}
         bool operator<(core_t::TTime rhs) const { return s_BucketLength < rhs; }
 
+        bool s_UseForChangeDetection = false;
         core_t::TTime s_BucketLength = 0;
         core_t::TTime s_ShortestComponent = 0;
         std::size_t s_NumberBuckets = 0;
@@ -551,45 +667,46 @@ private:
 //   1. The job bucket length,
 //   2. The minimum period seasonal component we'll accept testing on the window,
 //   3. The number buckets in the window,
-//   4. The bucket lengths we'll cycle through as we test progressively longer
+//   4. True if we use this window for change detection,
+//   5. The bucket lengths we'll cycle through as we test progressively longer
 //      windows,
-//   5. The times, in addition to "number buckets" * "window bucket lengths",
+//   6. The times, in addition to "number buckets" * "window bucket lengths",
 //      when we'll test for seasonal components.
 const CSeasonalityTestParameters::TParametersVecVec CSeasonalityTestParameters::WINDOW_PARAMETERS{
     /* SHORT WINDOW */
-    {{1, 1, 180, {1, 5, 10, 30, 60, 300, 600}, {}},
-     {5, 1, 180, {5, 10, 30, 60, 300, 600}, {}},
-     {10, 1, 180, {10, 30, 60, 300, 600}, {}},
-     {30, 1, 180, {30, 60, 300, 600}, {}},
-     {60, 1, 336, {60, 300, 900, 3600, 7200}, {3 * 604800}},
-     {300, 1, 336, {300, 900, 3600, 7200}, {3 * 604800}},
-     {600, 1, 336, {600, 3600, 7200}, {3 * 604800}},
-     {900, 1, 336, {900, 3600, 7200}, {3 * 604800}},
-     {1200, 1, 336, {1200, 3600, 7200}, {3 * 86400, 3 * 604800}},
-     {1800, 1, 336, {1800, 3600, 7200}, {3 * 86400, 3 * 604800}},
-     {3600, 1, 336, {3600, 7200}, {3 * 86400, 3 * 604800}},
-     {7200, 1, 336, {7200, 14400}, {3 * 86400, 3 * 604800}},
-     {14400, 1, 336, {14400}, {604800, 3 * 604800}},
-     {21600, 1, 224, {21600}, {604800, 3 * 604800}},
-     {28800, 1, 168, {28800}, {3 * 604800}},
-     {43200, 1, 112, {43200}, {4 * 604800}},
-     {86400, 1, 56, {86400}, {}}},
+    {{1, 1, 180, false, {1, 5, 10, 30, 60, 300, 600}, {}},
+     {5, 1, 180, false, {5, 10, 30, 60, 300, 600}, {}},
+     {10, 1, 180, false, {10, 30, 60, 300, 600}, {}},
+     {30, 1, 180, false, {30, 60, 300, 600}, {}},
+     {60, 1, 336, true, {60, 300, 900, 3600, 7200}, {3 * 604800}},
+     {300, 1, 336, true, {300, 900, 3600, 7200}, {3 * 604800}},
+     {600, 1, 336, true, {600, 3600, 7200}, {3 * 604800}},
+     {900, 1, 336, true, {900, 3600, 7200}, {3 * 604800}},
+     {1200, 1, 336, true, {1200, 3600, 7200}, {3 * 86400, 3 * 604800}},
+     {1800, 1, 336, true, {1800, 3600, 7200}, {3 * 86400, 3 * 604800}},
+     {3600, 1, 336, true, {3600, 7200}, {3 * 86400, 3 * 604800}},
+     {7200, 1, 336, true, {7200, 14400}, {3 * 86400, 3 * 604800}},
+     {14400, 1, 336, true, {14400}, {604800, 3 * 604800}},
+     {21600, 1, 224, true, {21600}, {604800, 3 * 604800}},
+     {28800, 1, 168, true, {28800}, {3 * 604800}},
+     {43200, 1, 112, true, {43200}, {4 * 604800}},
+     {86400, 1, 56, true, {86400}, {}}},
     /* LONG WINDOW */
-    {{1, 30601, 336, {900, 3600, 7200}, {3 * 604800}},
-     {5, 30601, 336, {900, 3600, 7200}, {3 * 604800}},
-     {10, 30601, 336, {900, 3600, 7200}, {3 * 604800}},
-     {30, 30601, 336, {900, 3600, 7200}, {3 * 604800}},
-     {60, 648001, 156, {43200, 86400, 604800}, {104 * 604800}},
-     {300, 648001, 156, {43200, 86400, 604800}, {104 * 604800}},
-     {600, 648001, 156, {43200, 86400, 604800}, {104 * 604800}},
-     {900, 648001, 156, {43200, 86400, 604800}, {104 * 604800}},
-     {1200, 648001, 156, {43200, 86400, 604800}, {104 * 604800}},
-     {1800, 648001, 156, {43200, 86400, 604800}, {104 * 604800}},
-     {3600, 648001, 156, {43200, 86400, 604800}, {104 * 604800}},
-     {7200, 648001, 156, {43200, 86400, 604800}, {104 * 604800}},
-     {14400, 648001, 156, {43200, 86400, 604800}, {104 * 604800}},
-     {86400, 648001, 156, {43200, 86400, 604800}, {104 * 604800}},
-     {604800, 648001, 156, {43200, 86400, 604800}, {104 * 604800}}}};
+    {{1, 30601, 336, true, {900, 3600, 7200}, {3 * 604800}},
+     {5, 30601, 336, true, {900, 3600, 7200}, {3 * 604800}},
+     {10, 30601, 336, true, {900, 3600, 7200}, {3 * 604800}},
+     {30, 30601, 336, true, {900, 3600, 7200}, {3 * 604800}},
+     {60, 648001, 156, false, {43200, 86400, 604800}, {104 * 604800}},
+     {300, 648001, 156, false, {43200, 86400, 604800}, {104 * 604800}},
+     {600, 648001, 156, false, {43200, 86400, 604800}, {104 * 604800}},
+     {900, 648001, 156, false, {43200, 86400, 604800}, {104 * 604800}},
+     {1200, 648001, 156, false, {43200, 86400, 604800}, {104 * 604800}},
+     {1800, 648001, 156, false, {43200, 86400, 604800}, {104 * 604800}},
+     {3600, 648001, 156, false, {43200, 86400, 604800}, {104 * 604800}},
+     {7200, 648001, 156, false, {43200, 86400, 604800}, {104 * 604800}},
+     {14400, 648001, 156, false, {43200, 86400, 604800}, {104 * 604800}},
+     {86400, 648001, 156, false, {43200, 86400, 604800}, {104 * 604800}},
+     {604800, 648001, 156, true, {43200, 86400, 604800}, {104 * 604800}}}};
 }
 
 CTimeSeriesDecompositionDetail::CSeasonalityTest::CSeasonalityTest(double decayRate,
@@ -606,10 +723,14 @@ CTimeSeriesDecompositionDetail::CSeasonalityTest::CSeasonalityTest(const CSeason
                                                                    bool isForForecast)
     : CHandler(), m_Machine{other.m_Machine}, m_DecayRate{other.m_DecayRate},
       m_BucketLength{other.m_BucketLength} {
-    // Note that m_Windows is an array.
-    for (std::size_t i = 0; isForForecast == false && i < other.m_Windows.size(); ++i) {
-        if (other.m_Windows[i] != nullptr) {
-            m_Windows[i] = std::make_unique<CExpandingWindow>(*other.m_Windows[i]);
+    if (isForForecast == false) {
+        for (auto i : {E_Short, E_Long}) {
+            if (other.m_Windows[i] != nullptr) {
+                m_Windows[i] = std::make_unique<CExpandingWindow>(*other.m_Windows[i]);
+                if (CSeasonalityTestParameters::useForChangeDetection(i, m_BucketLength)) {
+                    this->mediator()->forward(SNewTestWindow{*m_Windows[i]});
+                }
+            }
         }
     }
 }
@@ -618,7 +739,7 @@ bool CTimeSeriesDecompositionDetail::CSeasonalityTest::acceptRestoreTraverser(
     core::CStateRestoreTraverser& traverser) {
     do {
         const std::string& name{traverser.name()};
-        RESTORE(PERIODICITY_TEST_MACHINE_6_3_TAG,
+        RESTORE(SEASONALITY_TEST_MACHINE_6_3_TAG,
                 traverser.traverseSubLevel([this](core::CStateRestoreTraverser& traverser_) {
                     return m_Machine.acceptRestoreTraverser(traverser_);
                 }))
@@ -643,11 +764,17 @@ bool CTimeSeriesDecompositionDetail::CSeasonalityTest::acceptRestoreTraverser(
                 core::CPersistUtils::restore(LINEAR_SCALES_7_2_TAG, m_LinearScales, traverser))
     } while (traverser.next());
     return true;
+
+    for (auto i : {E_Short, E_Long}) {
+        if (CSeasonalityTestParameters::useForChangeDetection(i, m_BucketLength)) {
+            this->mediator()->forward(SNewTestWindow{*m_Windows[i]});
+        }
+    }
 }
 
 void CTimeSeriesDecompositionDetail::CSeasonalityTest::acceptPersistInserter(
     core::CStatePersistInserter& inserter) const {
-    inserter.insertLevel(PERIODICITY_TEST_MACHINE_6_3_TAG,
+    inserter.insertLevel(SEASONALITY_TEST_MACHINE_6_3_TAG,
                          std::bind(&core::CStateMachine::acceptPersistInserter,
                                    &m_Machine, std::placeholders::_1));
     if (m_Windows[E_Short] != nullptr) {
@@ -839,6 +966,9 @@ void CTimeSeriesDecompositionDetail::CSeasonalityTest::apply(std::size_t symbol,
                 m_Windows[i] = this->newWindow(i);
                 m_Windows[i]->initialize(CIntegerTools::floor(
                     time, CSeasonalityTestParameters::maxBucketLength(i, m_BucketLength)));
+                if (CSeasonalityTestParameters::useForChangeDetection(i, m_BucketLength)) {
+                    this->mediator()->forward(SNewTestWindow{*m_Windows[i]});
+                }
             }
         };
 
@@ -855,6 +985,7 @@ void CTimeSeriesDecompositionDetail::CSeasonalityTest::apply(std::size_t symbol,
         case PT_NOT_TESTING:
             m_Windows[0].reset();
             m_Windows[1].reset();
+            this->mediator()->forward(SNewTestWindow{nullptr});
             break;
         default:
             LOG_ERROR(<< "Test in a bad state: " << state);
@@ -1195,7 +1326,6 @@ bool CTimeSeriesDecompositionDetail::CComponents::acceptRestoreTraverser(
                     m_PredictionErrorWithoutTrend.fromDelimited(traverser.value()))
             RESTORE(MOMENTS_MINUS_TREND_6_3_TAG,
                     m_PredictionErrorWithTrend.fromDelimited(traverser.value()))
-            RESTORE_BUILT_IN(TESTING_FOR_CHANGE_6_5_TAG, m_TestingForChange)
             RESTORE_BUILT_IN(USING_TREND_FOR_PREDICTION_6_3_TAG, m_UsingTrendForPrediction)
         }
 
@@ -1261,7 +1391,6 @@ void CTimeSeriesDecompositionDetail::CComponents::acceptPersistInserter(
     inserter.insertValue(MOMENTS_6_3_TAG, m_PredictionErrorWithoutTrend.toDelimited());
     inserter.insertValue(MOMENTS_MINUS_TREND_6_3_TAG,
                          m_PredictionErrorWithTrend.toDelimited());
-    inserter.insertValue(TESTING_FOR_CHANGE_6_5_TAG, m_TestingForChange);
     inserter.insertValue(USING_TREND_FOR_PREDICTION_6_3_TAG, m_UsingTrendForPrediction);
 }
 
@@ -1277,7 +1406,6 @@ void CTimeSeriesDecompositionDetail::CComponents::swap(CComponents& other) {
     std::swap(m_GainController, other.m_GainController);
     std::swap(m_MeanVarianceScale, other.m_MeanVarianceScale);
     std::swap(m_PredictionErrorWithoutTrend, other.m_PredictionErrorWithoutTrend);
-    std::swap(m_TestingForChange, other.m_TestingForChange);
     std::swap(m_PredictionErrorWithTrend, other.m_PredictionErrorWithTrend);
     std::swap(m_UsingTrendForPrediction, other.m_UsingTrendForPrediction);
 }
@@ -1335,8 +1463,7 @@ void CTimeSeriesDecompositionDetail::CComponents::handle(const SAddValue& messag
         double variance{std::accumulate(variances.begin(), variances.end(), 0.0)};
         double expectedVarianceIncrease{1.0 / static_cast<double>(m + n + 1)};
 
-        bool testForTrend{(m_TestingForChange == false) &&
-                          (m_UsingTrendForPrediction == false) &&
+        bool testForTrend{(m_UsingTrendForPrediction == false) &&
                           (m_Trend.observedInterval() > 6 * m_BucketLength)};
 
         m_Trend.add(time, values[0], weight);
@@ -1440,10 +1567,6 @@ void CTimeSeriesDecompositionDetail::CComponents::handle(const SDetectedCalendar
         this->apply(SC_RESET, message);
         break;
     }
-}
-
-void CTimeSeriesDecompositionDetail::CComponents::testingForChange(bool value) {
-    m_TestingForChange = value;
 }
 
 void CTimeSeriesDecompositionDetail::CComponents::shiftLevel(core_t::TTime time,
@@ -1605,7 +1728,6 @@ std::uint64_t CTimeSeriesDecompositionDetail::CComponents::checksum(std::uint64_
     seed = CChecksum::calculate(seed, m_PredictionErrorWithoutTrend);
     seed = CChecksum::calculate(seed, m_PredictionErrorWithTrend);
     seed = CChecksum::calculate(seed, m_GainController);
-    seed = CChecksum::calculate(seed, m_TestingForChange);
     return CChecksum::calculate(seed, m_UsingTrendForPrediction);
 }
 

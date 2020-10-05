@@ -119,6 +119,14 @@ public:
         EComponent s_Component;
     };
 
+    //! \brief The message passed to indicate a new test expanding window.
+    struct MATHS_EXPORT SNewTestWindow : public SMessage {
+        SNewTestWindow(const CExpandingWindow& window);
+
+        //! The new window.
+        const CExpandingWindow* s_Window;
+    };
+
     //! \brief The basic interface for one aspect of the modeling of a time
     //! series decomposition.
     class MATHS_EXPORT CHandler {
@@ -139,6 +147,9 @@ public:
 
         //! Handle when a new component is being modeled.
         virtual void handle(const SNewComponents& message);
+
+        //! Handle when a new expanding window is being used.
+        virtual void handle(const SNewTestWindow& message);
 
         //! Set the mediator.
         void mediator(CMediator* mediator);
@@ -180,8 +191,51 @@ public:
         THandlerRefVec m_Handlers;
     };
 
-    //! \brief Scans through increasingly low frequencies looking for custom
-    //! diurnal and any other large amplitude seasonal components.
+    //! \brief Checks for sudden change or shock events.
+    class MATHS_EXPORT CChangeDetectorTest : public CHandler {
+    public:
+        CChangeDetectorTest();
+        CChangeDetectorTest(const CChangeDetectorTest& other, bool isForForecast = false);
+        CChangeDetectorTest& operator=(const CChangeDetectorTest&) = delete;
+
+        //! Initialize by reading state from \p traverser.
+        bool acceptRestoreTraverser(core::CStateRestoreTraverser& traverser);
+
+        //! Persist state by passing information to \p inserter.
+        void acceptPersistInserter(core::CStatePersistInserter& inserter) const;
+
+        //! Efficiently swap the state of this and \p other.
+        void swap(CChangeDetectorTest& other);
+
+        //! Update the test with a new value.
+        void handle(const SAddValue& message) override;
+
+        //! Reset the test.
+        void handle(const SNewTestWindow& message) override;
+
+        //! Test to see whether any change has occurred.
+        void test(const SAddValue& message);
+
+        //! Get a checksum for this object.
+        std::uint64_t checksum(std::uint64_t seed = 0) const;
+
+    private:
+        //! Handle \p symbol.
+        void apply(std::size_t symbol);
+
+    private:
+        //! The state machine.
+        core::CStateMachine m_Machine;
+
+        //! The window tested for changes.
+        const CExpandingWindow* m_Window = nullptr;
+
+        //! The time the last change occurred.
+        core_t::TTime m_LastChangeTime = 0;
+    };
+
+    //! \brief Scans through increasingly low frequencies looking for significant
+    //! seasonal components.
     class MATHS_EXPORT CSeasonalityTest : public CHandler {
     public:
         //! Test types (categorised as short and long period tests).
@@ -202,10 +256,10 @@ public:
         void swap(CSeasonalityTest& other);
 
         //! Update the test with a new value.
-        virtual void handle(const SAddValue& message);
+        void handle(const SAddValue& message) override;
 
         //! Reset the test.
-        virtual void handle(const SNewComponents& message);
+        void handle(const SNewComponents& message) override;
 
         //! Test to see whether any seasonal components are present.
         void test(const SAddValue& message);
@@ -292,10 +346,10 @@ public:
         void swap(CCalendarTest& other);
 
         //! Update the test with a new value.
-        virtual void handle(const SAddValue& message);
+        void handle(const SAddValue& message) override;
 
         //! Reset the test.
-        virtual void handle(const SNewComponents& message);
+        void handle(const SNewComponents& message) override;
 
         //! Test to see whether any seasonal components are present.
         void test(const SMessage& message);
@@ -377,16 +431,13 @@ public:
         void swap(CComponents& other);
 
         //! Update the components with a new value.
-        virtual void handle(const SAddValue& message);
+        void handle(const SAddValue& message) override;
 
         //! Create new seasonal components.
-        virtual void handle(const SDetectedSeasonal& message);
+        void handle(const SDetectedSeasonal& message) override;
 
         //! Create a new calendar component.
-        virtual void handle(const SDetectedCalendar& message);
-
-        //! Set whether or not we're testing for a change.
-        void testingForChange(bool value);
+        void handle(const SDetectedCalendar& message) override;
 
         //! Apply \p shift to the level at \p time and \p value.
         void shiftLevel(core_t::TTime time, double value, double shift);
@@ -843,9 +894,6 @@ public:
 
         //! Supplied with an annotation if a component is added.
         maths_t::TModelAnnotationCallback m_ModelAnnotationCallback;
-
-        //! Set to true when testing for a change.
-        bool m_TestingForChange = false;
 
         //! Set to true if the trend model should be used for prediction.
         bool m_UsingTrendForPrediction = false;
