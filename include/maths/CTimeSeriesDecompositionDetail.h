@@ -21,6 +21,8 @@
 #include <maths/CTrendComponent.h>
 #include <maths/ImportExport.h>
 
+#include <boost/circular_buffer.hpp>
+
 #include <array>
 #include <cstddef>
 #include <functional>
@@ -34,12 +36,15 @@ class CNanInjector;
 namespace ml {
 namespace maths {
 class CExpandingWindow;
+class CShock;
 class CTimeSeriesDecomposition;
 
 //! \brief Utilities for computing the decomposition.
 class MATHS_EXPORT CTimeSeriesDecompositionDetail : private CTimeSeriesDecompositionTypes {
 public:
     using TDoubleVec = std::vector<double>;
+    using TMakePredictor = std::function<TPredictor()>;
+    using TMakeFilteredPredictor = std::function<TFilteredPredictor()>;
 
     // clang-format off
     using TMakeTestForSeasonality =
@@ -69,7 +74,9 @@ public:
                   double trend,
                   double seasonal,
                   double calendar,
-                  const TFilteredPredictor& preconditioner,
+                  CTimeSeriesDecomposition& decomposition,
+                  const TMakePredictor& makePredictor,
+                  const TMakeFilteredPredictor& makeSeasonalityTestPreconditioner,
                   const TMakeTestForSeasonality& makeTestForSeasonality);
         SAddValue(const SAddValue&) = delete;
         SAddValue& operator=(const SAddValue&) = delete;
@@ -84,14 +91,19 @@ public:
         double s_Seasonal;
         //! The calendar component prediction at the value's time.
         double s_Calendar;
-        //! The predictor for the calendar components as a function of time.
-        TFilteredPredictor s_Preconditioner;
+        //! The time series decomposition.
+        CTimeSeriesDecomposition* s_Decomposition;
+        //! Makes the predictor to use in the change detector test.
+        TMakePredictor s_MakePredictor;
+        //! Makes the preconditioner to use for seasonality testing. This removes
+        //! components which won't be explicitly tested.
+        TMakeFilteredPredictor s_MakeSeasonalityTestPreconditioner;
         //! A factory function to create the test for seasonal components.
         TMakeTestForSeasonality s_MakeTestForSeasonality;
     };
 
-    //! \brief The message passed to indicate periodic components have
-    //! been detected.
+    //! \brief The message passed to indicate periodic components have been
+    //! detected.
     struct MATHS_EXPORT SDetectedSeasonal : public SMessage {
         SDetectedSeasonal(core_t::TTime time, core_t::TTime lastTime, CSeasonalDecomposition components);
 
@@ -99,8 +111,8 @@ public:
         CSeasonalDecomposition s_Components;
     };
 
-    //! \brief The message passed to indicate calendar components have
-    //! been detected.
+    //! \brief The message passed to indicate calendar components have been
+    //! detected.
     struct MATHS_EXPORT SDetectedCalendar : public SMessage {
         SDetectedCalendar(core_t::TTime time, core_t::TTime lastTime, CCalendarFeature feature);
 
@@ -108,23 +120,23 @@ public:
         CCalendarFeature s_Feature;
     };
 
-    //! \brief The message passed to indicate new components are being
-    //! modeled.
-    struct MATHS_EXPORT SNewComponents : public SMessage {
-        enum EComponent { E_Seasonal, E_Calendar };
+    //! \brief The message passed to indicate the trend is being used for prediction.
+    struct MATHS_EXPORT SDetectedTrend : public SMessage {
+        SDetectedTrend(const TPredictor& predictor,
+                       const TComponentChangeCallback& componentChangeCallback);
 
-        SNewComponents(core_t::TTime time, core_t::TTime lastTime, EComponent component);
-
-        //! The type of component.
-        EComponent s_Component;
+        TPredictor s_Predictor;
+        TComponentChangeCallback s_ComponentChangeCallback;
     };
 
-    //! \brief The message passed to indicate a new test expanding window.
-    struct MATHS_EXPORT SNewTestWindow : public SMessage {
-        SNewTestWindow(const CExpandingWindow& window);
+    //! \brief The message passed to indicate a sudden change has occurred.
+    struct MATHS_EXPORT SDetectedShock : public SMessage {
+        using TShockUPtr = std::unique_ptr<CShock>;
 
-        //! The new window.
-        const CExpandingWindow* s_Window;
+        SDetectedShock(core_t::TTime time, core_t::TTime lastTime, TShockUPtr shock);
+
+        //! The shock description.
+        TShockUPtr s_Shock;
     };
 
     //! \brief The basic interface for one aspect of the modeling of a time
@@ -146,10 +158,10 @@ public:
         virtual void handle(const SDetectedCalendar& message);
 
         //! Handle when a new component is being modeled.
-        virtual void handle(const SNewComponents& message);
+        virtual void handle(const SDetectedTrend& message);
 
-        //! Handle when a new expanding window is being used.
-        virtual void handle(const SNewTestWindow& message);
+        //! Handle when a new sudden change is detected.
+        virtual void handle(const SDetectedShock& message);
 
         //! Set the mediator.
         void mediator(CMediator* mediator);
@@ -194,7 +206,14 @@ public:
     //! \brief Checks for sudden change or shock events.
     class MATHS_EXPORT CChangeDetectorTest : public CHandler {
     public:
-        CChangeDetectorTest();
+        static const core_t::TTime TEST_INTERVAL;
+        static const core_t::TTime TEST_INTERVAL_BUCKETS;
+        static const core_t::TTime MINIMUM_CHANGE_DURATION;
+        static const core_t::TTime MINIMUM_WINDOW_BUCKET_LENGTH;
+        static const std::size_t WINDOW_SIZE;
+
+    public:
+        CChangeDetectorTest(core_t::TTime bucketLength);
         CChangeDetectorTest(const CChangeDetectorTest& other, bool isForForecast = false);
         CChangeDetectorTest& operator=(const CChangeDetectorTest&) = delete;
 
@@ -210,28 +229,58 @@ public:
         //! Update the test with a new value.
         void handle(const SAddValue& message) override;
 
-        //! Reset the test.
-        void handle(const SNewTestWindow& message) override;
-
         //! Test to see whether any change has occurred.
         void test(const SAddValue& message);
 
+        //! True if the time series may have undergone a shock change.
+        bool mayHaveChanged() const;
+
         //! Get a checksum for this object.
         std::uint64_t checksum(std::uint64_t seed = 0) const;
+
+        //! Debug the memory used by this object.
+        void debugMemoryUsage(const core::CMemoryUsage::TMemoryUsagePtr& mem) const;
+
+        //! Get the memory used by this object.
+        std::size_t memoryUsage() const;
+
+    private:
+        using TFloatMeanAccumulatorCBuf = boost::circular_buffer<TFloatMeanAccumulator>;
 
     private:
         //! Handle \p symbol.
         void apply(std::size_t symbol);
 
+        //! Check if we should test for a change.
+        bool shouldTest(core_t::TTime time) const;
+
+        //! The start time of the window bucket containing \p time.
+        core_t::TTime startOfWindowBucket(core_t::TTime time) const;
+
+        //! The length of the window bucket.
+        core_t::TTime windowBucketLength() const;
+
     private:
         //! The state machine.
         core::CStateMachine m_Machine;
 
+        //! The raw data bucketing interval.
+        core_t::TTime m_BucketLength;
+
         //! The window tested for changes.
-        const CExpandingWindow* m_Window = nullptr;
+        TFloatMeanAccumulatorCBuf m_Window;
+
+        //! The average offset of the values time w.r.t. the start of the buckets.
+        TFloatMeanAccumulator m_MeanOffset;
+
+        //! The last test time.
+        core_t::TTime m_LastTestTime = 0;
 
         //! The time the last change occurred.
         core_t::TTime m_LastChangeTime = 0;
+
+        //! Set to true if we think a change may be occurring at the moment.
+        bool m_MayHaveChanged = false;
     };
 
     //! \brief Scans through increasingly low frequencies looking for significant
@@ -259,13 +308,10 @@ public:
         void handle(const SAddValue& message) override;
 
         //! Reset the test.
-        void handle(const SNewComponents& message) override;
+        void handle(const SDetectedTrend& message) override;
 
         //! Test to see whether any seasonal components are present.
         void test(const SAddValue& message);
-
-        //! Record a linear scale of \p scale at \p time.
-        void linearScale(core_t::TTime time, double scale);
 
         //! Shift the start of the tests' expanding windows by \p dt.
         void shiftTime(core_t::TTime dt);
@@ -274,8 +320,8 @@ public:
         //! elapsed time.
         void propagateForwards(core_t::TTime start, core_t::TTime end);
 
-        //! Get the values in the window if we're going to test at \p time.
-        TFloatMeanAccumulatorVec windowValues(const TPredictor& predictor) const;
+        //! Get the window minus the predictions of \p predictor.
+        TFloatMeanAccumulatorVec residuals(const TPredictor& predictor) const;
 
         //! Get a checksum for this object.
         std::uint64_t checksum(std::uint64_t seed = 0) const;
@@ -287,8 +333,6 @@ public:
         std::size_t memoryUsage() const;
 
     private:
-        using TTimeDoublePr = std::pair<core_t::TTime, double>;
-        using TTimeDoublePrVec = std::vector<std::pair<core_t::TTime, double>>;
         using TExpandingWindowUPtr = std::unique_ptr<CExpandingWindow>;
         using TExpandingWindowPtrAry = std::array<TExpandingWindowUPtr, 2>;
 
@@ -305,12 +349,6 @@ public:
         //! Account for memory that is not allocated by initialisation.
         std::size_t extraMemoryOnInitialization() const;
 
-        //! Get the accounting for linear scales in the test window.
-        TPredictor scaledPredictor(const TPredictor& predictor) const;
-
-        //! Remove any linear scale events outside the test windows.
-        void pruneLinearScales();
-
     private:
         //! The state machine.
         core::CStateMachine m_Machine;
@@ -323,9 +361,6 @@ public:
 
         //! Expanding windows on the "recent" time series values.
         TExpandingWindowPtrAry m_Windows;
-
-        //! The times of linear scales in the window range.
-        TTimeDoublePrVec m_LinearScales;
     };
 
     //! \brief Tests for cyclic calendar components explaining large prediction
@@ -349,7 +384,7 @@ public:
         void handle(const SAddValue& message) override;
 
         //! Reset the test.
-        void handle(const SNewComponents& message) override;
+        void handle(const SDetectedSeasonal& message) override;
 
         //! Test to see whether any seasonal components are present.
         void test(const SMessage& message);
@@ -439,11 +474,8 @@ public:
         //! Create a new calendar component.
         void handle(const SDetectedCalendar& message) override;
 
-        //! Apply \p shift to the level at \p time and \p value.
-        void shiftLevel(core_t::TTime time, double value, double shift);
-
-        //! Apply a linear scale of \p scale.
-        void linearScale(core_t::TTime time, double scale);
+        //! Update the components with a sudden change.
+        void handle(const SDetectedShock& message) override;
 
         //! Maybe re-interpolate the components.
         void interpolateForForecast(core_t::TTime time);
@@ -684,6 +716,9 @@ public:
                      core_t::TTime endTime,
                      const TFloatMeanAccumulatorVec& values);
 
+            //! Apply \p shock to the components.
+            void apply(const CShock& shock);
+
             //! Refresh state after adding new components.
             void refreshForNewComponents();
 
@@ -695,9 +730,6 @@ public:
 
             //! Shift the components' time origin to \p time.
             void shiftOrigin(core_t::TTime time);
-
-            //! Linearly scale the components' by \p scale.
-            void linearScale(core_t::TTime time, double scale);
 
             //! Get a checksum for this object.
             std::uint64_t checksum(std::uint64_t seed = 0) const;
@@ -774,11 +806,11 @@ public:
             //! Add and initialize a new component.
             void add(const CCalendarFeature& feature, std::size_t size, double decayRate, double bucketLength);
 
+            //! Apply \p shock to the components.
+            void apply(const CShock& shock);
+
             //! Remove low value components.
             bool prune(core_t::TTime time, core_t::TTime bucketLength);
-
-            //! Linearly scale the components' by \p scale.
-            void linearScale(core_t::TTime time, double scale);
 
             //! Get a checksum for this object.
             std::uint64_t checksum(std::uint64_t seed = 0) const;
@@ -846,9 +878,6 @@ public:
         //! shifted into the long term trend or in the absence of that
         //! the shortest component.
         void canonicalize(core_t::TTime time);
-
-        //! Set a watcher for state changes.
-        void notifyOnNewComponents(bool* watcher);
 
     private:
         //! The state machine.

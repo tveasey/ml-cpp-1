@@ -69,21 +69,6 @@ const std::size_t MAXIMUM_CORRELATIONS{5000};
 const double MINIMUM_CORRELATE_PRIOR_SAMPLE_COUNT{24.0};
 const TSize10Vec NOTHING_TO_MARGINALIZE;
 const TSizeDoublePr10Vec NOTHING_TO_CONDITION;
-const double CHANGE_P_VALUE{5e-4};
-
-//! Convert \p value to comma separated string.
-std::string toDelimited(const TTimeDoublePr& value) {
-    return core::CStringUtils::typeToString(value.first) + ',' +
-           core::CStringUtils::typeToStringPrecise(value.second, core::CIEEE754::E_SinglePrecision);
-}
-
-//! Extract \p value from comma separated string.
-bool fromDelimited(const std::string& str, TTimeDoublePr& value) {
-    std::size_t pos{str.find(',')};
-    return pos != std::string::npos &&
-           core::CStringUtils::stringToType(str.substr(0, pos), value.first) &&
-           core::CStringUtils::stringToType(str.substr(pos + 1), value.second);
-}
 
 //! Expand \p calculation for computing multibucket anomalies.
 TCalculation2Vec expand(maths_t::EProbabilityCalculation calculation) {
@@ -180,7 +165,6 @@ const double MAXIMUM_P_VALUE{1e-3};
 const double MINIMUM_P_VALUE{1e-5};
 const double LOG_MAXIMUM_P_VALUE{std::log(MAXIMUM_P_VALUE)};
 const double LOG_MINIMUM_P_VALUE{std::log(MINIMUM_P_VALUE)};
-const double LOG_MINIMUM_WEIGHT{std::log(MINIMUM_WEIGHT)};
 const double MINUS_LOG_TOLERANCE{
     -std::log(1.0 - 100.0 * std::numeric_limits<double>::epsilon())};
 
@@ -188,19 +172,6 @@ const double MINUS_LOG_TOLERANCE{
 double deratedMinimumWeight(double derate) {
     derate = CTools::truncate(derate, 0.0, 1.0);
     return MINIMUM_WEIGHT + (0.5 - MINIMUM_WEIGHT) * derate;
-}
-
-//! Get the one tail p-value from a specified Winsorisation weight.
-double pValueFromWeight(double weight) {
-    if (weight >= 1.0) {
-        return 1.0;
-    }
-
-    double logw{std::log(std::max(weight, MINIMUM_WEIGHT))};
-    return std::exp(0.5 * (LOG_MAXIMUM_P_VALUE -
-                           std::sqrt(CTools::pow2(LOG_MAXIMUM_P_VALUE) +
-                                     4.0 * logw / LOG_MINIMUM_WEIGHT * LOG_MINIMUM_P_VALUE *
-                                         (LOG_MINIMUM_P_VALUE - LOG_MAXIMUM_P_VALUE))));
 }
 
 //! Compute the one tail p-value of \p value.
@@ -1228,7 +1199,8 @@ CUnivariateTimeSeriesModel::winsorisationWeight(double derate,
                                                 const TDouble2Vec& value) const {
     double scale{this->seasonalWeight(0.0, time)[0]};
     double sample{m_TrendModel->detrend(time, value[0], 0.0)};
-    return {winsorisation::weight(*m_ResidualModel, derate, scale, sample)};
+    return {winsorisation::weight(*m_ResidualModel, derate, scale, sample) *
+            (m_TrendModel->mayHaveChanged() ? winsorisation::MINIMUM_WEIGHT : 1.0)};
 }
 
 CUnivariateTimeSeriesModel::TDouble2Vec
@@ -1484,11 +1456,6 @@ CUnivariateTimeSeriesModel::updateTrend(const CModelAddSamplesParams& params,
     }
 
     if (result == E_Reset) {
-        if (window.empty()) {
-            window = m_TrendModel->windowValues([this](core_t::TTime time) {
-                return CBasicStatistics::mean(m_TrendModel->value(time, 0.0));
-            });
-        }
         this->reinitializeStateGivenNewComponent(std::move(window));
     }
 
@@ -2808,9 +2775,7 @@ CMultivariateTimeSeriesModel::updateTrend(const CModelAddSamplesParams& params,
     if (result == E_Reset) {
         TFloatMeanAccumulatorVec10Vec window(dimension);
         for (std::size_t d = 0; d < dimension; ++d) {
-            window[d] = m_TrendModel[d]->windowValues([this, d](core_t::TTime time) {
-                return CBasicStatistics::mean(m_TrendModel[d]->value(time));
-            });
+            window[d] = m_TrendModel[d]->residuals();
         }
         this->reinitializeStateGivenNewComponent(std::move(window));
     }

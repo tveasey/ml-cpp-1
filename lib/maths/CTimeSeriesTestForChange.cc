@@ -13,6 +13,8 @@
 
 #include <maths/CBasicStatistics.h>
 #include <maths/CCalendarComponent.h>
+#include <maths/CLeastSquaresOnlineRegression.h>
+#include <maths/CLeastSquaresOnlineRegressionDetail.h>
 #include <maths/CSeasonalComponent.h>
 #include <maths/CStatisticalTests.h>
 #include <maths/CTimeSeriesDecomposition.h>
@@ -49,52 +51,69 @@ const core_t::TTime HOUR{core::constants::HOUR};
 const std::string NO_CHANGE{"no change"};
 }
 
-void CLevelShift::apply(CTrendComponent& component) const {
+bool CLevelShift::apply(CTrendComponent& component) const {
     component.shiftLevel(this->time(), m_ValueAtShift, m_Shift);
+    return true;
 }
 
 const std::string& CLevelShift::type() const {
     return TYPE;
 }
 
+std::string CLevelShift::print() const {
+    return "level shift by " + core::CStringUtils::typeToString(m_Shift);
+}
+
 const std::string CLevelShift::TYPE{"level shift"};
 
-void CScale::apply(CTrendComponent& component) const {
+bool CScale::apply(CTrendComponent& component) const {
     component.linearScale(m_Scale);
+    return true;
 }
 
-void CScale::apply(CSeasonalComponent& component) const {
+bool CScale::apply(CSeasonalComponent& component) const {
     component.linearScale(this->time(), m_Scale);
+    return true;
 }
 
-void CScale::apply(CCalendarComponent& component) const {
+bool CScale::apply(CCalendarComponent& component) const {
     component.linearScale(this->time(), m_Scale);
+    return true;
 }
 
 const std::string& CScale::type() const {
     return TYPE;
 }
 
+std::string CScale::print() const {
+    return "linear scale by " + core::CStringUtils::typeToString(m_Scale);
+}
+
 const std::string CScale::TYPE{"scale"};
 
-void CTimeShift::apply(CTimeSeriesDecomposition& decomposition) const {
+bool CTimeShift::apply(CTimeSeriesDecomposition& decomposition) const {
     decomposition.shiftTime(m_Shift);
+    return true;
 }
 
 const std::string& CTimeShift::type() const {
     return TYPE;
 }
 
+std::string CTimeShift::print() const {
+    return "time shift by " + core::CStringUtils::typeToString(m_Shift) + "s";
+}
+
 const std::string CTimeShift::TYPE{"time shift"};
 
 CTimeSeriesTestForChange::CTimeSeriesTestForChange(core_t::TTime valuesStartTime,
-                                                   core_t::TTime bucketStartTime,
+                                                   core_t::TTime bucketsStartTime,
                                                    core_t::TTime bucketLength,
                                                    core_t::TTime predictionInterval,
                                                    TPredictor predictor,
                                                    TFloatMeanAccumulatorVec values,
                                                    double outlierFraction)
-    : m_ValuesStartTime{valuesStartTime}, m_BucketStartTime{bucketStartTime}, m_BucketLength{bucketLength},
+    : m_ValuesStartTime{valuesStartTime}, m_BucketsStartTime{bucketsStartTime}, m_BucketLength{bucketLength},
       m_PredictionInterval{predictionInterval}, m_OutlierFraction{outlierFraction},
       m_Predictor{std::move(predictor)}, m_Values{std::move(values)},
       m_Outliers{static_cast<std::size_t>(std::max(
@@ -166,15 +185,18 @@ CTimeSeriesTestForChange::TShockUPtr CTimeSeriesTestForChange::test() const {
 
         switch (shocks[selected].s_Type) {
         case E_LevelShift:
-            return std::make_unique<CLevelShift>(shocks[selected].s_Time,
-                                                 shocks[selected].s_ValueAtChange,
-                                                 shocks[selected].s_LevelShift);
+            return std::make_unique<CLevelShift>(
+                shocks[selected].s_Time, shocks[selected].s_ValueAtChange,
+                shocks[selected].s_LevelShift,
+                std::move(shocks[selected].s_InitialValues));
         case E_Scale:
-            return std::make_unique<CScale>(shocks[selected].s_Time,
-                                            shocks[selected].s_Scale);
+            return std::make_unique<CScale>(
+                shocks[selected].s_Time, shocks[selected].s_Scale,
+                std::move(shocks[selected].s_InitialValues));
         case E_TimeShift:
-            return std::make_unique<CTimeShift>(shocks[selected].s_Time,
-                                                shocks[selected].s_TimeShift);
+            return std::make_unique<CTimeShift>(
+                shocks[selected].s_Time, shocks[selected].s_TimeShift,
+                std::move(shocks[selected].s_InitialValues));
         case E_NoShock:
             LOG_ERROR(<< "Unexpected type");
             break;
@@ -252,7 +274,8 @@ CTimeSeriesTestForChange::SShock CTimeSeriesTestForChange::levelShift() const {
                          changeValue,
                          variance,
                          truncatedVariances[H1],
-                         2.0 * static_cast<double>(trendSegments.size() - 1)};
+                         2.0 * static_cast<double>(trendSegments.size() - 1),
+                         std::move(residuals)};
             shock.s_LevelShift = shifts.back();
 
             return shock;
@@ -296,10 +319,13 @@ CTimeSeriesTestForChange::SShock CTimeSeriesTestForChange::scale() const {
         LOG_TRACE(<< "change index = " << changeIndex
                   << ", time = " << changeTime << ", value = " << changeValue);
 
-        SShock shock{
-            E_Scale,           changeTime,
-            changeValue,       variance,
-            truncatedVariance, static_cast<double>(scaleSegments.size() - 1)};
+        SShock shock{E_Scale,
+                     changeTime,
+                     changeValue,
+                     variance,
+                     truncatedVariance,
+                     static_cast<double>(scaleSegments.size() - 1),
+                     std::move(residuals)};
         shock.s_Scale = scales.back();
 
         return shock;
@@ -317,7 +343,7 @@ CTimeSeriesTestForChange::SShock CTimeSeriesTestForChange::timeShift() const {
     auto predictor = [this](core_t::TTime time) {
         TMeanAccumulator result;
         for (core_t::TTime offset = 0; offset < m_BucketLength; offset += m_PredictionInterval) {
-            result.add(m_Predictor(m_BucketStartTime + time + offset));
+            result.add(m_Predictor(m_BucketsStartTime + time + offset));
         }
         return CBasicStatistics::mean(result);
     };
@@ -361,10 +387,15 @@ CTimeSeriesTestForChange::SShock CTimeSeriesTestForChange::timeShift() const {
         LOG_TRACE(<< "change index = " << changeIndex
                   << ", time = " << changeTime << ", value = " << changeValue);
 
-        SShock shock{
-            E_TimeShift,       changeTime,
-            changeValue,       variance,
-            truncatedVariance, static_cast<double>(shiftSegments.size() - 1)};
+        // clang-format off
+        SShock shock{E_TimeShift,
+                     changeTime,
+                     changeValue,
+                     variance,
+                     truncatedVariance,
+                     static_cast<double>(shiftSegments.size() - 1),
+                     std::move(residuals)};
+        // clang-format on
         shock.s_TimeShift = std::accumulate(shifts.begin(), shifts.end(), 0);
 
         return shock;

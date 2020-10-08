@@ -90,8 +90,12 @@ maths_t::TDoubleDoublePr CTimeSeriesDecompositionStub::scale(core_t::TTime /*tim
 }
 
 CTimeSeriesDecompositionStub::TFloatMeanAccumulatorVec
-CTimeSeriesDecompositionStub::windowValues(const TPredictor& /*predictor*/) const {
+CTimeSeriesDecompositionStub::residuals() const {
     return {};
+}
+
+bool CTimeSeriesDecompositionStub::mayHaveChanged() const {
+    return false;
 }
 
 void CTimeSeriesDecompositionStub::skipTime(core_t::TTime /*skipInterval*/) {

@@ -80,14 +80,16 @@ CTimeSeriesDecomposition::CTimeSeriesDecomposition(double decayRate,
                                                    core_t::TTime bucketLength,
                                                    std::size_t seasonalComponentSize)
     : m_TimeShift{0}, m_LastValueTime{0}, m_LastPropagationTime{0},
-      m_SeasonalityTest{decayRate, bucketLength}, m_CalendarCyclicTest{decayRate, bucketLength},
-      m_Components{decayRate, bucketLength, seasonalComponentSize} {
+      m_ChangeDetectorTest{bucketLength}, m_SeasonalityTest{decayRate, bucketLength},
+      m_CalendarCyclicTest{decayRate, bucketLength}, m_Components{decayRate, bucketLength,
+                                                                  seasonalComponentSize} {
     this->initializeMediator();
 }
 
 CTimeSeriesDecomposition::CTimeSeriesDecomposition(const STimeSeriesDecompositionRestoreParams& params,
                                                    core::CStateRestoreTraverser& traverser)
     : m_TimeShift{0}, m_LastValueTime{0}, m_LastPropagationTime{0},
+      m_ChangeDetectorTest{params.s_MinimumBucketLength},
       m_SeasonalityTest{params.s_DecayRate, params.s_MinimumBucketLength},
       m_CalendarCyclicTest{params.s_DecayRate, params.s_MinimumBucketLength},
       m_Components{params.s_DecayRate, params.s_MinimumBucketLength, params.s_ComponentSize} {
@@ -260,18 +262,23 @@ void CTimeSeriesDecomposition::addPoint(core_t::TTime time,
             return CBasicStatistics::mean(this->value(time_, 0.0, E_Seasonal, removedSeasonalMask));
         });
 
-    SAddValue message{time,
-                      lastTime,
-                      value,
-                      weights,
-                      CBasicStatistics::mean(this->value(time, 0.0, E_TrendForced)),
-                      CBasicStatistics::mean(this->value(time, 0.0, E_Seasonal)),
-                      CBasicStatistics::mean(this->value(time, 0.0, E_Calendar)),
-                      [this](core_t::TTime time_, const TBoolVec& testableSeasonalMask) {
-                          return CBasicStatistics::mean(this->value(
-                              time_, 0.0, E_Seasonal | E_Calendar, testableSeasonalMask));
-                      },
-                      testForSeasonality};
+    SAddValue message{
+        time,
+        lastTime,
+        value,
+        weights,
+        CBasicStatistics::mean(this->value(time, 0.0, E_TrendForced)),
+        CBasicStatistics::mean(this->value(time, 0.0, E_Seasonal)),
+        CBasicStatistics::mean(this->value(time, 0.0, E_Calendar)),
+        *this,
+        [this]() {
+            auto predictor_ = this->predictor(E_All | E_TrendForced);
+            return [predictor = std::move(predictor_)](core_t::TTime time_) {
+                return predictor(time_, {});
+            };
+        },
+        [this]() { return this->predictor(E_Seasonal | E_Calendar); },
+        testForSeasonality};
 
     m_ChangeDetectorTest.handle(message);
     m_Components.handle(message);
@@ -341,6 +348,46 @@ TDoubleDoublePr CTimeSeriesDecomposition::value(core_t::TTime time,
     }
 
     return pair(baseline);
+}
+
+CTimeSeriesDecomposition::TFilteredPredictor
+CTimeSeriesDecomposition::predictor(int components) const {
+    CTrendComponent::TPredictor trend_{m_Components.trend().predictor()};
+    return [ components, trend = std::move(trend_),
+             this ](core_t::TTime time, const TBoolVec& removedSeasonalMask) {
+        double baseline{0.0};
+
+        time += m_TimeShift;
+
+        if (components & E_TrendForced) {
+            baseline += trend(time);
+        } else if (components & E_Trend) {
+            if (m_Components.usingTrendForPrediction()) {
+                baseline += trend(time);
+            }
+        }
+
+        if (components & E_Seasonal) {
+            const auto& seasonal = m_Components.seasonal();
+            for (std::size_t i = 0; i < seasonal.size(); ++i) {
+                if (seasonal[i].initialized() &&
+                    (removedSeasonalMask.empty() || removedSeasonalMask[i] == false) &&
+                    seasonal[i].time().inWindow(time)) {
+                    baseline += CBasicStatistics::mean(seasonal[i].value(time, 0.0));
+                }
+            }
+        }
+
+        if (components & E_Calendar) {
+            for (const auto& component : m_Components.calendar()) {
+                if (component.initialized() && component.feature().inWindow(time)) {
+                    baseline += CBasicStatistics::mean(component.value(time, 0.0));
+                }
+            }
+        }
+
+        return baseline;
+    };
 }
 
 core_t::TTime CTimeSeriesDecomposition::maximumForecastInterval() const {
@@ -475,9 +522,14 @@ TDoubleDoublePr CTimeSeriesDecomposition::scale(core_t::TTime time,
     return pair(scale);
 }
 
-CTimeSeriesDecomposition::TFloatMeanAccumulatorVec
-CTimeSeriesDecomposition::windowValues(const TPredictor& predictor) const {
-    return m_SeasonalityTest.windowValues(predictor);
+CTimeSeriesDecomposition::TFloatMeanAccumulatorVec CTimeSeriesDecomposition::residuals() const {
+    return m_SeasonalityTest.residuals([this](core_t::TTime time) {
+        return CBasicStatistics::mean(this->value(time, 0.0));
+    });
+}
+
+bool CTimeSeriesDecomposition::mayHaveChanged() const {
+    return m_ChangeDetectorTest.mayHaveChanged();
 }
 
 void CTimeSeriesDecomposition::skipTime(core_t::TTime skipInterval) {

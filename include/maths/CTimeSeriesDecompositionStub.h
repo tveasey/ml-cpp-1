@@ -82,7 +82,10 @@ public:
     scale(core_t::TTime time, double variance, double confidence, bool smooth = true) const override;
 
     //! Returns an empty vector.
-    TFloatMeanAccumulatorVec windowValues(const TPredictor& predictor) const override;
+    TFloatMeanAccumulatorVec residuals() const override;
+
+    //! Returns false.
+    bool mayHaveChanged() const override;
 
     //! No-op.
     void skipTime(core_t::TTime skipInterval) override;

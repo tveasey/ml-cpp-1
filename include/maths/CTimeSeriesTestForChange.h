@@ -7,11 +7,12 @@
 #ifndef INCLUDED_ml_maths_CTimeSeriesTestForChange_h
 #define INCLUDED_ml_maths_CTimeSeriesTestForChange_h
 
-#include <core/CoreTypes.h>
 #include <core/Constants.h>
+#include <core/CoreTypes.h>
 
 #include <maths/CBasicStatistics.h>
 #include <maths/ImportExport.h>
+#include <maths/MathsTypes.h>
 
 #include <functional>
 #include <memory>
@@ -27,19 +28,29 @@ class CTrendComponent;
 //! \brief Represents a shock to a time series model.
 class MATHS_EXPORT CShock {
 public:
-    CShock(core_t::TTime time) : m_Time{time} {}
+    using TFloatMeanAccumulator = CBasicStatistics::SSampleMean<CFloatStorage>::TAccumulator;
+    using TFloatMeanAccumulatorVec = std::vector<TFloatMeanAccumulator>;
+
+public:
+    CShock(core_t::TTime time, TFloatMeanAccumulatorVec initialValues)
+        : m_Time{time}, m_InitialValues{std::move(initialValues)} {}
     virtual ~CShock() = default;
 
-    virtual void apply(CTimeSeriesDecomposition&) const {}
-    virtual void apply(CTrendComponent&) const {}
-    virtual void apply(CSeasonalComponent&) const {}
-    virtual void apply(CCalendarComponent&) const {}
+    virtual bool apply(CTimeSeriesDecomposition&) const { return false; }
+    virtual bool apply(CTrendComponent&) const { return false; }
+    virtual bool apply(CSeasonalComponent&) const { return false; }
+    virtual bool apply(CCalendarComponent&) const { return false; }
     virtual const std::string& type() const = 0;
     virtual double value() const = 0;
+    virtual std::string print() const = 0;
     core_t::TTime time() const { return m_Time; }
+    const TFloatMeanAccumulatorVec& initialValues() const {
+        return m_InitialValues;
+    }
 
 private:
     core_t::TTime m_Time;
+    TFloatMeanAccumulatorVec m_InitialValues;
 };
 
 //! \brief Represents a level shift of a time series.
@@ -48,11 +59,13 @@ public:
     static const std::string TYPE;
 
 public:
-    CLevelShift(core_t::TTime time, double valueAtShift, double shift)
-        : CShock{time}, m_Shift{shift}, m_ValueAtShift{valueAtShift} {}
+    CLevelShift(core_t::TTime time, double valueAtShift, double shift, TFloatMeanAccumulatorVec initialValues)
+        : CShock{time, std::move(initialValues)}, m_Shift{shift}, m_ValueAtShift{valueAtShift} {
+    }
 
-    void apply(CTrendComponent& component) const override;
+    bool apply(CTrendComponent& component) const override;
     const std::string& type() const override;
+    std::string print() const override;
     double value() const override { return m_Shift; }
 
 private:
@@ -66,12 +79,14 @@ public:
     static const std::string TYPE;
 
 public:
-    CScale(core_t::TTime time, double scale) : CShock{time}, m_Scale{scale} {}
+    CScale(core_t::TTime time, double scale, TFloatMeanAccumulatorVec initialValues)
+        : CShock{time, std::move(initialValues)}, m_Scale{scale} {}
 
-    void apply(CTrendComponent& component) const override;
-    void apply(CSeasonalComponent& component) const override;
-    void apply(CCalendarComponent& component) const override;
+    bool apply(CTrendComponent& component) const override;
+    bool apply(CSeasonalComponent& component) const override;
+    bool apply(CCalendarComponent& component) const override;
     const std::string& type() const override;
+    std::string print() const override;
     double value() const override { return m_Scale; }
 
 private:
@@ -84,11 +99,12 @@ public:
     static const std::string TYPE;
 
 public:
-    CTimeShift(core_t::TTime time, core_t::TTime shift)
-        : CShock{time}, m_Shift{shift} {}
+    CTimeShift(core_t::TTime time, core_t::TTime shift, TFloatMeanAccumulatorVec initialValues)
+        : CShock{time, std::move(initialValues)}, m_Shift{shift} {}
 
-    void apply(CTimeSeriesDecomposition& decomposition) const override;
+    bool apply(CTimeSeriesDecomposition& decomposition) const override;
     const std::string& type() const override;
+    std::string print() const override;
     double value() const override { return static_cast<double>(m_Shift); }
 
 private:
@@ -109,7 +125,7 @@ public:
 
 public:
     CTimeSeriesTestForChange(core_t::TTime valuesStartTime,
-                             core_t::TTime bucketStartTime,
+                             core_t::TTime bucketsStartTime,
                              core_t::TTime bucketLength,
                              core_t::TTime predictionInterval,
                              TPredictor predictor,
@@ -139,11 +155,16 @@ private:
 
     struct SShock {
         SShock() = default;
-        SShock(EType type, core_t::TTime time, double valueAtChange, double residualVariance, double truncatedResidualVariance, double numberParameters)
+        SShock(EType type,
+               core_t::TTime time,
+               double valueAtChange,
+               double residualVariance,
+               double truncatedResidualVariance,
+               double numberParameters,
+               TFloatMeanAccumulatorVec initialValues)
             : s_Type{type}, s_Time{time}, s_ValueAtChange{valueAtChange},
-              s_ResidualVariance{residualVariance},
-              s_TruncatedResidualVariance{truncatedResidualVariance},
-              s_NumberParameters{numberParameters} {}
+              s_ResidualVariance{residualVariance}, s_TruncatedResidualVariance{truncatedResidualVariance},
+              s_NumberParameters{numberParameters}, s_InitialValues{initialValues} {}
 
         EType s_Type = E_NoShock;
         core_t::TTime s_Time = 0;
@@ -154,6 +175,7 @@ private:
         double s_LevelShift = 0.0;
         double s_Scale = 0.0;
         core_t::TTime s_TimeShift = 0;
+        TFloatMeanAccumulatorVec s_InitialValues;
     };
 
 private:
@@ -179,7 +201,7 @@ private:
     double m_SignificantPValue = 1e-3;
     double m_AcceptedFalsePostiveRate = 1e-4;
     core_t::TTime m_ValuesStartTime = 0;
-    core_t::TTime m_BucketStartTime = 0;
+    core_t::TTime m_BucketsStartTime = 0;
     core_t::TTime m_BucketLength = 0;
     core_t::TTime m_PredictionInterval = 0;
     double m_OutlierFraction = OUTLIER_FRACTION;

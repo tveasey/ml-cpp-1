@@ -130,6 +130,14 @@ public:
                                    const TBoolVec& removedSeasonalMask = {},
                                    bool smooth = true) const override;
 
+    //! Get a function which returns the decomposition value as a function of time.
+    //!
+    //! This caches the expensive part of the calculation and so is much faster
+    //! than repeatedly calling value.
+    //!
+    //! \warning This can only be used as long as the trend component isn't updated.
+    TFilteredPredictor predictor(int components) const;
+
     //! Get the maximum interval for which the time series can be forecast.
     core_t::TTime maximumForecastInterval() const override;
 
@@ -165,8 +173,11 @@ public:
     maths_t::TDoubleDoublePr
     scale(core_t::TTime time, double variance, double confidence, bool smooth = true) const override;
 
-    //! Get the values in a recent time window.
-    TFloatMeanAccumulatorVec windowValues(const TPredictor& predictor) const override;
+    //! Get the decomposition prediction residuals a recent time window.
+    TFloatMeanAccumulatorVec residuals() const override;
+
+    //! True if the time series may have undergone a shock change.
+    bool mayHaveChanged() const override;
 
     //! Roll time forwards by \p skipInterval.
     void skipTime(core_t::TTime skipInterval) override;

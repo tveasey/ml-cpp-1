@@ -220,17 +220,13 @@ void reinitializeResidualModel(TDecompositionPtr10Vec& trends,
         (*controllers)[1].reset();
     }
 
-    std::size_t dimension{prior.dimension()};
-
-    TFloatMeanAccumulatorVecVec residuals(dimension);
-    for (std::size_t d = 0; d < dimension; ++d) {
-        residuals[d] = trends[d]->windowValues([&trends, d](core_t::TTime time) {
-            return maths::CBasicStatistics::mean(trends[d]->value(time));
-        });
-    }
-
     prior.setToNonInformative(0.0, prior.decayRate());
 
+    std::size_t dimension{prior.dimension()};
+    TFloatMeanAccumulatorVecVec residuals(dimension);
+    for (std::size_t d = 0; d < dimension; ++d) {
+        residuals[d] = trends[d]->residuals();
+    }
     if (residuals.size() > 0) {
         TDouble10Vec1Vec samples;
         TDoubleVec weights;
