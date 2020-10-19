@@ -200,6 +200,7 @@ public:
 
 public:
     static constexpr double OUTLIER_FRACTION = 0.1;
+    static constexpr std::size_t MAXIMUM_NUMBER_SEGMENTS = 4;
 
 public:
     CTimeSeriesTestForSeasonality(core_t::TTime valuesStartTime,
@@ -266,6 +267,7 @@ public:
 
 private:
     using TDoubleVec = std::vector<double>;
+    using TDoubleVecVec = std::vector<TDoubleVec>;
     using TSizeSizePr = std::pair<std::size_t, std::size_t>;
     using TSizeVec = std::vector<std::size_t>;
     using TOptionalSize = boost::optional<std::size_t>;
@@ -500,14 +502,11 @@ private:
                                            bool isDiurnal) const;
     SModel testDecomposition(const TSeasonalComponentVec& periods,
                              std::size_t numberTrendSegments,
-                             std::size_t numberScaleSegments,
-                             const TMeanScale& removeScaling,
-                             const TFloatMeanAccumulatorVec& valuesToTest,
-                             TFloatMeanAccumulatorVec& residuals,
+                             const TFloatMeanAccumulatorVec& valueToTest,
                              bool alreadyModelled) const;
     void updateResiduals(const SHypothesisStats& hypothesis,
                          TFloatMeanAccumulatorVec& residuals) const;
-    TBoolVec finalizeHypotheses(const TMeanScale& removeScaling,
+    TBoolVec finalizeHypotheses(const TFloatMeanAccumulatorVec& valuesToTest,
                                 bool alreadyModelled,
                                 THypothesisStatsVec& hypotheses,
                                 TFloatMeanAccumulatorVec& residuals) const;
@@ -521,16 +520,20 @@ private:
                                    TFloatMeanAccumulatorVec& values) const;
     void removeDiscontinuities(const TSizeVec& modelTrendSegments,
                                TFloatMeanAccumulatorVec& values) const;
-    TSizeVec scaleSegments(const TSeasonalComponentVec& periods,
-                           const TFloatMeanAccumulatorVec& valuesToTest) const;
-    void meanScale(const TSeasonalComponentVec& periods,
+    bool meanScale(const TSeasonalComponentVec& periods,
                    const TSizeVec& scaleSegments,
-                   const TIndexWeight& weight,
-                   TFloatMeanAccumulatorVec& values) const;
+                   TFloatMeanAccumulatorVec& values,
+                   TDoubleVecVec& components,
+                   TDoubleVec& scales,
+                   const TIndexWeight& weight = [](std::size_t) { return 1.0; }) const;
     TVarianceStats residualVarianceStats(const TFloatMeanAccumulatorVec& values) const;
-    TMeanVarAccumulator truncatedMoments(double outlierFraction,
-                                         const TFloatMeanAccumulatorVec& residuals,
-                                         const TTransform& transform = mean) const;
+    TMeanVarAccumulator
+    truncatedMoments(double outlierFraction,
+                     const TFloatMeanAccumulatorVec& residuals,
+                     const TTransform& transform = [](const TFloatMeanAccumulator& value) {
+                         return CBasicStatistics::mean(value);
+                     }) const;
+    std::size_t numberTrendParameters(std::size_t numberTrendSegments) const;
     bool includesNewComponents(const TSeasonalComponentVec& periods) const;
     bool alreadyModelled(const TSeasonalComponentVec& periods) const;
     bool alreadyModelled(const TSeasonalComponent& period) const;
@@ -565,9 +568,6 @@ private:
                                   TFloatMeanAccumulatorVec& values);
     static void removePredictions(const TBucketPredictor& predictor,
                                   TFloatMeanAccumulatorVec& values);
-    static double mean(const TFloatMeanAccumulator& value) {
-        return CBasicStatistics::mean(value);
-    }
 
 private:
     double m_MinimumRepeatsPerSegmentToTestVariance = 3.0;
@@ -606,7 +606,9 @@ private:
     mutable TFloatMeanAccumulatorVec m_ValuesMinusTrend;
     mutable TSizeVec m_ModelTrendSegments;
     mutable TMaxAccumulator m_Outliers;
-    mutable TDoubleVec m_Scales;
+    mutable TSizeVec m_WindowIndices;
+    mutable TDoubleVecVec m_ScaledComponent;
+    mutable TDoubleVec m_ComponentScales;
 };
 }
 }
