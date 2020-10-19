@@ -493,8 +493,11 @@ private:
                                  const TSizeVec& modelTrendSegments,
                                  const TFloatMeanAccumulatorVec& valuesToTest,
                                  bool alreadyModelled,
+                                 bool isDiurnal,
                                  TModelVec& decompositions) const;
-    bool considerDecompositionForSelection(const SModel& decomposition) const;
+    bool considerDecompositionForSelection(const SModel& decomposition,
+                                           bool alreadyModelled,
+                                           bool isDiurnal) const;
     SModel testDecomposition(const TSeasonalComponentVec& periods,
                              std::size_t numberTrendSegments,
                              std::size_t numberScaleSegments,

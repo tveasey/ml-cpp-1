@@ -528,10 +528,6 @@ CTimeSeriesDecomposition::TFloatMeanAccumulatorVec CTimeSeriesDecomposition::res
     });
 }
 
-bool CTimeSeriesDecomposition::mayHaveChanged() const {
-    return m_ChangeDetectorTest.mayHaveChanged();
-}
-
 void CTimeSeriesDecomposition::skipTime(core_t::TTime skipInterval) {
     m_LastValueTime += skipInterval;
     m_LastPropagationTime += skipInterval;

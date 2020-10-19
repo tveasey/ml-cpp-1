@@ -173,7 +173,7 @@ public:
     maths_t::TDoubleDoublePr
     scale(core_t::TTime time, double variance, double confidence, bool smooth = true) const override;
 
-    //! Get the decomposition prediction residuals a recent time window.
+    //! Get the prediction residuals in a recent time window.
     TFloatMeanAccumulatorVec residuals() const override;
 
     //! True if the time series may have undergone a shock change.

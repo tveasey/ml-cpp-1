@@ -725,7 +725,7 @@ using TTimeTimeVecPrVec = std::vector<std::pair<core_t::TTime, TTimeVec>>;
 class CSeasonalityTestParameters {
 public:
     static core_t::TTime test(core_t::TTime bucketLength) {
-        return bucketLength > 604800;
+        return bucketLength <= 604800;
     }
 
     static std::size_t numberBuckets(int window, core_t::TTime bucketLength) {
@@ -841,7 +841,7 @@ CTimeSeriesDecompositionDetail::CSeasonalityTest::CSeasonalityTest(double decayR
           PT_ALPHABET,
           PT_STATES,
           PT_TRANSITION_FUNCTION,
-          CSeasonalityTestParameters::test(bucketLength) ? PT_NOT_TESTING : PT_INITIAL)},
+          CSeasonalityTestParameters::test(bucketLength) ? PT_INITIAL : PT_NOT_TESTING)},
       m_DecayRate{decayRate}, m_BucketLength{bucketLength} {
 }
 
@@ -996,12 +996,12 @@ void CTimeSeriesDecompositionDetail::CSeasonalityTest::propagateForwards(core_t:
                                                                          core_t::TTime end) {
     if (m_Windows[E_Short] != nullptr) {
         stepwisePropagateForwards(start, end, DAY, [this](double time) {
-            m_Windows[E_Short]->propagateForwardsByTime(time / 16.0);
+            m_Windows[E_Short]->propagateForwardsByTime(time / 8.0);
         });
     }
     if (m_Windows[E_Long] != nullptr) {
         stepwisePropagateForwards(start, end, WEEK, [this](double time) {
-            m_Windows[E_Long]->propagateForwardsByTime(time / 16.0);
+            m_Windows[E_Long]->propagateForwardsByTime(time / 8.0);
         });
     }
 }
@@ -1011,25 +1011,7 @@ CTimeSeriesDecompositionDetail::CSeasonalityTest::residuals(const TPredictor& pr
     TFloatMeanAccumulatorVec result;
     for (auto i : {E_Short, E_Long}) {
         if (m_Windows[i] != nullptr) {
-            result = m_Windows[i]->values();
-
-            // Extract the prediction residuals.
-            core_t::TTime beginValuesTime{m_Windows[i]->beginValuesTime()};
-            core_t::TTime bucketLength{m_Windows[i]->bucketLength()};
-            auto segmentation = CTimeSeriesSegmentation::piecewiseLinearScaledSeasonal(
-                result,
-                [&](std::size_t j) {
-                    return predictor(beginValuesTime +
-                                     static_cast<core_t::TTime>(j) * bucketLength);
-                },
-                2, 1e-3);
-            if (segmentation.size() > 2) {
-                result = CTimeSeriesSegmentation::removePiecewiseLinearScaledSeasonal(
-                    std::move(result), predictor, segmentation, 0.1);
-            } else {
-                result = m_Windows[i]->valuesMinusPrediction(std::move(result), predictor);
-            }
-
+            result = m_Windows[i]->valuesMinusPrediction(predictor);
             // Add on any noise we smooth away by averaging over longer buckets.
             if (m_Windows[i]->withinBucketVariance() > 0.0) {
                 CPRNG::CXorOShiro128Plus rng;
@@ -1094,8 +1076,10 @@ void CTimeSeriesDecompositionDetail::CSeasonalityTest::apply(std::size_t symbol,
         auto initialize = [time, this]() {
             for (auto i : {E_Short, E_Long}) {
                 m_Windows[i] = this->newWindow(i);
-                m_Windows[i]->initialize(CIntegerTools::floor(
-                    time, CSeasonalityTestParameters::maxBucketLength(i, m_BucketLength)));
+                if (m_Windows[i] != nullptr) {
+                    m_Windows[i]->initialize(CIntegerTools::floor(
+                        time, CSeasonalityTestParameters::maxBucketLength(i, m_BucketLength)));
+                }
             }
         };
 
@@ -1272,7 +1256,7 @@ void CTimeSeriesDecompositionDetail::CCalendarTest::propagateForwards(core_t::TT
                                                                       core_t::TTime end) {
     if (m_Test != nullptr) {
         stepwisePropagateForwards(start, end, DAY, [this](double time) {
-            m_Test->propagateForwardsByTime(time / 16.0);
+            m_Test->propagateForwardsByTime(time / 8.0);
         });
     }
 }

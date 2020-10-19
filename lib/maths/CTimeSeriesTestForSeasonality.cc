@@ -664,8 +664,10 @@ void CTimeSeriesTestForSeasonality::addModelled(const TRemoveTrend& removeTrend,
                          [](const auto& lhs, const auto& rhs) {
                              return lhs.s_Period < rhs.s_Period;
                          });
-        this->testAndAddDecomposition(m_CandidatePeriods, m_ModelTrendSegments,
-                                      m_ValuesMinusTrend, true, decompositions);
+        this->testAndAddDecomposition(m_CandidatePeriods, m_ModelTrendSegments, m_ValuesMinusTrend,
+                                      true,  // Already modelled
+                                      false, // Is diurnal
+                                      decompositions);
 
         // Already modelled plus highest serial autocorrelation seasonal components.
         m_Periods = m_CandidatePeriods;
@@ -686,50 +688,58 @@ void CTimeSeriesTestForSeasonality::addModelled(const TRemoveTrend& removeTrend,
         this->removeIfNotTestable(m_CandidatePeriods);
         if (this->includesNewComponents(m_CandidatePeriods) &&
             this->onlyDiurnal(m_CandidatePeriods) == false) {
-            this->testAndAddDecomposition(m_CandidatePeriods, m_ModelTrendSegments,
-                                          m_ValuesMinusTrend, false, decompositions);
+            this->testAndAddDecomposition(m_CandidatePeriods,
+                                          m_ModelTrendSegments, m_ValuesMinusTrend,
+                                          false, // Already modelled
+                                          false, // Is diurnal
+                                          decompositions);
         }
     }
 }
 
 void CTimeSeriesTestForSeasonality::addDiurnal(const TRemoveTrend& removeTrend,
                                                TModelVec& decompositions) const {
-    // Day + year.
+    // day + year.
     m_CandidatePeriods.assign({CSignal::seasonalComponentSummary(this->day()),
                                CSignal::seasonalComponentSummary(this->year())});
     this->removeIfNotTestable(m_CandidatePeriods);
     if (this->includesNewComponents(m_CandidatePeriods) &&
         removeTrend(m_CandidatePeriods, m_ValuesMinusTrend, m_ModelTrendSegments)) {
-        this->testAndAddDecomposition(m_CandidatePeriods, m_ModelTrendSegments,
-                                      m_ValuesMinusTrend, false, decompositions);
+        this->testAndAddDecomposition(m_CandidatePeriods, m_ModelTrendSegments, m_ValuesMinusTrend,
+                                      false, // Already modelled
+                                      true,  // Is diurnal
+                                      decompositions);
     }
 
-    // Weekday/weekend modulation + year.
     m_CandidatePeriods.assign({CSignal::seasonalComponentSummary(this->week()),
                                CSignal::seasonalComponentSummary(this->year())});
     this->removeIfNotTestable(m_CandidatePeriods);
     if (removeTrend(m_CandidatePeriods, m_ValuesMinusTrend, m_ModelTrendSegments)) {
         m_CandidatePeriods = CSignal::tradingDayDecomposition(
             m_ValuesMinusTrend, m_OutlierFraction, this->week(), m_StartOfWeekOverride);
+        // weekday/weekend modulation + year.
         if (m_CandidatePeriods.size() > 0) {
             CSignal::appendSeasonalComponentSummary(this->year(), m_CandidatePeriods);
             this->removeIfNotTestable(m_CandidatePeriods);
             if (this->includesNewComponents(m_CandidatePeriods)) {
-                this->testAndAddDecomposition(m_CandidatePeriods, m_ModelTrendSegments,
-                                              m_ValuesMinusTrend, false, decompositions);
+                this->testAndAddDecomposition(m_CandidatePeriods,
+                                              m_ModelTrendSegments, m_ValuesMinusTrend,
+                                              false, // Already modelled
+                                              true,  // Is diurnal
+                                              decompositions);
             }
-        } else {
-            // Day + week + year.
-            m_CandidatePeriods.assign(
-                {CSignal::seasonalComponentSummary(this->day()),
-                 CSignal::seasonalComponentSummary(this->week()),
-                 CSignal::seasonalComponentSummary(this->year())});
-            this->removeIfNotTestable(m_CandidatePeriods);
-            if (this->includesNewComponents(m_CandidatePeriods) &&
-                removeTrend(m_CandidatePeriods, m_ValuesMinusTrend, m_ModelTrendSegments)) {
-                this->testAndAddDecomposition(m_CandidatePeriods, m_ModelTrendSegments,
-                                              m_ValuesMinusTrend, false, decompositions);
-            }
+        }
+        // day + week + year.
+        m_CandidatePeriods.assign({CSignal::seasonalComponentSummary(this->day()),
+                                   CSignal::seasonalComponentSummary(this->week()),
+                                   CSignal::seasonalComponentSummary(this->year())});
+        this->removeIfNotTestable(m_CandidatePeriods);
+        if (this->includesNewComponents(m_CandidatePeriods)) {
+            this->testAndAddDecomposition(m_CandidatePeriods,
+                                          m_ModelTrendSegments, m_ValuesMinusTrend,
+                                          false, // Already modelled
+                                          true,  // Is diurnal
+                                          decompositions);
         }
     }
 }
@@ -745,8 +755,11 @@ void CTimeSeriesTestForSeasonality::addHighestAutocorrelation(const TRemoveTrend
         this->removeIfNotTestable(m_CandidatePeriods);
         if (this->includesNewComponents(m_CandidatePeriods) &&
             this->onlyDiurnal(m_CandidatePeriods) == false) {
-            this->testAndAddDecomposition(m_CandidatePeriods, m_ModelTrendSegments,
-                                          m_ValuesMinusTrend, false, decompositions);
+            this->testAndAddDecomposition(m_CandidatePeriods,
+                                          m_ModelTrendSegments, m_ValuesMinusTrend,
+                                          false, // Already modelled
+                                          false, // Is diurnal
+                                          decompositions);
         }
     }
 }
@@ -756,6 +769,7 @@ void CTimeSeriesTestForSeasonality::testAndAddDecomposition(
     const TSizeVec& trendSegments,
     const TFloatMeanAccumulatorVec& valuesToTest,
     bool alreadyModelled,
+    bool isDiurnal,
     TModelVec& decompositions) const {
 
     LOG_TRACE(<< "testing " << core::CContainerPrinter::print(periods));
@@ -769,43 +783,31 @@ void CTimeSeriesTestForSeasonality::testAndAddDecomposition(
     };
 
     std::size_t numberTrendSegments{trendSegments.empty() ? 0 : trendSegments.size() - 1};
-
-    TFloatMeanAccumulatorVec residuals{valuesToTest};
-    auto decomposition = this->testDecomposition(
-        periods, numberTrendSegments, 1,
-        [&](const TSeasonalComponentVec&, TFloatMeanAccumulatorVec&) {},
-        valuesToTest, residuals, alreadyModelled);
-    maybeAdd(decomposition);
-
-    TSizeVec scaleSegments{this->scaleSegments(periods, valuesToTest)};
-    LOG_TRACE(<< "scale segments = " << core::CContainerPrinter::print(scaleSegments));
-
-    if (scaleSegments.size() > 2) {
-        auto weight = [&](std::size_t i) {
-            return std::pow(0.9, static_cast<double>(valuesToTest.size() - i - 1));
-        };
-        auto meanScale = [&](const TSeasonalComponentVec& periods_,
-                             TFloatMeanAccumulatorVec& values) {
-            this->meanScale(periods_, scaleSegments, weight, values);
-        };
-
-        residuals = valuesToTest;
-        meanScale(periods, residuals);
-        decomposition = this->testDecomposition(
-            periods, numberTrendSegments, scaleSegments.size() - 1, meanScale,
-            valuesToTest, residuals, alreadyModelled);
-        maybeAdd(decomposition);
+    auto decomposition = this->testDecomposition(periods, numberTrendSegments,
+                                                 valuesToTest, alreadyModelled);
+    if (this->considerDecompositionForSelection(decomposition, alreadyModelled, isDiurnal)) {
+        decomposition.s_AlreadyModelled = alreadyModelled;
+        this->removeDiscontinuities(trendSegments, decomposition.s_TrendInitialValues);
+        decompositions.push_back(std::move(decomposition));
     }
 }
 
-bool CTimeSeriesTestForSeasonality::considerDecompositionForSelection(const SModel& decomposition) const {
+bool CTimeSeriesTestForSeasonality::considerDecompositionForSelection(const SModel& decomposition,
+                                                                      bool alreadyModelled,
+                                                                      bool isDiurnal) const {
     return decomposition.seasonal() &&
-           std::count_if(
-               decomposition.s_Hypotheses.begin(),
-               decomposition.s_Hypotheses.end(), [this](const auto& hypothesis) {
-                   return hypothesis.s_Period.windowed() &&
-                          hypothesis.s_Period.s_Period == this->week();
-               }) != static_cast<std::ptrdiff_t>(decomposition.s_Hypotheses.size());
+           std::count_if(decomposition.s_Hypotheses.begin(),
+                         decomposition.s_Hypotheses.end(),
+                         [this](const auto& hypothesis) {
+                             return hypothesis.s_Period.windowed() &&
+                                    hypothesis.s_Period.s_Period == this->week();
+                         }) !=
+               static_cast<std::ptrdiff_t>(decomposition.s_Hypotheses.size()) &&
+           std::count_if(decomposition.s_Hypotheses.begin(),
+                         decomposition.s_Hypotheses.end(), [&](const auto& hypothesis) {
+                             return alreadyModelled ||
+                                    this->isDiurnal(hypothesis.s_Period) == isDiurnal;
+                         }) > 0;
 }
 
 CTimeSeriesTestForSeasonality::SModel
@@ -892,37 +894,11 @@ CTimeSeriesTestForSeasonality::testDecomposition(const TSeasonalComponentVec& pe
 
         bool componentAlreadyModelled{this->alreadyModelled(periods[i])};
 
-        SHypothesisStats hypothesis{periods[i]};
-        hypothesis.s_NumberTrendSegments = numberTrendSegments;
-        hypothesis.s_NumberScaleSegments = numberScaleSegments;
-        hypothesis.s_MeanNumberRepeats =
-            CSignal::meanNumberRepeatedValues(m_ValuesToTest, periods[i]);
-        hypothesis.s_WindowRepeats = static_cast<double>(observedRange) /
-                                     static_cast<double>(periods[i].s_WindowRepeat);
-        hypothesis.s_LeastCommonRepeat =
-            static_cast<double>(componentAlreadyModelled
-                                    ? leastCommonRepeat
-                                    : CIntegerTools::lcm(leastCommonRepeat,
-                                                         periods[i].s_WindowRepeat)) /
-            static_cast<double>(observedRange);
-
-        m_Periods.assign(1, periods[i]);
-        CSignal::fitSeasonalComponentsRobust(m_Periods, m_OutlierFraction,
-                                             m_ValuesToTest, m_Components);
-
-        hypothesis.testExplainedVariance(*this, H0);
-        hypothesis.testAutocorrelation(*this);
-        hypothesis.testAmplitude(*this);
-        hypothesis.s_Truth = hypothesis.varianceTestResult(*this) ||
-                             hypothesis.amplitudeTestResult(*this);
-        LOG_TRACE(<< "truth = " << hypothesis.s_Truth.print());
-
-        if (alreadyModelled && hypothesis.evict(*this, i)) {
+        if (alreadyModelled && bestHypothesis.evict(*this, i)) {
             LOG_TRACE(<< "discarding " << periods[i].print());
-            hypothesis.s_DiscardingModel = true;
-            hypotheses.push_back(std::move(hypothesis));
-        } else if (alreadyModelled || hypothesis.s_Truth.boolean()) {
-            LOG_TRACE(<< "selected " << periods[i].print());
+            bestHypothesis.s_DiscardingModel = true;
+            hypotheses.push_back(std::move(bestHypothesis));
+        } else if (alreadyModelled || bestHypothesis.s_Truth.boolean()) {
             leastCommonRepeat = componentAlreadyModelled
                                     ? leastCommonRepeat
                                     : CIntegerTools::lcm(leastCommonRepeat,
@@ -1220,12 +1196,16 @@ void CTimeSeriesTestForSeasonality::removeDiscontinuities(const TSizeVec& modelT
     }
 }
 
-CTimeSeriesTestForSeasonality::TSizeVec
-CTimeSeriesTestForSeasonality::scaleSegments(const TSeasonalComponentVec& periods,
-                                             const TFloatMeanAccumulatorVec& values) const {
-    m_TemporaryValues = values;
-    CSignal::fitSeasonalComponentsRobust(periods, m_OutlierFraction,
-                                         m_TemporaryValues, m_Components);
+bool CTimeSeriesTestForSeasonality::meanScale(const SHypothesisStats& hypothesis,
+                                              const TIndexWeight& weight,
+                                              TFloatMeanAccumulatorVec& values,
+                                              TDoubleVec& scales) const {
+    if (hypothesis.s_ScaleSegments.size() > 2) {
+        bool successful;
+        std::tie(values, scales, successful) = TSegmentation::meanScalePiecewiseLinearScaledSeasonal(
+            values, hypothesis.s_Period.period(), hypothesis.s_ScaleSegments, weight);
+        return successful;
+    }
 
     auto seasonality = [&](std::size_t i) {
         double result{0.0};
@@ -1324,7 +1304,8 @@ void CTimeSeriesTestForSeasonality::removeIfNotTestable(TSeasonalComponentVec& p
         std::remove_if(periods.begin(), periods.end(),
                        [this](const auto& period) {
                            std::size_t similar{this->similarModelled(period)};
-                           return canTestPeriod(m_Values, m_MinimumPeriod, period) == false ||
+                           return canTestPeriod(m_Values, buckets(m_BucketLength, m_MinimumPeriod),
+                                                period) == false ||
                                   (similar < m_ModelledPeriodsTestable.size() &&
                                    m_ModelledPeriodsTestable[similar] == false);
                        }),
