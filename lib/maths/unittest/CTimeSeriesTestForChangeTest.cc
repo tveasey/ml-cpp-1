@@ -4,7 +4,12 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 
+#include <algorithm>
+#include <boost/test/tools/old/interface.hpp>
 #include <core/CContainerPrinter.h>
+#include <core/CRapidXmlParser.h>
+#include <core/CRapidXmlStatePersistInserter.h>
+#include <core/CRapidXmlStateRestoreTraverser.h>
 #include <core/Constants.h>
 
 #include <maths/CBasicStatistics.h>
@@ -17,6 +22,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <functional>
+#include <memory>
 #include <utility>
 
 BOOST_AUTO_TEST_SUITE(CTimeSeriesTestForChangeTest)
@@ -28,6 +34,7 @@ namespace {
 using TDoubleVec = std::vector<double>;
 using TGenerator = std::function<double(core_t::TTime)>;
 using TGeneratorVec = std::vector<TGenerator>;
+using TChangePointUPtr = std::unique_ptr<maths::CChangePoint>;
 using TChange = std::function<double(TGenerator generator, core_t::TTime)>;
 using TMeanAccumulator = maths::CBasicStatistics::SSampleMean<double>::TAccumulator;
 using TFloatMeanAccumulatorVec = maths::CTimeSeriesTestForChange::TFloatMeanAccumulatorVec;
@@ -98,6 +105,29 @@ void testChange(const TGeneratorVec& trends,
     BOOST_REQUIRE(truePositives >= 0.98);
     BOOST_REQUIRE(maths::CBasicStatistics::mean(meanError) < 0.03);
     BOOST_REQUIRE(maths::CBasicStatistics::mean(meanTimeError) < 5000);
+}
+
+void testIdempotencyOfPersistAndRestore(const TChangePointUPtr& origChangePoint) {
+    maths::CUndoableChangePointStateSerializer serializer;
+
+    std::string origXml;
+    {
+        core::CRapidXmlStatePersistInserter inserter{"root"};
+        serializer(*origChangePoint, inserter);
+        inserter.toXml(origXml);
+    }
+    LOG_DEBUG(<< "original sketch XML = " << origXml);
+
+    TChangePointUPtr restoredChangePoint;
+    {
+        core::CRapidXmlParser parser;
+        BOOST_TEST_REQUIRE(parser.parseStringIgnoreCdata(origXml));
+        core::CRapidXmlStateRestoreTraverser traverser{parser};
+        BOOST_TEST_REQUIRE(traverser.traverseSubLevel(std::bind(
+            serializer, std::ref(restoredChangePoint), std::placeholders::_1)));
+    }
+
+    BOOST_REQUIRE_EQUAL(origChangePoint->checksum(), restoredChangePoint->checksum());
 }
 }
 
@@ -240,9 +270,17 @@ BOOST_AUTO_TEST_CASE(testWithReversion) {
         LOG_TRACE(<< (change == nullptr ? "null" : change->print()));
         if (change != nullptr) {
             BOOST_REQUIRE(change->largeEnough(3.0 * std::sqrt(noiseVariance)) == false);
-            BOOST_REQUIRE(change->reversion());
         }
     }
+}
+
+BOOST_AUTO_TEST_CASE(testPersist) {
+
+    // Test we persist and restore change points correctly.
+
+    testIdempotencyOfPersistAndRestore(std::make_unique<maths::CLevelShift>(500, -10.0, 0.01));
+    testIdempotencyOfPersistAndRestore(std::make_unique<maths::CScale>(1000, 2.0, 0.05));
+    testIdempotencyOfPersistAndRestore(std::make_unique<maths::CTimeShift>(5000, -3600, 0.001));
 }
 
 BOOST_AUTO_TEST_SUITE_END()
