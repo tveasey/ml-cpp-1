@@ -19,6 +19,7 @@
 #include <maths/CLeastSquaresOnlineRegressionDetail.h>
 #include <maths/CSampling.h>
 #include <maths/CSeasonalTime.h>
+#include <maths/CSolvers.h>
 
 #include <cmath>
 #include <limits>
@@ -27,13 +28,13 @@
 namespace ml {
 namespace maths {
 namespace {
-
 using TDoubleDoublePr = maths_t::TDoubleDoublePr;
-
 const core::TPersistenceTag DECOMPOSITION_COMPONENT_TAG{"a", "decomposition_component"};
-const core::TPersistenceTag RNG_TAG{"b", "rng"};
+//const core::TPersistenceTag RNG_TAG{"b", "rng"}; Removed in 7.12
 const core::TPersistenceTag BUCKETING_TAG{"c", "bucketing"};
 const core::TPersistenceTag LAST_INTERPOLATION_TAG{"d", "last_interpolation_time"};
+const core::TPersistenceTag TOTAL_SHIFT_TAG{"e", "total_shift"};
+const core::TPersistenceTag CURRENT_MEAN_SHIFT_TAG{"f", "current_mean"};
 const std::string EMPTY_STRING;
 }
 
@@ -65,9 +66,10 @@ CSeasonalComponent::CSeasonalComponent(double decayRate,
 
 void CSeasonalComponent::swap(CSeasonalComponent& other) {
     this->CDecompositionComponent::swap(other);
-    std::swap(m_Rng, other.m_Rng);
     m_Bucketing.swap(other.m_Bucketing);
     std::swap(m_LastInterpolationTime, other.m_LastInterpolationTime);
+    std::swap(m_TotalShift, other.m_TotalShift);
+    std::swap(m_CurrentMeanShift, other.m_CurrentMeanShift);
 }
 
 bool CSeasonalComponent::acceptRestoreTraverser(double decayRate,
@@ -79,12 +81,14 @@ bool CSeasonalComponent::acceptRestoreTraverser(double decayRate,
                 traverser.traverseSubLevel(std::bind(
                     &CDecompositionComponent::acceptRestoreTraverser,
                     static_cast<CDecompositionComponent*>(this), std::placeholders::_1)))
-        RESTORE(RNG_TAG, m_Rng.fromString(traverser.value()))
         RESTORE_SETUP_TEARDOWN(BUCKETING_TAG,
                                CSeasonalComponentAdaptiveBucketing bucketing(
                                    decayRate, minimumBucketLength, traverser),
                                true, m_Bucketing.swap(bucketing))
         RESTORE_BUILT_IN(LAST_INTERPOLATION_TAG, m_LastInterpolationTime)
+        RESTORE_BUILT_IN(TOTAL_SHIFT_TAG, m_TotalShift)
+        RESTORE(CURRENT_MEAN_SHIFT_TAG,
+                m_CurrentMeanShift.fromDelimited(traverser.value()))
     } while (traverser.next());
 
     return true;
@@ -95,11 +99,12 @@ void CSeasonalComponent::acceptPersistInserter(core::CStatePersistInserter& inse
                          std::bind(&CDecompositionComponent::acceptPersistInserter,
                                    static_cast<const CDecompositionComponent*>(this),
                                    std::placeholders::_1));
-    inserter.insertValue(RNG_TAG, m_Rng.toString());
     inserter.insertLevel(BUCKETING_TAG,
                          std::bind(&CSeasonalComponentAdaptiveBucketing::acceptPersistInserter,
                                    &m_Bucketing, std::placeholders::_1));
     inserter.insertValue(LAST_INTERPOLATION_TAG, m_LastInterpolationTime);
+    inserter.insertValue(TOTAL_SHIFT_TAG, m_TotalShift);
+    inserter.insertValue(CURRENT_MEAN_SHIFT_TAG, m_CurrentMeanShift.toDelimited());
 }
 
 bool CSeasonalComponent::initialized() const {
@@ -165,8 +170,11 @@ void CSeasonalComponent::linearScale(core_t::TTime time, double scale) {
 }
 
 void CSeasonalComponent::add(core_t::TTime time, double value, double weight, double gradientLearnRate) {
-    double predicted{CBasicStatistics::mean(this->value(this->jitter(time), 0.0))};
-    m_Bucketing.add(time, value, predicted, weight, gradientLearnRate);
+    core_t::TTime shiftedTime{this->likelyShift(time, value)};
+    double predicted{CBasicStatistics::mean(this->value(shiftedTime, 0.0))};
+    shiftedTime += m_TotalShift;
+    m_Bucketing.add(shiftedTime, value, predicted, weight, gradientLearnRate);
+    m_CurrentMeanShift.add(static_cast<double>((shiftedTime - m_TotalShift) - time), weight);
 }
 
 bool CSeasonalComponent::shouldInterpolate(core_t::TTime time) const {
@@ -191,6 +199,11 @@ void CSeasonalComponent::interpolate(core_t::TTime time, bool refine) {
         this->CDecompositionComponent::interpolate(knots, values, variances);
     }
     m_LastInterpolationTime = time_.startOfPeriod(time);
+    m_TotalShift +=
+        static_cast<core_t::TTime>(CBasicStatistics::mean(m_CurrentMeanShift) + 0.5);
+    m_TotalShift = m_TotalShift % this->time().period();
+    m_CurrentMeanShift = TFloatMeanAccumulator{};
+    LOG_TRACE(<< "total shift = " << m_TotalShift);
     LOG_TRACE(<< "last interpolation time = " << m_LastInterpolationTime);
 }
 
@@ -215,6 +228,7 @@ const CSeasonalComponentAdaptiveBucketing& CSeasonalComponent::bucketing() const
 }
 
 TDoubleDoublePr CSeasonalComponent::value(core_t::TTime time, double confidence) const {
+    time += m_TotalShift;
     double offset{this->time().periodic(time)};
     double n{m_Bucketing.count(time)};
     return this->CDecompositionComponent::value(offset, n, confidence);
@@ -277,6 +291,7 @@ double CSeasonalComponent::delta(core_t::TTime time,
 }
 
 TDoubleDoublePr CSeasonalComponent::variance(core_t::TTime time, double confidence) const {
+    time += m_TotalShift;
     double offset{this->time().periodic(time)};
     double n{m_Bucketing.count(time)};
     return this->CDecompositionComponent::variance(offset, n, confidence);
@@ -293,6 +308,7 @@ bool CSeasonalComponent::covariances(core_t::TTime time, TMatrix& result) const 
         return false;
     }
 
+    time += m_TotalShift;
     if (auto r = m_Bucketing.regression(time)) {
         double variance{CBasicStatistics::mean(this->variance(time, 0.0))};
         return r->covariances(variance, result);
@@ -310,13 +326,16 @@ double CSeasonalComponent::slope() const {
 }
 
 bool CSeasonalComponent::slopeAccurate(core_t::TTime time) const {
+    time += m_TotalShift;
     return m_Bucketing.slopeAccurate(time);
 }
 
 std::uint64_t CSeasonalComponent::checksum(std::uint64_t seed) const {
     seed = this->CDecompositionComponent::checksum(seed);
     seed = CChecksum::calculate(seed, m_Bucketing);
-    return CChecksum::calculate(seed, m_LastInterpolationTime);
+    seed = CChecksum::calculate(seed, m_LastInterpolationTime);
+    seed = CChecksum::calculate(seed, m_TotalShift);
+    return CChecksum::calculate(seed, m_CurrentMeanShift);
 }
 
 void CSeasonalComponent::debugMemoryUsage(const core::CMemoryUsage::TMemoryUsagePtr& mem) const {
@@ -330,18 +349,30 @@ std::size_t CSeasonalComponent::memoryUsage() const {
            core::CMemory::dynamicSize(this->splines());
 }
 
-core_t::TTime CSeasonalComponent::jitter(core_t::TTime time) {
-    core_t::TTime result{time};
-    if (m_Bucketing.minimumBucketLength() > 0.0) {
-        const CSeasonalTime& time_{this->time()};
-        double f{CSampling::uniformSample(m_Rng, 0.0, 1.0)};
-        core_t::TTime a{time_.startOfWindow(time)};
-        core_t::TTime b{a + time_.windowLength() - 1};
-        double jitter{0.5 * m_Bucketing.minimumBucketLength() *
-                      (f <= 0.5 ? std::sqrt(2.0 * f) - 1.0 : std::sqrt(2.0 * (f - 0.5)))};
-        result = CTools::truncate(result + static_cast<core_t::TTime>(jitter + 0.5), a, b);
+core_t::TTime CSeasonalComponent::likelyShift(core_t::TTime time, double value) const {
+    std::array<double, 6> times;
+    double range{std::min(m_Bucketing.minimumBucketLength(),
+                          0.25 * static_cast<double>(m_Bucketing.time().period()))};
+    double step{range / static_cast<double>(times.size() - 1)};
+    times[0] = static_cast<double>(time) - range / 2.0;
+    for (std::size_t i = 1; i < times.size(); ++i) {
+        times[i] = times[i - 1] + step;
     }
-    return result;
+
+    double noise{std::sqrt(this->meanVariance()) / range};
+    auto loss = [&](double t) {
+        return std::fabs(CBasicStatistics::mean(
+                             this->value(static_cast<core_t::TTime>(t + 0.5), 0.0)) -
+                         value) +
+               noise * std::fabs(t - static_cast<double>(time));
+    };
+
+    double shiftedTime, lossAtShiftedTime;
+    CSolvers::globalMinimize(times, loss, shiftedTime, lossAtShiftedTime);
+    LOG_TRACE(<< "shift = " << static_cast<core_t::TTime>(shiftedTime + 0.5) - time
+              << ", loss(shift) = " << lossAtShiftedTime);
+
+    return static_cast<core_t::TTime>(shiftedTime + 0.5);
 }
 }
 }

@@ -1734,6 +1734,34 @@ BOOST_FIXTURE_TEST_CASE(testNonDiurnal, CTestFixture) {
     }
 }
 
+BOOST_FIXTURE_TEST_CASE(testPeriodNotMultipleOfBucketLength, CTestFixture) {
+
+    test::CRandomNumbers rng;
+
+    TDoubleVec noise;
+    TDoubleVec delta;
+    for (auto period : {3600}) {
+        LOG_DEBUG(<< "period = " << period);
+        rng.generateUniformSamples(0, 120, 1, delta);
+        LOG_DEBUG(<< delta[0]);
+        CDebugGenerator debug{"period_" + std::to_string(period) + ".py"};
+        maths::CTimeSeriesDecomposition decomposition(0.048, FIVE_MINS);
+        for (core_t::TTime time = 0; time < 12 * DAY; time += FIVE_MINS) {
+            double trend{std::sin(boost::math::double_constants::two_pi *
+                                  static_cast<double>(time) /
+                                  static_cast<double>(period + delta[0]))};
+            rng.generateNormalSamples(0.0, 0.1, 1, noise);
+            decomposition.addPoint(time, trend + noise[0]);
+            if (decomposition.initialized()) {
+                double prediction{
+                    maths::CBasicStatistics::mean(decomposition.value(time, 0.0))};
+                debug.addValue(time, trend);
+                debug.addPrediction(time, prediction, trend - prediction);
+            }
+        }
+    }
+}
+
 BOOST_FIXTURE_TEST_CASE(testYearly, CTestFixture) {
 
     // Test a yearly seasonal component.

@@ -269,7 +269,7 @@ bool CTimeSeriesTestForSeasonality::canTestComponent(const TFloatMeanAccumulator
                                                      core_t::TTime bucketLength,
                                                      core_t::TTime minimumPeriod,
                                                      const CSeasonalTime& component) {
-    return 10 * (component.period() % bucketLength) < component.period() &&
+    return 100 * (component.period() % bucketLength) < component.period() &&
            canTestPeriod(values, buckets(bucketLength, minimumPeriod),
                          toPeriod(bucketsStartTime, bucketLength, component));
 }

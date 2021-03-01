@@ -20,6 +20,7 @@
 #include <boost/math/tools/roots.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -28,6 +29,16 @@
 
 namespace ml {
 namespace maths {
+namespace solvers_detail {
+template<typename T>
+struct SCreateContainer {
+    static T ofSize(std::size_t n) { return T(n); }
+};
+template<typename T, std::size_t N>
+struct SCreateContainer<std::array<T, N>> {
+    static std::array<T, N> ofSize(std::size_t) { return std::array<T, N>{}; }
+};
+}
 
 //! \brief Collection of root solving functions.
 //!
@@ -818,8 +829,8 @@ public:
         }
 
         TMinAccumulator min;
-        T fp(p.size());
-        for (std::size_t i = 0u; i < p.size(); ++i) {
+        T fp = solvers_detail::SCreateContainer<T>::ofSize(n);
+        for (std::size_t i = 0; i < n; ++i) {
             double fi = f(p[i]);
             fp[i] = fi;
             min.add(TDoubleSizePr(fi, i));
@@ -860,7 +871,7 @@ public:
     //! \param[out] fx Set to the value of f at \p x.
     template<typename T, typename F>
     static bool globalMaximize(const T& p, const F& f, double& x, double& fx) {
-        CCompositeFunctions::CMinus<F> f_(f);
+        auto f_ = [&](double x_) { return -f(x_); };
         bool result = globalMinimize(p, f_, x, fx);
         fx = -fx;
         return result;
@@ -923,7 +934,7 @@ public:
 
         // [a, x] and [b, r] bracket the sublevel set end points.
 
-        CCompositeFunctions::CMinusConstant<F> f_(f, fc);
+        auto f_ = [&](double x_) { return f(x_) - fc; };
 
         LOG_TRACE(<< "a = " << a << ", x = " << x << ", b = " << b);
         LOG_TRACE(<< "f_(a) = " << fa - fc << ", f_(x) = " << fx - fc

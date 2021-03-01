@@ -212,19 +212,23 @@ private:
                                 double minimumBucketLength,
                                 core::CStateRestoreTraverser& traverser);
 
-    //! Get a jitter to apply to the prediction time.
-    core_t::TTime jitter(core_t::TTime time);
+    //! We allow for not quite periodic signals. We model these as small random
+    //! shifts of the seasonal pattern from period to period. This solves for
+    //! the most likely shift of \p time based on \p value.
+    core_t::TTime likelyShift(core_t::TTime time, double value) const;
 
 private:
-    //! Used to apply jitter to added value times so that we can accommodate
-    //! small time translations of the trend.
-    CPRNG::CXorOShiro128Plus m_Rng;
-
     //! Regression models for a collection of buckets covering the period.
     CSeasonalComponentAdaptiveBucketing m_Bucketing;
 
     //! The last interpolation time.
     core_t::TTime m_LastInterpolationTime;
+
+    //! The accumulated shift to apply to time.
+    core_t::TTime m_TotalShift = 0;
+
+    //! The mean shift applied to the times of values in the current period.
+    TFloatMeanAccumulator m_CurrentMeanShift;
 
     //! Befriend a helper class used by the unit tests
     friend class CTimeSeriesDecompositionTest::CNanInjector;
