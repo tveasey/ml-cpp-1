@@ -26,7 +26,7 @@ operator()(TUnivariateFeaturePtr& result, core::CStateRestoreTraverser& traverse
         const std::string& name{traverser.name()};
         RESTORE_SETUP_TEARDOWN(
             UNIVARIATE_MEAN_TAG,
-            result = std::make_unique<CTimeSeriesMultibucketMean<double>>(),
+            result = std::make_unique<CTimeSeriesMultibucketScalarMean>(),
             traverser.traverseSubLevel(
                 std::bind<bool>(&TUnivariateFeature::acceptRestoreTraverser,
                                 result.get(), std::placeholders::_1)),
@@ -41,7 +41,7 @@ operator()(TMultivariateFeaturePtr& result, core::CStateRestoreTraverser& traver
         const std::string& name{traverser.name()};
         RESTORE_SETUP_TEARDOWN(
             MULTIVARIATE_MEAN_TAG,
-            result = std::make_unique<CTimeSeriesMultibucketMean<TDouble10Vec>>(),
+            result = std::make_unique<CTimeSeriesMultibucketVectorMean>(),
             traverser.traverseSubLevel(
                 std::bind<bool>(&TMultivariateFeature::acceptRestoreTraverser,
                                 result.get(), std::placeholders::_1)),
@@ -52,7 +52,7 @@ operator()(TMultivariateFeaturePtr& result, core::CStateRestoreTraverser& traver
 
 void CTimeSeriesMultibucketFeatureSerialiser::
 operator()(const TUnivariateFeaturePtr& feature, core::CStatePersistInserter& inserter) const {
-    if (dynamic_cast<const CTimeSeriesMultibucketMean<double>*>(feature.get()) != nullptr) {
+    if (dynamic_cast<const CTimeSeriesMultibucketScalarMean*>(feature.get()) != nullptr) {
         inserter.insertLevel(UNIVARIATE_MEAN_TAG,
                              std::bind(&TUnivariateFeature::acceptPersistInserter,
                                        feature.get(), std::placeholders::_1));
@@ -63,7 +63,7 @@ operator()(const TUnivariateFeaturePtr& feature, core::CStatePersistInserter& in
 
 void CTimeSeriesMultibucketFeatureSerialiser::
 operator()(const TMultivariateFeaturePtr& feature, core::CStatePersistInserter& inserter) const {
-    if (dynamic_cast<const CTimeSeriesMultibucketMean<TDouble10Vec>*>(feature.get()) != nullptr) {
+    if (dynamic_cast<const CTimeSeriesMultibucketVectorMean*>(feature.get()) != nullptr) {
         inserter.insertLevel(MULTIVARIATE_MEAN_TAG,
                              std::bind(&TMultivariateFeature::acceptPersistInserter,
                                        feature.get(), std::placeholders::_1));

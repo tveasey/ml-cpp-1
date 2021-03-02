@@ -154,6 +154,15 @@ public:
     //! as a percentage.
     TDoubleDoublePr value(core_t::TTime time, double confidence) const;
 
+    //! Remove the prediction of this component from \p value.
+    //!
+    //! \param[in] time The time of \p value.
+    //! \param[in] maximumTimeShift The maximum amount by which we'll shift \p time.
+    //! \param[in] value The value to detrend.
+    //! \param[in] confidence We use the closest prediction in the symmetric
+    //! \p confidence interval.
+    double detrend(core_t::TTime time, core_t::TTime maximumTimeShift, double value, double confidence) const;
+
     //! Get the mean value of the component.
     double meanValue() const;
 
@@ -215,7 +224,7 @@ private:
     //! We allow for not quite periodic signals. We model these as small random
     //! shifts of the seasonal pattern from period to period. This solves for
     //! the most likely shift of \p time based on \p value.
-    core_t::TTime likelyShift(core_t::TTime time, double value) const;
+    core_t::TTime likelyShift(core_t::TTime maximumShift, core_t::TTime time, double value) const;
 
 private:
     //! Regression models for a collection of buckets covering the period.

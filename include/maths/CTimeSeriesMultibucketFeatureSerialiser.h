@@ -7,6 +7,7 @@
 #ifndef INCLUDED_ml_maths_CTimeSeriesMultibucketFeatureSerialiser_h
 #define INCLUDED_ml_maths_CTimeSeriesMultibucketFeatureSerialiser_h
 
+#include <maths/CTimeSeriesMultibucketFeaturesFwd.h>
 #include <maths/ImportExport.h>
 
 #include <memory>
@@ -19,8 +20,6 @@ class CStatePersistInserter;
 class CStateRestoreTraverser;
 }
 namespace maths {
-template<typename>
-class CTimeSeriesMultibucketFeature;
 struct SModelRestoreParams;
 
 //! \brief Reflection for CTimeSeriesMultibucketFeature sub-classes.
@@ -38,8 +37,8 @@ struct SModelRestoreParams;
 class MATHS_EXPORT CTimeSeriesMultibucketFeatureSerialiser {
 public:
     using TDouble10Vec = core::CSmallVector<double, 10>;
-    using TUnivariateFeature = CTimeSeriesMultibucketFeature<double>;
-    using TMultivariateFeature = CTimeSeriesMultibucketFeature<TDouble10Vec>;
+    using TUnivariateFeature = CTimeSeriesMultibucketScalarFeature;
+    using TMultivariateFeature = CTimeSeriesMultibucketVectorFeature;
     using TUnivariateFeaturePtr = std::unique_ptr<TUnivariateFeature>;
     using TMultivariateFeaturePtr = std::unique_ptr<TMultivariateFeature>;
 

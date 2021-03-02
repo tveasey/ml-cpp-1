@@ -170,7 +170,11 @@ void CSeasonalComponent::linearScale(core_t::TTime time, double scale) {
 }
 
 void CSeasonalComponent::add(core_t::TTime time, double value, double weight, double gradientLearnRate) {
-    core_t::TTime shiftedTime{this->likelyShift(time, value)};
+    core_t::TTime maximumShift{static_cast<core_t::TTime>(
+        std::min(m_Bucketing.minimumBucketLength() / 2.0,
+                 0.1 * static_cast<double>(m_Bucketing.time().period())) +
+        0.5)};
+    core_t::TTime shiftedTime{this->likelyShift(maximumShift, time, value)};
     double predicted{CBasicStatistics::mean(this->value(shiftedTime, 0.0))};
     shiftedTime += m_TotalShift;
     m_Bucketing.add(shiftedTime, value, predicted, weight, gradientLearnRate);
@@ -232,6 +236,17 @@ TDoubleDoublePr CSeasonalComponent::value(core_t::TTime time, double confidence)
     double offset{this->time().periodic(time)};
     double n{m_Bucketing.count(time)};
     return this->CDecompositionComponent::value(offset, n, confidence);
+}
+
+double CSeasonalComponent::detrend(core_t::TTime time,
+                                   core_t::TTime maximumShift,
+                                   double value,
+                                   double confidence) const {
+    core_t::TTime shiftedTime{this->likelyShift(maximumShift, time, value)};
+    TDoubleDoublePr interval{this->value(shiftedTime, confidence)};
+    return value < interval.first
+               ? value - interval.first
+               : (value > interval.second ? value - interval.second : 0.0);
 }
 
 double CSeasonalComponent::meanValue() const {
@@ -326,7 +341,6 @@ double CSeasonalComponent::slope() const {
 }
 
 bool CSeasonalComponent::slopeAccurate(core_t::TTime time) const {
-    time += m_TotalShift;
     return m_Bucketing.slopeAccurate(time);
 }
 
@@ -349,10 +363,11 @@ std::size_t CSeasonalComponent::memoryUsage() const {
            core::CMemory::dynamicSize(this->splines());
 }
 
-core_t::TTime CSeasonalComponent::likelyShift(core_t::TTime time, double value) const {
+core_t::TTime CSeasonalComponent::likelyShift(core_t::TTime maximumShift,
+                                              core_t::TTime time,
+                                              double value) const {
     std::array<double, 6> times;
-    double range{std::min(m_Bucketing.minimumBucketLength(),
-                          0.25 * static_cast<double>(m_Bucketing.time().period()))};
+    double range{2 * static_cast<double>(maximumShift)};
     double step{range / static_cast<double>(times.size() - 1)};
     times[0] = static_cast<double>(time) - range / 2.0;
     for (std::size_t i = 1; i < times.size(); ++i) {

@@ -743,7 +743,9 @@ CUnivariateTimeSeriesModel::addSamples(const CModelAddSamplesParams& params,
 
         TDouble1Vec feature;
         maths_t::TDoubleWeightsAry1Vec featureWeight;
-        std::tie(feature, featureWeight) = m_MultibucketFeature->value();
+        std::tie(feature, featureWeight) = m_MultibucketFeature->value([&](core_t::TTime t) {
+            return CBasicStatistics::mean(m_TrendModel->value(t));
+        });
 
         if (feature.size() > 0) {
             m_MultibucketFeatureModel->addSamples(feature, featureWeight);
@@ -1010,7 +1012,9 @@ bool CUnivariateTimeSeriesModel::uncorrelatedProbability(const CModelProbability
     if (m_MultibucketFeatureModel != nullptr && params.useMultibucketFeatures()) {
         double pMultiBucket{1.0};
         TDouble1Vec feature;
-        std::tie(feature, std::ignore) = m_MultibucketFeature->value();
+        std::tie(feature, std::ignore) = m_MultibucketFeature->value([&](core_t::TTime t) {
+            return CBasicStatistics::mean(m_TrendModel->value(t));
+        });
         if (feature.size() > 0) {
             for (auto calculation_ : expand(calculation)) {
                 maths_t::ETail dummy;
@@ -2289,7 +2293,13 @@ CMultivariateTimeSeriesModel::addSamples(const CModelAddSamplesParams& params,
 
         TDouble10Vec1Vec feature;
         maths_t::TDouble10VecWeightsAry1Vec featureWeight;
-        std::tie(feature, featureWeight) = m_MultibucketFeature->value();
+        std::tie(feature, featureWeight) = m_MultibucketFeature->value([&](core_t::TTime t) {
+            CVector<CFloatStorage> prediction(m_TrendModel.size());
+            for (std::size_t i = 0; i < m_TrendModel.size(); ++i) {
+                prediction(i) = CBasicStatistics::mean(m_TrendModel[i]->value(t));
+            }
+            return prediction;
+        });
 
         if (feature.size() > 0) {
             m_MultibucketFeatureModel->addSamples(feature, featureWeight);
@@ -2522,7 +2532,13 @@ bool CMultivariateTimeSeriesModel::probability(const CModelProbabilityParams& pa
 
         if (m_MultibucketFeatureModel != nullptr && params.useMultibucketFeatures()) {
             TDouble10Vec1Vec feature;
-            std::tie(feature, std::ignore) = m_MultibucketFeature->value();
+            std::tie(feature, std::ignore) = m_MultibucketFeature->value([&](core_t::TTime t) {
+                CVector<CFloatStorage> prediction(m_TrendModel.size());
+                for (std::size_t j = 0; j < m_TrendModel.size(); ++j) {
+                    prediction(j) = CBasicStatistics::mean(m_TrendModel[j]->value(t));
+                }
+                return prediction;
+            });
             if (feature.size() > 0) {
                 TDouble10Vec2Vec pMultiBucket[2]{{{1.0}, {1.0}}, {{1.0}, {1.0}}};
                 for (auto calculation_ : expand(calculation)) {

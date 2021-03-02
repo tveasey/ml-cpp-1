@@ -10,6 +10,7 @@
 #include <maths/CKMostCorrelated.h>
 #include <maths/CModel.h>
 #include <maths/CMultivariatePrior.h>
+#include <maths/CTimeSeriesMultibucketFeaturesFwd.h>
 #include <maths/ImportExport.h>
 
 #include <boost/array.hpp>
@@ -25,8 +26,6 @@ class CDecayRateController;
 class CPrior;
 class CTimeSeriesDecompositionInterface;
 class CTimeSeriesAnomalyModel;
-template<typename>
-class CTimeSeriesMultibucketFeature;
 struct SDistributionRestoreParams;
 struct SModelRestoreParams;
 
@@ -38,7 +37,7 @@ public:
     using TDoubleWeightsAry = maths_t::TDoubleWeightsAry;
     using TDecompositionPtr = std::shared_ptr<CTimeSeriesDecompositionInterface>;
     using TDecayRateController2Ary = std::array<CDecayRateController, 2>;
-    using TMultibucketFeature = CTimeSeriesMultibucketFeature<double>;
+    using TMultibucketFeature = CTimeSeriesMultibucketScalarFeature;
 
 public:
     //! \param[in] params The model parameters.
@@ -516,7 +515,7 @@ public:
     using TDecompositionPtr = std::shared_ptr<CTimeSeriesDecompositionInterface>;
     using TDecompositionPtr10Vec = core::CSmallVector<TDecompositionPtr, 10>;
     using TDecayRateController2Ary = std::array<CDecayRateController, 2>;
-    using TMultibucketFeature = CTimeSeriesMultibucketFeature<TDouble10Vec>;
+    using TMultibucketFeature = CTimeSeriesMultibucketVectorFeature;
 
 public:
     //! \param[in] params The model parameters.
