@@ -55,7 +55,8 @@ public:
     virtual TPtr clone() const = 0;
 
     //! Get the feature value.
-    virtual TType1VecTWeightAry1VecPr value(const TPredictor& predictor) const = 0;
+    virtual TType1VecTWeightAry1VecPr value(core_t::TTime maximumShift,
+                                            const TPredictor& predictor) const = 0;
 
     //! Get the correlation of this feature with the bucket value.
     virtual double correlationWithBucketValue() const = 0;
@@ -91,7 +92,7 @@ public:
 template<typename T, typename STORAGE, typename PREDICTOR>
 class CTimeSeriesMultibucketMeanImpl;
 
-//! \brief Scalar valued multi-bucket mean feature.
+//! \brief A scalar valued multi-bucket mean feature.
 class MATHS_EXPORT CTimeSeriesMultibucketScalarMean final
     : public CTimeSeriesMultibucketScalarFeature {
 public:
@@ -103,15 +104,16 @@ public:
     CTimeSeriesMultibucketScalarMean(const CTimeSeriesMultibucketScalarMean& other);
     ~CTimeSeriesMultibucketScalarMean() override;
 
-    CTimeSeriesMultibucketScalarMean(CTimeSeriesMultibucketScalarMean&&);
-    CTimeSeriesMultibucketScalarMean& operator=(CTimeSeriesMultibucketScalarMean&&);
+    CTimeSeriesMultibucketScalarMean(CTimeSeriesMultibucketScalarMean&&) noexcept;
+    CTimeSeriesMultibucketScalarMean& operator=(CTimeSeriesMultibucketScalarMean&&) noexcept;
     CTimeSeriesMultibucketScalarMean& operator=(const CTimeSeriesMultibucketScalarMean&);
 
     //! Clone this feature.
     TPtr clone() const override;
 
     //! Get the feature value.
-    TType1VecTWeightAry1VecPr value(const TPredictor& predictor) const override;
+    TType1VecTWeightAry1VecPr value(core_t::TTime maximumShift,
+                                    const TPredictor& predictor) const override;
 
     //! Get the correlation of this feature with the bucket value.
     double correlationWithBucketValue() const override;
@@ -148,13 +150,13 @@ private:
     using TImplPtr = std::unique_ptr<TImpl>;
 
 private:
-    core_t::TTime likelyShift(const TPredictor& predictor) const;
+    core_t::TTime likelyShift(core_t::TTime maximumShift, const TPredictor& predictor) const;
 
 private:
     TImplPtr m_Impl;
 };
 
-//! \brief Vector valued multi-bucket mean feature.
+//! \brief A vector valued multi-bucket mean feature.
 class MATHS_EXPORT CTimeSeriesMultibucketVectorMean final
     : public CTimeSeriesMultibucketVectorFeature {
 public:
@@ -166,15 +168,16 @@ public:
     CTimeSeriesMultibucketVectorMean(const CTimeSeriesMultibucketVectorMean& other);
     ~CTimeSeriesMultibucketVectorMean() override;
 
-    CTimeSeriesMultibucketVectorMean(CTimeSeriesMultibucketVectorMean&&);
-    CTimeSeriesMultibucketVectorMean& operator=(CTimeSeriesMultibucketVectorMean&&);
+    CTimeSeriesMultibucketVectorMean(CTimeSeriesMultibucketVectorMean&&) noexcept;
+    CTimeSeriesMultibucketVectorMean& operator=(CTimeSeriesMultibucketVectorMean&&) noexcept;
     CTimeSeriesMultibucketVectorMean& operator=(const CTimeSeriesMultibucketVectorMean&);
 
     //! Clone this feature.
     TPtr clone() const override;
 
     //! Get the feature value.
-    TType1VecTWeightAry1VecPr value(const TPredictor& predictor) const override;
+    TType1VecTWeightAry1VecPr value(core_t::TTime maximumShift,
+                                    const TPredictor& predictor) const override;
 
     //! Get the correlation of this feature with the bucket value.
     double correlationWithBucketValue() const override;
@@ -211,7 +214,7 @@ private:
     using TImplPtr = std::unique_ptr<TImpl>;
 
 private:
-    core_t::TTime likelyShift(const TPredictor& predictor) const;
+    core_t::TTime likelyShift(core_t::TTime maximumShift, const TPredictor& predictor) const;
 
 private:
     TImplPtr m_Impl;

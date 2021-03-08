@@ -162,7 +162,8 @@ private:
 
     //! Compute the weighted mean of \p value on the sliding window.
     Type evaluateOnWindow(const TValueFunc& value, const TWeightFunc& weight) const {
-        double latest, earliest;
+        double latest;
+        double earliest;
         std::tie(earliest, latest) = this->range();
         double n{static_cast<double>(m_SlidingWindow.size())};
         double scale{(n - 1.0) * (latest == earliest ? 1.0 : 1.0 / (latest - earliest))};
@@ -250,10 +251,11 @@ CTimeSeriesMultibucketScalarMean::CTimeSeriesMultibucketScalarMean(const CTimeSe
 }
 
 CTimeSeriesMultibucketScalarMean::~CTimeSeriesMultibucketScalarMean() = default;
-CTimeSeriesMultibucketScalarMean::CTimeSeriesMultibucketScalarMean(CTimeSeriesMultibucketScalarMean&&) = default;
+CTimeSeriesMultibucketScalarMean::CTimeSeriesMultibucketScalarMean(
+    CTimeSeriesMultibucketScalarMean&&) noexcept = default;
 
 CTimeSeriesMultibucketScalarMean& CTimeSeriesMultibucketScalarMean::
-operator=(CTimeSeriesMultibucketScalarMean&&) = default;
+operator=(CTimeSeriesMultibucketScalarMean&&) noexcept = default;
 CTimeSeriesMultibucketScalarMean& CTimeSeriesMultibucketScalarMean::
 operator=(const CTimeSeriesMultibucketScalarMean& other) {
     if (this != &other) {
@@ -268,11 +270,12 @@ CTimeSeriesMultibucketScalarMean::TPtr CTimeSeriesMultibucketScalarMean::clone()
 }
 
 CTimeSeriesMultibucketScalarMean::TType1VecTWeightAry1VecPr
-CTimeSeriesMultibucketScalarMean::value(const TPredictor& predictor) const {
-    core_t::TTime timeShift{this->likelyShift(predictor)};
+CTimeSeriesMultibucketScalarMean::value(core_t::TTime maximumShift,
+                                        const TPredictor& predictor) const {
+    core_t::TTime timeShift{this->likelyShift(maximumShift, predictor)};
     auto value = [&](core_t::TTime time, const TImpl::TFloatMeanAccumulator& mean) {
         double x{CBasicStatistics::mean(mean)};
-        return x - (predictor(time + timeShift) - predictor(time));
+        return x - predictor(time + timeShift);
     };
     return m_Impl->value(value);
 }
@@ -317,9 +320,27 @@ void CTimeSeriesMultibucketScalarMean::acceptPersistInserter(core::CStatePersist
     m_Impl->acceptPersistInserter(inserter);
 }
 
-core_t::TTime CTimeSeriesMultibucketScalarMean::likelyShift(const TPredictor& predictor) const {
-    // TODO
-    return 0;
+core_t::TTime CTimeSeriesMultibucketScalarMean::likelyShift(core_t::TTime maximumShift,
+                                                            const TPredictor& predictor) const {
+    std::array<double, 6> times;
+    double range{2 * static_cast<double>(maximumShift)};
+    double step{range / static_cast<double>(times.size() - 1)};
+    times[0] = -range / 2.0;
+    for (std::size_t i = 1; i < times.size(); ++i) {
+        times[i] = times[i - 1] + step;
+    }
+
+    auto loss = [&](double time) {
+        return std::fabs(predictor(static_cast<core_t::TTime>(time + 0.5)));
+    };
+
+    double shiftedTime;
+    double lossAtShiftedTime;
+    CSolvers::globalMinimize(times, loss, shiftedTime, lossAtShiftedTime);
+    LOG_TRACE(<< "shift = " << static_cast<core_t::TTime>(shiftedTime + 0.5)
+              << ", loss(shift) = " << lossAtShiftedTime);
+
+    return static_cast<core_t::TTime>(shiftedTime + 0.5);
 }
 
 CTimeSeriesMultibucketVectorMean::CTimeSeriesMultibucketVectorMean(std::size_t length)
@@ -331,10 +352,11 @@ CTimeSeriesMultibucketVectorMean::CTimeSeriesMultibucketVectorMean(const CTimeSe
 }
 
 CTimeSeriesMultibucketVectorMean::~CTimeSeriesMultibucketVectorMean() = default;
-CTimeSeriesMultibucketVectorMean::CTimeSeriesMultibucketVectorMean(CTimeSeriesMultibucketVectorMean&&) = default;
+CTimeSeriesMultibucketVectorMean::CTimeSeriesMultibucketVectorMean(
+    CTimeSeriesMultibucketVectorMean&&) noexcept = default;
 
 CTimeSeriesMultibucketVectorMean& CTimeSeriesMultibucketVectorMean::
-operator=(CTimeSeriesMultibucketVectorMean&&) = default;
+operator=(CTimeSeriesMultibucketVectorMean&&) noexcept = default;
 CTimeSeriesMultibucketVectorMean& CTimeSeriesMultibucketVectorMean::
 operator=(const CTimeSeriesMultibucketVectorMean& other) {
     if (this != &other) {
@@ -349,11 +371,12 @@ CTimeSeriesMultibucketVectorMean::TPtr CTimeSeriesMultibucketVectorMean::clone()
 }
 
 CTimeSeriesMultibucketVectorMean::TType1VecTWeightAry1VecPr
-CTimeSeriesMultibucketVectorMean::value(const TPredictor& predictor) const {
-    core_t::TTime timeShift{this->likelyShift(predictor)};
+CTimeSeriesMultibucketVectorMean::value(core_t::TTime maximumShift,
+                                        const TPredictor& predictor) const {
+    core_t::TTime timeShift{this->likelyShift(maximumShift, predictor)};
     auto value = [&](core_t::TTime time, const TImpl::TFloatMeanAccumulator& mean) {
         auto x = CBasicStatistics::mean(mean);
-        return x - (predictor(time + timeShift) - predictor(time));
+        return x - predictor(time + timeShift);
     };
     return m_Impl->value(value);
 }
@@ -398,9 +421,27 @@ void CTimeSeriesMultibucketVectorMean::acceptPersistInserter(core::CStatePersist
     m_Impl->acceptPersistInserter(inserter);
 }
 
-core_t::TTime CTimeSeriesMultibucketVectorMean::likelyShift(const TPredictor& predictor) const {
-    // TODO
-    return 0;
+core_t::TTime CTimeSeriesMultibucketVectorMean::likelyShift(core_t::TTime maximumShift,
+                                                            const TPredictor& predictor) const {
+    std::array<double, 6> times;
+    double range{2 * static_cast<double>(maximumShift)};
+    double step{range / static_cast<double>(times.size() - 1)};
+    times[0] = -range / 2.0;
+    for (std::size_t i = 1; i < times.size(); ++i) {
+        times[i] = times[i - 1] + step;
+    }
+
+    auto loss = [&](double time) {
+        return predictor(static_cast<core_t::TTime>(time + 0.5)).L1();
+    };
+
+    double shiftedTime;
+    double lossAtShiftedTime;
+    CSolvers::globalMinimize(times, loss, shiftedTime, lossAtShiftedTime);
+    LOG_TRACE(<< "shift = " << static_cast<core_t::TTime>(shiftedTime + 0.5)
+              << ", loss(shift) = " << lossAtShiftedTime);
+
+    return static_cast<core_t::TTime>(shiftedTime + 0.5);
 }
 }
 }

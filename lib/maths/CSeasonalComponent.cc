@@ -176,9 +176,8 @@ void CSeasonalComponent::add(core_t::TTime time, double value, double weight, do
         0.5)};
     core_t::TTime shiftedTime{this->likelyShift(maximumShift, time, value)};
     double predicted{CBasicStatistics::mean(this->value(shiftedTime, 0.0))};
-    shiftedTime += m_TotalShift;
-    m_Bucketing.add(shiftedTime, value, predicted, weight, gradientLearnRate);
-    m_CurrentMeanShift.add(static_cast<double>((shiftedTime - m_TotalShift) - time), weight);
+    m_Bucketing.add(m_TotalShift + shiftedTime, value, predicted, weight, gradientLearnRate);
+    m_CurrentMeanShift.add(static_cast<double>(shiftedTime - time), weight);
 }
 
 bool CSeasonalComponent::shouldInterpolate(core_t::TTime time) const {
@@ -242,8 +241,8 @@ double CSeasonalComponent::detrend(core_t::TTime time,
                                    core_t::TTime maximumShift,
                                    double value,
                                    double confidence) const {
-    core_t::TTime shiftedTime{this->likelyShift(maximumShift, time, value)};
-    TDoubleDoublePr interval{this->value(shiftedTime, confidence)};
+    time = this->likelyShift(maximumShift, time, value);
+    TDoubleDoublePr interval{this->value(time, confidence)};
     return value < interval.first
                ? value - interval.first
                : (value > interval.second ? value - interval.second : 0.0);
@@ -382,7 +381,8 @@ core_t::TTime CSeasonalComponent::likelyShift(core_t::TTime maximumShift,
                noise * std::fabs(t - static_cast<double>(time));
     };
 
-    double shiftedTime, lossAtShiftedTime;
+    double shiftedTime;
+    double lossAtShiftedTime;
     CSolvers::globalMinimize(times, loss, shiftedTime, lossAtShiftedTime);
     LOG_TRACE(<< "shift = " << static_cast<core_t::TTime>(shiftedTime + 0.5) - time
               << ", loss(shift) = " << lossAtShiftedTime);

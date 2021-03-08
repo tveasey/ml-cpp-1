@@ -122,7 +122,8 @@ bool CForecastModelPersist::CRestore::nextModel(TMathsModelPtr& model,
                                         m_ModelParams.s_DecayRate,
                                         m_MinimumSeasonalVarianceScale,
                                         m_ModelParams.s_MinimumTimeToDetectChange,
-                                        m_ModelParams.s_MaximumTimeToTestForChange};
+                                        m_ModelParams.s_MaximumTimeToTestForChange,
+                                        m_ModelParams.s_MaximumSeasonalJitter};
 
                 maths::SModelRestoreParams params{
                     modelParams,

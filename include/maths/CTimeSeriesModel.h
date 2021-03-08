@@ -223,6 +223,13 @@ private:
     EUpdateResult updateTrend(const CModelAddSamplesParams& params,
                               const TTimeDouble2VecSizeTrVec& samples);
 
+    //! Update the multi-bucket residual model.
+    void updateMultibucketResidualModel(const CModelAddSamplesParams& params,
+                                        core_t::TTime averageTime,
+                                        const TSizeVec& valueorder,
+                                        const TTimeDouble2VecSizeTrVec& samples,
+                                        maths_t::TDoubleWeightsAry1Vec& weights);
+
     //! Update the various model decay rates based on the prediction errors
     //! for \p samples.
     double updateDecayRates(const CModelAddSamplesParams& params,
@@ -674,6 +681,7 @@ public:
     //@}
 
 private:
+    using TSizeVec = std::vector<std::size_t>;
     using TDouble1Vec = core::CSmallVector<double, 1>;
     using TDouble1VecVec = std::vector<TDouble1Vec>;
     using TDouble2VecWeightsAryVec = std::vector<TDouble2VecWeightsAry>;
@@ -688,6 +696,13 @@ private:
     //! Update the trend with \p samples.
     EUpdateResult updateTrend(const CModelAddSamplesParams& params,
                               const TTimeDouble2VecSizeTrVec& samples);
+
+    //! Update the multi-bucket residual model.
+    void updateMultibucketResidualModel(const CModelAddSamplesParams& params,
+                                        core_t::TTime averageTime,
+                                        const TSizeVec& order,
+                                        const TTimeDouble2VecSizeTrVec& samples,
+                                        maths_t::TDouble10VecWeightsAry1Vec weights);
 
     //! Update the various model decay rates based on the prediction errors
     //! for \p samples.
