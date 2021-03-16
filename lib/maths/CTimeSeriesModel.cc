@@ -670,7 +670,8 @@ CUnivariateTimeSeriesModel::TSize2Vec1Vec CUnivariateTimeSeriesModel::correlates
 void CUnivariateTimeSeriesModel::addBucketValue(const TTimeDouble2VecSizeTrVec& values) {
     for (const auto& value : values) {
         m_ResidualModel->adjustOffset(
-            {m_TrendModel->detrend(value.first, value.second[0], 0.0)},
+            {m_TrendModel->detrend(value.first, value.second[0], 0.0,
+                                   this->params().maximumSeasonalJitter())},
             maths_t::CUnitWeights::SINGLE_UNIT);
     }
 }
@@ -695,7 +696,9 @@ CUnivariateTimeSeriesModel::addSamples(const CModelAddSamplesParams& params,
 
     auto residuals = samples;
     for (auto& residual : residuals) {
-        residual.second[0] = m_TrendModel->detrend(residual.first, residual.second[0], 0.0);
+        residual.second[0] =
+            m_TrendModel->detrend(residual.first, residual.second[0], 0.0,
+                                  this->params().maximumSeasonalJitter());
     }
 
     // We add the samples in value order since it makes clustering more stable.
@@ -800,7 +803,8 @@ void CUnivariateTimeSeriesModel::detrend(const TTime2Vec1Vec& time,
     }
 
     if (value[0].size() == 1) {
-        value[0][0] = m_TrendModel->detrend(time[0][0], value[0][0], confidenceInterval);
+        value[0][0] = m_TrendModel->detrend(time[0][0], value[0][0], confidenceInterval,
+                                            this->params().maximumSeasonalJitter());
     } else {
         TSize1Vec correlated;
         TSize2Vec1Vec variables;
@@ -811,11 +815,12 @@ void CUnivariateTimeSeriesModel::detrend(const TTime2Vec1Vec& time,
             for (std::size_t i = 0; i < variables.size(); ++i) {
                 if (!value[i].empty()) {
                     value[i][variables[i][0]] = m_TrendModel->detrend(
-                        time[i][variables[i][0]], value[i][variables[i][0]], confidenceInterval);
+                        time[i][variables[i][0]], value[i][variables[i][0]],
+                        confidenceInterval, this->params().maximumSeasonalJitter());
                     value[i][variables[i][1]] =
                         correlatedTimeSeriesModels[i]->m_TrendModel->detrend(
                             time[i][variables[i][1]], value[i][variables[i][1]],
-                            confidenceInterval);
+                            confidenceInterval, this->params().maximumSeasonalJitter());
                 }
             }
         }
@@ -835,7 +840,7 @@ CUnivariateTimeSeriesModel::predict(core_t::TTime time,
         if (m_Correlations->correlationModels(m_Id, correlated, variables,
                                               correlationModel, correlatedModel)) {
             double sample{correlatedModel[0]->m_TrendModel->detrend(
-                time, correlatedValue[0].second, 0.0)};
+                time, correlatedValue[0].second, 0.0, this->params().maximumSeasonalJitter())};
             TSize10Vec marginalize{variables[0][1]};
             TSizeDoublePr10Vec condition{{variables[0][1], sample}};
             const CMultivariatePrior* joint{correlationModel[0].first};
@@ -854,7 +859,8 @@ CUnivariateTimeSeriesModel::predict(core_t::TTime time,
     }
 
     if (hint.size() == 1) {
-        hint[0] = m_TrendModel->detrend(time, hint[0], 0.0);
+        hint[0] = m_TrendModel->detrend(time, hint[0], 0.0,
+                                        this->params().maximumSeasonalJitter());
     }
 
     double median{
@@ -966,7 +972,8 @@ bool CUnivariateTimeSeriesModel::uncorrelatedProbability(const CModelProbability
     maths_t::ETail tail;
     core_t::TTime time{time_[0][0]};
     TDouble1Vec sample{m_TrendModel->detrend(time, value[0][0],
-                                             params.seasonalConfidenceInterval())};
+                                             params.seasonalConfidenceInterval(),
+                                             this->params().maximumSeasonalJitter())};
     if (m_ResidualModel->probabilityOfLessLikelySamples(calculation, sample,
                                                         weights, pl, pu, tail)) {
         LOG_TRACE(<< "P(" << sample << " | weight = " << weights
@@ -1092,9 +1099,11 @@ bool CUnivariateTimeSeriesModel::correlatedProbability(const CModelProbabilityPa
             const auto& correlationModel = correlationModels[correlateIndex].first;
 
             sample[0][0] = trendModels[0]->detrend(
-                time[i][0], value[i][0], params.seasonalConfidenceInterval());
+                time[i][0], value[i][0], params.seasonalConfidenceInterval(),
+                this->params().maximumSeasonalJitter());
             sample[0][1] = trendModels[1]->detrend(
-                time[i][1], value[i][1], params.seasonalConfidenceInterval());
+                time[i][1], value[i][1], params.seasonalConfidenceInterval(),
+                this->params().maximumSeasonalJitter());
             weights[0] = CMultivariateTimeSeriesModel::unpack(params.weights()[i]);
 
             if (correlationModel->probabilityOfLessLikelySamples(
@@ -1182,7 +1191,8 @@ void CUnivariateTimeSeriesModel::countWeights(core_t::TTime time,
 
     TDouble2Vec seasonalWeight;
     this->seasonalWeight(0.0, time, seasonalWeight);
-    double sample{m_TrendModel->detrend(time, value[0], 0.0)};
+    double sample{m_TrendModel->detrend(time, value[0], 0.0,
+                                        this->params().maximumSeasonalJitter())};
     auto weights = maths_t::CUnitWeights::UNIT;
     maths_t::setCount(std::min(residualCountWeight / trendCountWeight, 1.0), weights);
     maths_t::setSeasonalVarianceScale(seasonalWeight[0], weights);
@@ -2249,7 +2259,8 @@ CMultivariateTimeSeriesModel::addSamples(const CModelAddSamplesParams& params,
     for (auto& residual : residuals) {
         core_t::TTime time{residual.first};
         for (std::size_t d = 0; d < dimension; ++d) {
-            residual.second[d] = m_TrendModel[d]->detrend(time, residual.second[d], 0.0);
+            residual.second[d] = m_TrendModel[d]->detrend(
+                time, residual.second[d], 0.0, this->params().maximumSeasonalJitter());
         }
     }
 
@@ -2333,7 +2344,8 @@ void CMultivariateTimeSeriesModel::detrend(const TTime2Vec1Vec& time_,
     std::size_t dimension{this->dimension()};
     core_t::TTime time{time_[0][0]};
     for (std::size_t d = 0; d < dimension; ++d) {
-        value[0][d] = m_TrendModel[d]->detrend(time, value[0][d], confidenceInterval);
+        value[0][d] = m_TrendModel[d]->detrend(time, value[0][d], confidenceInterval,
+                                               this->params().maximumSeasonalJitter());
     }
 }
 
@@ -2347,7 +2359,8 @@ CMultivariateTimeSeriesModel::predict(core_t::TTime time,
 
     if (hint.size() == dimension) {
         for (std::size_t d = 0; d < dimension; ++d) {
-            hint[d] = m_TrendModel[d]->detrend(time, hint[d], 0.0);
+            hint[d] = m_TrendModel[d]->detrend(
+                time, hint[d], 0.0, this->params().maximumSeasonalJitter());
         }
     }
 
@@ -2460,7 +2473,8 @@ bool CMultivariateTimeSeriesModel::probability(const CModelProbabilityParams& pa
     TDouble10Vec1Vec sample{TDouble10Vec(dimension)};
     for (std::size_t d = 0; d < dimension; ++d) {
         sample[0][d] = m_TrendModel[d]->detrend(
-            time, value[0][d], params.seasonalConfidenceInterval());
+            time, value[0][d], params.seasonalConfidenceInterval(),
+            this->params().maximumSeasonalJitter());
     }
     maths_t::TDouble10VecWeightsAry1Vec weights{unpack(params.weights()[0])};
 
@@ -2609,7 +2623,8 @@ void CMultivariateTimeSeriesModel::countWeights(core_t::TTime time,
     TDouble2Vec countVarianceScales(dimension, 1.0);
     TDouble10Vec sample(dimension);
     for (std::size_t d = 0; d < dimension; ++d) {
-        sample[d] = m_TrendModel[d]->detrend(time, value[d], 0.0);
+        sample[d] = m_TrendModel[d]->detrend(
+            time, value[d], 0.0, this->params().maximumSeasonalJitter());
         if (m_TrendModel[d]->seasonalComponents().size() == 0) {
             trendCountWeights[d] /= countVarianceScale;
             countVarianceScales[d] = countVarianceScale;

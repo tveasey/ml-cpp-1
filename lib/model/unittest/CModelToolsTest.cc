@@ -48,7 +48,8 @@ maths::CModelParams params(core_t::TTime bucketLength) {
                                DECAY_RATE,
                                minimumSeasonalVarianceScale,
                                6 * core::constants::HOUR,
-                               24 * core::constants::HOUR};
+                               24 * core::constants::HOUR,
+                               15 * core::constants::MINUTE};
 }
 
 maths::CNormalMeanPrecConjugate normal() {

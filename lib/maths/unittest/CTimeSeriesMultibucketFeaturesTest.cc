@@ -34,9 +34,7 @@ BOOST_AUTO_TEST_CASE(testUnivariateMean) {
 
     // Test we get the values and weights we expect.
 
-    using TMultibucketMean = maths::CTimeSeriesMultibucketMean<double>;
-
-    TMultibucketMean feature{3};
+    maths::CTimeSeriesMultibucketScalarMean feature{3};
 
     TDouble1Vec mean;
     maths_t::TDoubleWeightsAry1Vec weight;
@@ -88,7 +86,7 @@ BOOST_AUTO_TEST_CASE(testUnivariateMean) {
 
     // Memory accounting through base pointer.
 
-    maths::CTimeSeriesMultibucketFeature<double>* base = &feature;
+    maths::CTimeSeriesMultibucketScalarMean* base = &feature;
     LOG_DEBUG(<< "size = " << core::CMemory::dynamicSize(&feature));
 
     BOOST_REQUIRE_EQUAL(core::CMemory::dynamicSize(base),
@@ -219,9 +217,10 @@ BOOST_AUTO_TEST_CASE(testUnivariateMean) {
         BOOST_TEST_REQUIRE(parser.parseStringIgnoreCdata(xml));
         core::CRapidXmlStateRestoreTraverser traverser(parser);
 
-        TMultibucketMean restored{3};
-        BOOST_TEST_REQUIRE(traverser.traverseSubLevel(std::bind(
-            &TMultibucketMean::acceptRestoreTraverser, &restored, std::placeholders::_1)));
+        maths::CTimeSeriesMultibucketScalarMean restored{3};
+        BOOST_TEST_REQUIRE(traverser.traverseSubLevel(
+            std::bind(&maths::CTimeSeriesMultibucketScalarMean::acceptRestoreTraverser,
+                      &restored, std::placeholders::_1)));
         BOOST_REQUIRE_EQUAL(feature.checksum(), restored.checksum());
         feature.clear();
     }
@@ -231,9 +230,7 @@ BOOST_AUTO_TEST_CASE(testMultivariateMean) {
 
     // Test we get the values and weights we expect.
 
-    using TMultibucketMean = maths::CTimeSeriesMultibucketMean<TDouble10Vec>;
-
-    TMultibucketMean feature{3};
+    maths::CTimeSeriesMultibucketVectorMean feature{3};
 
     TDouble10Vec1Vec mean;
     maths_t::TDouble10VecWeightsAry1Vec weight;
@@ -275,7 +272,7 @@ BOOST_AUTO_TEST_CASE(testMultivariateMean) {
 
     // Memory accounting through base pointer.
 
-    maths::CTimeSeriesMultibucketFeature<TDouble10Vec>* base = &feature;
+    maths::CTimeSeriesMultibucketVectorMean* base = &feature;
     LOG_DEBUG(<< "size = " << core::CMemory::dynamicSize(&feature));
 
     BOOST_REQUIRE_EQUAL(core::CMemory::dynamicSize(base),
@@ -379,13 +376,14 @@ BOOST_AUTO_TEST_CASE(testMultivariateMean) {
 
         // Restore the XML into a new feature and assert checksums.
 
-        TMultibucketMean restored{3};
+        maths::CTimeSeriesMultibucketVectorMean restored{3};
         core::CRapidXmlParser parser;
         BOOST_TEST_REQUIRE(parser.parseStringIgnoreCdata(xml));
 
         core::CRapidXmlStateRestoreTraverser traverser(parser);
-        BOOST_TEST_REQUIRE(traverser.traverseSubLevel(std::bind(
-            &TMultibucketMean::acceptRestoreTraverser, &restored, std::placeholders::_1)));
+        BOOST_TEST_REQUIRE(traverser.traverseSubLevel(
+            std::bind(&maths::CTimeSeriesMultibucketVectorMean::acceptRestoreTraverser,
+                      &restored, std::placeholders::_1)));
         BOOST_REQUIRE_EQUAL(feature.checksum(), restored.checksum());
         feature.clear();
     }

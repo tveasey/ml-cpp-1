@@ -37,29 +37,28 @@ struct SModelRestoreParams;
 class MATHS_EXPORT CTimeSeriesMultibucketFeatureSerialiser {
 public:
     using TDouble10Vec = core::CSmallVector<double, 10>;
-    using TUnivariateFeature = CTimeSeriesMultibucketScalarFeature;
-    using TMultivariateFeature = CTimeSeriesMultibucketVectorFeature;
-    using TUnivariateFeaturePtr = std::unique_ptr<TUnivariateFeature>;
-    using TMultivariateFeaturePtr = std::unique_ptr<TMultivariateFeature>;
+    using TScalarFeature = CTimeSeriesMultibucketScalarFeature;
+    using TVectorFeature = CTimeSeriesMultibucketVectorFeature;
+    using TScalarFeaturePtr = std::unique_ptr<TScalarFeature>;
+    using TVectorFeaturePtr = std::unique_ptr<TVectorFeature>;
 
 public:
     //! Construct the appropriate CTimeSeriesMultibucketFeature sub-class
     //! from its state document representation. Sets \p result to NULL on
     //! failure.
-    bool operator()(TUnivariateFeaturePtr& result, core::CStateRestoreTraverser& traverser) const;
+    bool operator()(TScalarFeaturePtr& result, core::CStateRestoreTraverser& traverser) const;
 
     //! Construct the appropriate CTimeSeriesMultibucketFeature sub-class
     //! from its state document representation. Sets \p result to NULL on
     //! failure.
-    bool operator()(TMultivariateFeaturePtr& result,
-                    core::CStateRestoreTraverser& traverser) const;
+    bool operator()(TVectorFeaturePtr& result, core::CStateRestoreTraverser& traverser) const;
 
     //! Persist \p feature by passing information to the supplied inserter
-    void operator()(const TUnivariateFeaturePtr& feature,
+    void operator()(const TScalarFeaturePtr& feature,
                     core::CStatePersistInserter& inserter) const;
 
     //! Persist \p feature by passing information to the supplied inserter
-    void operator()(const TMultivariateFeaturePtr& feature,
+    void operator()(const TVectorFeaturePtr& feature,
                     core::CStatePersistInserter& inserter) const;
 };
 }

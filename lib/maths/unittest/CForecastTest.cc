@@ -122,7 +122,8 @@ maths::CModelParams params(core_t::TTime bucketLength) {
                                DECAY_RATE,
                                minimumSeasonalVarianceScale,
                                6 * core::constants::HOUR,
-                               core::constants::DAY};
+                               core::constants::DAY,
+                               15 * core::constants::MINUTE};
 }
 
 maths::CUnivariateTimeSeriesModel::TDecayRateController2Ary decayRateControllers() {

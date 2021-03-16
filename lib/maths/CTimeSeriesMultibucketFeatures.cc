@@ -16,6 +16,7 @@
 #include <maths/CChecksum.h>
 #include <maths/CLinearAlgebra.h>
 #include <maths/CLinearAlgebraTools.h>
+#include <maths/CSeasonalComponent.h>
 #include <maths/CSolvers.h>
 #include <maths/CTypeTraits.h>
 #include <maths/MathsTypes.h>
@@ -270,9 +271,17 @@ CTimeSeriesMultibucketScalarMean::TPtr CTimeSeriesMultibucketScalarMean::clone()
 }
 
 CTimeSeriesMultibucketScalarMean::TType1VecTWeightAry1VecPr
-CTimeSeriesMultibucketScalarMean::value(core_t::TTime maximumShift,
+CTimeSeriesMultibucketScalarMean::value() const {
+    auto value = [](core_t::TTime, const TImpl::TFloatMeanAccumulator& mean) {
+        return CBasicStatistics::mean(mean);
+    };
+    return m_Impl->value(value);
+}
+
+CTimeSeriesMultibucketScalarMean::TType1VecTWeightAry1VecPr
+CTimeSeriesMultibucketScalarMean::value(core_t::TTime maximumTimeShift,
                                         const TPredictor& predictor) const {
-    core_t::TTime timeShift{this->likelyShift(maximumShift, predictor)};
+    core_t::TTime timeShift{this->likelyShift(maximumTimeShift, predictor)};
     auto value = [&](core_t::TTime time, const TImpl::TFloatMeanAccumulator& mean) {
         double x{CBasicStatistics::mean(mean)};
         return x - predictor(time + timeShift);
@@ -320,27 +329,12 @@ void CTimeSeriesMultibucketScalarMean::acceptPersistInserter(core::CStatePersist
     m_Impl->acceptPersistInserter(inserter);
 }
 
-core_t::TTime CTimeSeriesMultibucketScalarMean::likelyShift(core_t::TTime maximumShift,
+core_t::TTime CTimeSeriesMultibucketScalarMean::likelyShift(core_t::TTime maximumTimeShift,
                                                             const TPredictor& predictor) const {
-    std::array<double, 6> times;
-    double range{2 * static_cast<double>(maximumShift)};
-    double step{range / static_cast<double>(times.size() - 1)};
-    times[0] = -range / 2.0;
-    for (std::size_t i = 1; i < times.size(); ++i) {
-        times[i] = times[i - 1] + step;
-    }
-
     auto loss = [&](double time) {
         return std::fabs(predictor(static_cast<core_t::TTime>(time + 0.5)));
     };
-
-    double shiftedTime;
-    double lossAtShiftedTime;
-    CSolvers::globalMinimize(times, loss, shiftedTime, lossAtShiftedTime);
-    LOG_TRACE(<< "shift = " << static_cast<core_t::TTime>(shiftedTime + 0.5)
-              << ", loss(shift) = " << lossAtShiftedTime);
-
-    return static_cast<core_t::TTime>(shiftedTime + 0.5);
+    return CSeasonalComponent::likelyShift(maximumTimeShift, 0, loss);
 }
 
 CTimeSeriesMultibucketVectorMean::CTimeSeriesMultibucketVectorMean(std::size_t length)
@@ -371,9 +365,17 @@ CTimeSeriesMultibucketVectorMean::TPtr CTimeSeriesMultibucketVectorMean::clone()
 }
 
 CTimeSeriesMultibucketVectorMean::TType1VecTWeightAry1VecPr
-CTimeSeriesMultibucketVectorMean::value(core_t::TTime maximumShift,
+CTimeSeriesMultibucketVectorMean::value() const {
+    auto value = [&](core_t::TTime, const TImpl::TFloatMeanAccumulator& mean) {
+        return CBasicStatistics::mean(mean);
+    };
+    return m_Impl->value(value);
+}
+
+CTimeSeriesMultibucketVectorMean::TType1VecTWeightAry1VecPr
+CTimeSeriesMultibucketVectorMean::value(core_t::TTime maximumTimeShift,
                                         const TPredictor& predictor) const {
-    core_t::TTime timeShift{this->likelyShift(maximumShift, predictor)};
+    core_t::TTime timeShift{this->likelyShift(maximumTimeShift, predictor)};
     auto value = [&](core_t::TTime time, const TImpl::TFloatMeanAccumulator& mean) {
         auto x = CBasicStatistics::mean(mean);
         return x - predictor(time + timeShift);
@@ -421,27 +423,12 @@ void CTimeSeriesMultibucketVectorMean::acceptPersistInserter(core::CStatePersist
     m_Impl->acceptPersistInserter(inserter);
 }
 
-core_t::TTime CTimeSeriesMultibucketVectorMean::likelyShift(core_t::TTime maximumShift,
+core_t::TTime CTimeSeriesMultibucketVectorMean::likelyShift(core_t::TTime maximumTimeShift,
                                                             const TPredictor& predictor) const {
-    std::array<double, 6> times;
-    double range{2 * static_cast<double>(maximumShift)};
-    double step{range / static_cast<double>(times.size() - 1)};
-    times[0] = -range / 2.0;
-    for (std::size_t i = 1; i < times.size(); ++i) {
-        times[i] = times[i - 1] + step;
-    }
-
     auto loss = [&](double time) {
         return predictor(static_cast<core_t::TTime>(time + 0.5)).L1();
     };
-
-    double shiftedTime;
-    double lossAtShiftedTime;
-    CSolvers::globalMinimize(times, loss, shiftedTime, lossAtShiftedTime);
-    LOG_TRACE(<< "shift = " << static_cast<core_t::TTime>(shiftedTime + 0.5)
-              << ", loss(shift) = " << lossAtShiftedTime);
-
-    return static_cast<core_t::TTime>(shiftedTime + 0.5);
+    return CSeasonalComponent::likelyShift(maximumTimeShift, 0, loss);
 }
 }
 }

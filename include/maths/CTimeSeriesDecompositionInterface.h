@@ -144,6 +144,7 @@ public:
     virtual double detrend(core_t::TTime time,
                            double value,
                            double confidence,
+                           core_t::TTime maximumTimeShift = 0,
                            int components = E_All) const = 0;
 
     //! Get the mean variance of the baseline.

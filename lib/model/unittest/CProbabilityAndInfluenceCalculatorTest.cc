@@ -88,7 +88,8 @@ maths::CModelParams params(core_t::TTime bucketLength) {
                                0.0,
                                minimumSeasonalVarianceScale,
                                6 * core::constants::HOUR,
-                               24 * core::constants::HOUR};
+                               24 * core::constants::HOUR,
+                               15 * core::constants::MINUTE};
 }
 
 std::size_t dimension(double) {
@@ -274,7 +275,8 @@ void testProbabilityAndGetInfluences(model_t::EFeature feature,
     double probability;
     BOOST_TEST_REQUIRE(calculator.calculate(probability, influences));
 
-    double pj, pe;
+    double pj;
+    double pe;
     BOOST_TEST_REQUIRE(pJoint.calculate(pj));
     BOOST_TEST_REQUIRE(pExtreme.calculate(pe));
 

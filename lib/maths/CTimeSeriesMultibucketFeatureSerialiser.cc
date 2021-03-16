@@ -21,40 +21,38 @@ const std::string MULTIVARIATE_MEAN_TAG{"b"};
 }
 
 bool CTimeSeriesMultibucketFeatureSerialiser::
-operator()(TUnivariateFeaturePtr& result, core::CStateRestoreTraverser& traverser) const {
+operator()(TScalarFeaturePtr& result, core::CStateRestoreTraverser& traverser) const {
     do {
         const std::string& name{traverser.name()};
         RESTORE_SETUP_TEARDOWN(
             UNIVARIATE_MEAN_TAG,
             result = std::make_unique<CTimeSeriesMultibucketScalarMean>(),
-            traverser.traverseSubLevel(
-                std::bind<bool>(&TUnivariateFeature::acceptRestoreTraverser,
-                                result.get(), std::placeholders::_1)),
+            traverser.traverseSubLevel(std::bind<bool>(
+                &TScalarFeature::acceptRestoreTraverser, result.get(), std::placeholders::_1)),
             /**/)
     } while (traverser.next());
     return true;
 }
 
 bool CTimeSeriesMultibucketFeatureSerialiser::
-operator()(TMultivariateFeaturePtr& result, core::CStateRestoreTraverser& traverser) const {
+operator()(TVectorFeaturePtr& result, core::CStateRestoreTraverser& traverser) const {
     do {
         const std::string& name{traverser.name()};
         RESTORE_SETUP_TEARDOWN(
             MULTIVARIATE_MEAN_TAG,
             result = std::make_unique<CTimeSeriesMultibucketVectorMean>(),
-            traverser.traverseSubLevel(
-                std::bind<bool>(&TMultivariateFeature::acceptRestoreTraverser,
-                                result.get(), std::placeholders::_1)),
+            traverser.traverseSubLevel(std::bind<bool>(
+                &TVectorFeature::acceptRestoreTraverser, result.get(), std::placeholders::_1)),
             /**/)
     } while (traverser.next());
     return true;
 }
 
 void CTimeSeriesMultibucketFeatureSerialiser::
-operator()(const TUnivariateFeaturePtr& feature, core::CStatePersistInserter& inserter) const {
+operator()(const TScalarFeaturePtr& feature, core::CStatePersistInserter& inserter) const {
     if (dynamic_cast<const CTimeSeriesMultibucketScalarMean*>(feature.get()) != nullptr) {
         inserter.insertLevel(UNIVARIATE_MEAN_TAG,
-                             std::bind(&TUnivariateFeature::acceptPersistInserter,
+                             std::bind(&TScalarFeature::acceptPersistInserter,
                                        feature.get(), std::placeholders::_1));
     } else {
         LOG_ERROR(<< "Feature with type '" << typeid(feature).name() << "' has no defined name");
@@ -62,10 +60,10 @@ operator()(const TUnivariateFeaturePtr& feature, core::CStatePersistInserter& in
 }
 
 void CTimeSeriesMultibucketFeatureSerialiser::
-operator()(const TMultivariateFeaturePtr& feature, core::CStatePersistInserter& inserter) const {
+operator()(const TVectorFeaturePtr& feature, core::CStatePersistInserter& inserter) const {
     if (dynamic_cast<const CTimeSeriesMultibucketVectorMean*>(feature.get()) != nullptr) {
         inserter.insertLevel(MULTIVARIATE_MEAN_TAG,
-                             std::bind(&TMultivariateFeature::acceptPersistInserter,
+                             std::bind(&TVectorFeature::acceptPersistInserter,
                                        feature.get(), std::placeholders::_1));
     } else {
         LOG_ERROR(<< "Feature with type '" << typeid(feature).name() << "' has no defined name");

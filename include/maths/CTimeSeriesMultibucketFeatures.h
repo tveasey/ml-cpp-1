@@ -55,7 +55,7 @@ public:
     virtual TPtr clone() const = 0;
 
     //! Get the feature value.
-    virtual TType1VecTWeightAry1VecPr value(core_t::TTime maximumShift,
+    virtual TType1VecTWeightAry1VecPr value(core_t::TTime maximumTimeShift,
                                             const TPredictor& predictor) const = 0;
 
     //! Get the correlation of this feature with the bucket value.
@@ -111,8 +111,11 @@ public:
     //! Clone this feature.
     TPtr clone() const override;
 
+    //! Get the raw feature value.
+    TType1VecTWeightAry1VecPr value() const;
+
     //! Get the feature value.
-    TType1VecTWeightAry1VecPr value(core_t::TTime maximumShift,
+    TType1VecTWeightAry1VecPr value(core_t::TTime maximumTimeShift,
                                     const TPredictor& predictor) const override;
 
     //! Get the correlation of this feature with the bucket value.
@@ -150,7 +153,7 @@ private:
     using TImplPtr = std::unique_ptr<TImpl>;
 
 private:
-    core_t::TTime likelyShift(core_t::TTime maximumShift, const TPredictor& predictor) const;
+    core_t::TTime likelyShift(core_t::TTime maximumTimeShift, const TPredictor& predictor) const;
 
 private:
     TImplPtr m_Impl;
@@ -175,8 +178,11 @@ public:
     //! Clone this feature.
     TPtr clone() const override;
 
+    //! Get the raw feature value.
+    TType1VecTWeightAry1VecPr value() const;
+
     //! Get the feature value.
-    TType1VecTWeightAry1VecPr value(core_t::TTime maximumShift,
+    TType1VecTWeightAry1VecPr value(core_t::TTime maximumTimeShift,
                                     const TPredictor& predictor) const override;
 
     //! Get the correlation of this feature with the bucket value.
@@ -214,7 +220,7 @@ private:
     using TImplPtr = std::unique_ptr<TImpl>;
 
 private:
-    core_t::TTime likelyShift(core_t::TTime maximumShift, const TPredictor& predictor) const;
+    core_t::TTime likelyShift(core_t::TTime maximumTimeShift, const TPredictor& predictor) const;
 
 private:
     TImplPtr m_Impl;
