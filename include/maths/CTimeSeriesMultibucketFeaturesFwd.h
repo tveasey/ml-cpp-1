@@ -26,7 +26,7 @@ using CTimeSeriesMultibucketScalarFeature =
     CTimeSeriesMultibucketFeature<double, std::function<double(core_t::TTime)>>;
 using CTimeSeriesMultibucketVectorFeature =
     CTimeSeriesMultibucketFeature<core::CSmallVector<double, 10>,
-                                  std::function<CVector<CFloatStorage> (core_t::TTime)>>;
+                                  std::function<CVector<CFloatStorage>(core_t::TTime)>>;
 }
 }
 
