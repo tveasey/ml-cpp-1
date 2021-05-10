@@ -383,14 +383,17 @@ CDataFrameTrainBoostedTreeRunner::boostedTreeFactory(TLossFunctionUPtr loss,
                 break;
             }
             *frameAndDirectory = this->makeDataFrame();
-            auto dataSummarizationRestorer = [](const core::CDataSearcher::TIStreamP& inputStream,
+            auto dataSummarizationRestorer = [](CRetrainableModelJsonReader::TIStreamSPtr inputStream,
                                                 core::CDataFrame& frame) {
-                return CRetrainableModelJsonDeserializer::dataSummarizationFromDocumentCompressed(
-                    inputStream, frame);
+                return CRetrainableModelJsonReader::dataSummarizationFromDocumentCompressed(
+                    std::move(inputStream), frame);
             };
-            auto bestForestRestorer = [](const core::CDataSearcher::TIStreamP& inputStream) {
-                return CRetrainableModelJsonDeserializer::bestForestFromDocumentCompressed(inputStream);
-            };
+            auto bestForestRestorer =
+                [](CRetrainableModelJsonReader::TIStreamSPtr inputStream,
+                   const CRetrainableModelJsonReader::TStrSizeUMap& encodingsIndices) {
+                    return CRetrainableModelJsonReader::bestForestFromDocumentCompressed(
+                        std::move(inputStream), encodingsIndices);
+                };
             auto& frame = frameAndDirectory->first;
             auto result = std::make_unique<maths::CBoostedTreeFactory>(
                 maths::CBoostedTreeFactory::constructFromDefinition(
@@ -465,22 +468,15 @@ CDataFrameAnalysisInstrumentation& CDataFrameTrainBoostedTreeRunner::instrumenta
     return m_Instrumentation;
 }
 
-CDataFrameAnalysisRunner::TDataSummarizationUPtr
-CDataFrameTrainBoostedTreeRunner::dataSummarization(const core::CDataFrame& dataFrame) const {
-    std::stringstream output;
-
-    auto encodingRecorder =
-        [&](const std::function<void(core::CStatePersistInserter&)>& persistFunction) -> void {
-        core::CJsonStatePersistInserter inserter{output};
-        persistFunction(inserter);
-    };
-
-    auto rowMask = this->boostedTree().dataSummarization(dataFrame, encodingRecorder);
-    if (rowMask.manhattan() > 0) {
-        return std::make_unique<CDataSummarizationJsonSerializer>(
-            dataFrame, rowMask, this->spec().numberColumns(), std::move(output));
+CDataFrameAnalysisRunner::TDataSummarizationJsonWriterUPtr
+CDataFrameTrainBoostedTreeRunner::dataSummarization() const {
+    auto rowMask = this->boostedTree().dataSummarization();
+    if (rowMask.manhattan() <= 0.0) {
+        return {};
     }
-    return TDataSummarizationUPtr();
+    return std::make_unique<CDataSummarizationJsonWriter>(
+        this->boostedTree().trainingData(), std::move(rowMask),
+        this->spec().numberColumns(), this->boostedTree().categoryEncoder());
 }
 
 // clang-format off
